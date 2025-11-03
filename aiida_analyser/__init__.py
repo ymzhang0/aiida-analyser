@@ -3,9 +3,15 @@
 """
 __version__ = "0.1.0"
 
+from .printer import (
+    Printer,
+)
 from .base import (
     ProcessTree,
     BaseWorkChainAnalyser,
+)
+from .pw_bands import (
+    PwBandsWorkChainAnalyser,
 )
 from .wannier90 import (
     Wannier90WorkChainAnalyser,
@@ -19,9 +25,9 @@ from .epw_base import (
     EpwBaseWorkChainAnalyser,
     EpwBaseWorkChainState,
 )
-from .b2w import (
-    EpwB2WWorkChainAnalyser,
-    EpwB2WWorkChainState,
+from .epw_prep import (
+    EpwPrepWorkChainAnalyser,
+    EpwPrepWorkChainState,
 )
 from .supercon import (
     EpwSuperConWorkChainAnalyser,
@@ -36,16 +42,18 @@ from .thermo_pw import (
     ThermoPwBaseAnalyser,
 )
 __all__ = [
+    'Printer',
     'ProcessTree',
     'BaseWorkChainAnalyser',
+    'PwBandsWorkChainAnalyser',
     'Wannier90WorkChainAnalyser',
     'Wannier90WorkChainState',
     'PhBaseWorkChainAnalyser',
     'PhBaseWorkChainState',
     'EpwBaseWorkChainAnalyser',
     'EpwBaseWorkChainState',
-    'EpwB2WWorkChainAnalyser',
-    'EpwB2WWorkChainState',
+    'EpwPrepWorkChainAnalyser',
+    'EpwPrepWorkChainState',
     'EpwSuperConWorkChainAnalyser',
     'EpwSuperConWorkChainState',
     'EpwTransportWorkChainAnalyser',

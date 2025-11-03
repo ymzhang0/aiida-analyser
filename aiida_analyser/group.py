@@ -15,13 +15,13 @@ def recursive_merge(d1: dict, d2: dict) -> dict:
         dict: The recursively merged dictionary.
     """
     
-    # 1. 从 d1 开始，创建一个深拷贝 (deepcopy)
+    # 1. From d1, create a deep copy (deepcopy)
     merged = deepcopy(d1)
     
-    # 2. 遍历 d2 的所有键值对
+    # 2. Iterate over all key-value pairs in d2
     for key, value_d2 in d2.items():
         
-        # 3. 检查这个键是否已经存在于 'merged' (来自 d1) 中
+        # 3. Check if this key already exists in 'merged' (from d1)
         if key in merged:
             value_merged = merged[key]
             
@@ -162,12 +162,16 @@ def get_group_status(group_label, analyser_class, profile = None):
         )
     for node in qb.all(flat=True):
         analyser = analyser_class(node)
+        source = analyser.get_source()
+        if not source:
+            continue
         path, status, message = analyser.get_state()
         results = recursive_merge(results, {
             path: {
                 status: {
                     'message': message,
-                    'nodes': [node.uuid]
+                    'nodes': [node.uuid],
+                    'source': [source],
                 }
             }
         })

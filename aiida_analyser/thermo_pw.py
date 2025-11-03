@@ -14,9 +14,7 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the ThermoPwBaseWorkChain.
     """
-
-
-
+    
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()
@@ -86,7 +84,7 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         return self.get_moduli('pugh_ratio_r')
 
     @property
-    def pettifor_ratio(self):
+    def modified_pettifor_ratio(self):
         """Get the Pettifor ratio of the workchain."""
         bulk_modulus = self.bulk_modulus
         # Note that both the elastic constants and the bulk modulus are in kbar.
@@ -94,18 +92,18 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         if bulk_modulus is None or elastic_constants is None:
             return None
         return {
-            average: (elastic_constants[0][1] - elastic_constants[2][2]) / bulk_modulus[average] for average in ['voigt', 'reuss', 'vrh']
+            average: (elastic_constants[0][1] - elastic_constants[3][3]) / bulk_modulus[average] for average in ['voigt', 'reuss', 'vrh']
         }
 
     @property
-    def modified_pettifor_ratio(self):
+    def pettifor_ratio(self):
         """Get the modified Pettifor ratio of the workchain."""
         young_modulus = self.young_modulus
         elastic_constants = self.elastic_constants
         if young_modulus is None or elastic_constants is None:
             return None
         return {
-            average: (elastic_constants[0][1] - elastic_constants[2][2]) / young_modulus[average] for average in ['voigt', 'reuss', 'vrh']
+            average: (elastic_constants[0][1] - elastic_constants[3][3]) / young_modulus[average] for average in ['voigt', 'reuss', 'vrh']
         }
 
     def clean_workchain(self, exempted_states, dry_run: bool = True):

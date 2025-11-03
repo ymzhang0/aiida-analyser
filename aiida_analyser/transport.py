@@ -14,7 +14,7 @@ from .workchains import clean_workdir
 from .base import BaseWorkChainAnalyser
 from enum import Enum
 from aiida.tools import delete_nodes
-from .b2w import EpwB2WWorkChainAnalyser
+from .epw_prep import EpwPrepWorkChainAnalyser
 from .plot import (
     plot_epw_interpolated_bands,
     plot_a2f,
@@ -176,7 +176,7 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
         if self.descendants['b2w'] == []:
             return None
         else:
-            return EpwB2WWorkChainAnalyser(self.descendants['b2w'][-1])
+            return EpwPrepWorkChainAnalyser(self.descendants['b2w'][-1])
 
     @property
     def b2w_w90_intp(self):
@@ -259,7 +259,7 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def check_b2w(self):
         """Check the state of the b2w workchain."""
-        b2w_analyser = EpwB2WWorkChainAnalyser(self.descendants['b2w'][-1])
+        b2w_analyser = EpwPrepWorkChainAnalyser(self.descendants['b2w'][-1])
         return b2w_analyser.check_process_state()
 
     def check_bands(self):

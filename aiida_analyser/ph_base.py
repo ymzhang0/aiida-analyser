@@ -88,18 +88,43 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         path, exit_status, message = super().get_state()
         
         if exit_status == 312:
-            last_node = self.process_tree.find_last_node()
+            exit_status = None
+            last_node = self.process_tree.find_last_node().node
             if last_node.process_label != 'PhCalculation':
-                raise ValueError('The last node is not a PhCalculation.')
-            aiida_out = last_node.node.outputs.retrieved.get_object_content('aiida.out')[-2000:]
-            print(aiida_out)
+                raise ValueError(f'The last node is {last_node.process_label}<{last_node.pk}>, not a PhCalculation.')
+            aiida_out = last_node.outputs.retrieved.get_object_content('aiida.out')
+            stderr = last_node.get_scheduler_stderr()
+            for error_flag, error_message in [
+                ('ERROR_FIND_MODE_SYM', 'Error in routine find_mode_sym (1)'),
+                ('ERROR_SET_IRR_SYM_NEW', 'Error in routine set_irr_sym_new (922)'),
+                ('ERROR_WRONG_REPRESENTATION', 'Error in routine set_irr_sym_new (822)'),
+                ('ERROR_CDIAGHG', 'Error in routine cdiaghg (4)'),
+                ('ERROR_S_MATRIX_NOT_POSITIVE_DEFINITE', 'Error in routine cdiaghg (126)'),
+                ('ERROR_PHQ_SETUP', 'Error in routine phq_setup (1)'),
+                ('ERROR_Q_POINTS', 'Error in routine q_points (1)'),
+                ('ERROR_DAVCIO', 'Error in routine davcio (99)'),
+                ('ERROR_CHECK_ALL_CONVT', 'Error in routine check_all_convt (1)'),
+                ('ERROR_READ_WFC', 'Error in routine read_wfc (29)'),
+            ]:
+                if error_message in aiida_out:
+                    exit_status = error_flag
+                    break
+
+            if not exit_status:
+                if 'TIME LIMIT' in stderr:
+                    exit_status = 'SCHEDULER_TIME_LIMIT'
+                elif 'process killed' in stderr:
+                    exit_status = 'KILLED_BY_SCHEDULER'
+            else:   
+                exit_status = -1
 
         if exit_status == 0:
             is_stable, message = self.is_stable()
             if not is_stable:
                 message += f'\n    Phonon is unstable from `ph_base`.'
-            return path, 'UNSTABLE', message
+                exit_status = 'UNSTABLE'
 
+        return path, exit_status, message
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
 

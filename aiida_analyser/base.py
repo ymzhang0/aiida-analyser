@@ -400,7 +400,6 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         try:
             source_db, source_id = self.node.base.extras.get_many(('source_db', 'source_id'))
         except Exception:
-            print('Source is not set')
             return None
         return f"{source_db}-{source_id}"
 

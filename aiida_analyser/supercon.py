@@ -13,7 +13,7 @@ import numpy
 from .workchains import clean_workdir
 from .base import BaseWorkChainAnalyser
 from enum import Enum
-from .b2w import EpwB2WWorkChainAnalyser
+from .epw_prep import EpwPrepWorkChainAnalyser
 from .calculators import _calculate_iso_tc, check_convergence
 from .plot import (
     plot_epw_interpolated_bands,
@@ -100,24 +100,6 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwSuperConWorkChain.
     """
-    _all_descendants = OrderedDict([
-        ('pw_relax', None),
-        ('pw_bands', None),
-        ('b2w',      None),
-        ('bands',    None),
-        ('a2f_conv', None),
-        ('a2f',      None),
-        ('iso',      None),
-        ('aniso',    None),
-    ])
-
-    def __init__(self, workchain: orm.WorkChainNode):
-        super().__init__(workchain)
-        self.state = EpwSuperConWorkChainState.UNKNOWN
-        for link_label, _ in self._all_descendants.items():
-            descendants = workchain.base.links.get_outgoing(link_label_filter=link_label).all_nodes()
-            if descendants != []:
-                self.descendants[link_label] = descendants
 
     @staticmethod
     def base_check(
@@ -288,7 +270,7 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def check_b2w(self):
         """Check the state of the b2w workchain."""
-        b2w_analyser = EpwB2WWorkChainAnalyser(self.descendants['b2w'][-1])
+        b2w_analyser = EpwPrepWorkChainAnalyser(self.descendants['b2w'][-1])
         return b2w_analyser.check_process_state()
 
     def check_bands(self):
@@ -419,24 +401,27 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
         return outputs_parameters
 
-    def get_state(self):
-        pk = self.node.pk
-        formula = self.node.inputs.structure.get_formula()
-        source_db, source_id = self.node.inputs.structure.base.extras.get_many(('source_db', 'source_id'))
-        state, message = self.check_process_state()
-        material_info = f'{source_db}-{source_id}<{formula}>'
-        message = f'[{pk}]: {material_info:30s} {message}'
+    # def get_state(self):
+    #     pk = self.node.pk
+    #     formula = self.node.inputs.structure.get_formula()
+    #     source_db, source_id = self.node.inputs.structure.base.extras.get_many(('source_db', 'source_id'))
+    #     state, message = self.check_process_state()
+    #     material_info = f'{source_db}-{source_id}<{formula}>'
+    #     message = f'[{pk}]: {material_info:30s} {message}'
 
-        return state, message
+    #     return state, message
 
     def get_source(self):
         """Get the source of the workchain."""
-        if all(key in self.node.base.extras for key in ['source_db', 'source_id']):
-            return (self.node.base.extras.get('source_db'), self.node.base.extras.get('source_id'))
-        elif all(key in self.node.inputs.structure.base.extras for key in ['source_db', 'source_id']):
-            return (self.node.inputs.structure.base.extras.get('source_db'), self.node.inputs.structure.base.extras.get('source_id'))
-        else:
-            raise ValueError('Source is not set')
+        source = super().get_source()
+        if not source:
+            try:
+                source_db, source_id = self.node.inputs.structure.base.extras.get_many(('source_db', 'source_id'))
+                source = f"{source_db}-{source_id}"
+            except Exception:
+                print('Source is not set')
+                return None
+        return source
 
     @property
     def a2f_results(self):

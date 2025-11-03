@@ -11,9 +11,9 @@ from .wannier90 import Wannier90WorkChainAnalyser
 from .ph_base import PhBaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 
-class EpwB2WWorkChainState(Enum):
+class EpwPrepWorkChainState(Enum):
     """
-    Analyser for the B2WWorkChain.
+    Analyser for the EpwPrepWorkChain.
     """
     FINISHED_OK = 0
     WAITING = 1
@@ -44,61 +44,47 @@ class EpwB2WWorkChainState(Enum):
     EPW_BASE_EXCEPTED = 908
     UNKNOWN = 999
 
-class EpwB2WWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the B2WWorkChain.
+    Analyser for the EpwPrepWorkChain.
     """
-    _all_descendants = OrderedDict([
-        ('w90_intp', None),
-        ('ph_base',  None),
-        ('q2r_base', None),
-        ('matdyn_base', None),
-        ('epw_base', None),
-    ])
-
     def __init__(self, workchain: orm.WorkChainNode):
         self.node = workchain
-        self.state = EpwB2WWorkChainState.UNKNOWN
-        self.descendants = {}
-        for link_label, _ in self._all_descendants.items():
-            descendants = workchain.base.links.get_outgoing(link_label_filter=link_label).all_nodes()
-            if descendants != []:
-                self.descendants[link_label] = descendants
 
     @property
     def w90_intp(self):
-        if self.descendants['w90_intp'] == []:
+        if self.process_tree.w90_intp.node is None:
             raise ValueError('w90_intp is not found')
         else:
-            return self.descendants['w90_intp']
+            return self.process_tree.w90_intp.node
 
     @property
     def ph_base(self):
-        if self.descendants['ph_base'] == []:
+        if self.process_tree.ph_base.node is None:
             raise ValueError('ph_base is not found')
         else:
-            return self.descendants['ph_base']
+            return self.process_tree.ph_base.node
 
     @property
     def q2r_base(self):
-        if self.descendants['q2r_base'] == []:
+        if self.process_tree.q2r_base.node is None:
             raise ValueError('q2r_base is not found')
         else:
-            return self.descendants['q2r_base']
+            return self.process_tree.q2r_base.node
 
     @property
     def matdyn_base(self):
-        if self.descendants['matdyn_base'] == []:
+        if self.process_tree.matdyn_base.node is None:
             raise ValueError('matdyn_base is not found')
         else:
-            return self.descendants['matdyn_base']
+            return self.process_tree.matdyn_base.node
 
     @property
     def epw_base(self):
-        if self.descendants['epw_base'] == []:
+        if self.process_tree.epw_base.node is None:
             raise ValueError('epw_base is not found')
         else:
-            return self.descendants['epw_base']
+            return self.process_tree.epw_base.node
 
     def get_source(self):
         """Get the source of the workchain."""
@@ -144,7 +130,7 @@ class EpwB2WWorkChainAnalyser(BaseWorkChainAnalyser):
     def check_stability_matdyn_base(self):
         """Get the qpoints and frequencies of the matdyn_base workchain."""
         state, _ = self.check_matdyn_base()
-        if state == EpwB2WWorkChainState.MATDYN_BASE_FINISHED_OK:
+        if state == EpwPrepWorkChainState.MATDYN_BASE_FINISHED_OK:
             return check_stability_matdyn_base(self.matdyn_base[0])
         else:
             raise ValueError('matdyn_base is not finished')
