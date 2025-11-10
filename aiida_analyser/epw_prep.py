@@ -59,6 +59,13 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
         else:
             return self.process_tree.epw_base.node
 
+    @property
+    def epw_bands(self):
+        if self.process_tree.epw_bands.node is None:
+            raise ValueError('epw_bands is not found')
+        else:
+            return self.process_tree.epw_bands.node
+
     def get_source(self):
         """Get the source of the workchain."""
         return super().get_source()

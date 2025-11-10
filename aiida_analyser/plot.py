@@ -12,15 +12,14 @@ import os
 
 
 def plot_eldos(
-    a2f_workchain,
+    dos_xydata,
+    fermi_energy_coarse=0.0,
     axis = None,
     **kwargs,
     ):
 
-    fermi_energy_coarse = a2f_workchain.outputs.output_parameters.get('fermi_energy_coarse')
-
-    E        = a2f_workchain.outputs.a2f.dos.get_array('Energy') - fermi_energy_coarse
-    dos = a2f_workchain.outputs.a2f.dos.get_array('EDOS')
+    E        = dos_xydata.get_array('Energy') - fermi_energy_coarse
+    dos = dos_xydata.get_array('EDOS')
 
     if axis is None:
         from matplotlib import pyplot as plt
@@ -51,12 +50,12 @@ def plot_eldos(
         return plt
 
 def plot_phdos(
-    phdos,
+    phdos_xydata,
     axis = None,
     **kwargs,
     ):
-    w        = phdos.get_array('Frequency')
-    dos = phdos.get_array('PHDOS')
+    w        = phdos_xydata.get_array('Frequency')
+    dos = phdos_xydata.get_array('PHDOS')
 
     if axis is None:
         from matplotlib import pyplot as plt
@@ -90,16 +89,14 @@ def plot_phdos(
         return plt
 
 def plot_a2f(
-    a2f_workchain,
+    a2f_arraydata,
+    output_parameters,
     axis = None,
     show_data = False,
-    plot_dos = True,
     **kwargs,
     ):
-    a2f = a2f_workchain.outputs.a2f.a2f
-    output_parameters = a2f_workchain.outputs.output_parameters
-    w        = a2f.get_array('frequency')
-    spectral = a2f.get_array('a2f')
+    w        = a2f_arraydata.get_array('frequency')
+    spectral = a2f_arraydata.get_array('a2f')
 
     if axis is None:
         from matplotlib import pyplot as plt
@@ -107,13 +104,6 @@ def plot_a2f(
     else:
         ax = axis
 
-    if plot_dos:
-        dos = a2f_workchain.outputs.a2f.phdos
-        plot_phdos(
-            dos,
-            axis=ax,
-            color='black',
-        )
 
     ax.plot(
         spectral[:, 9],
@@ -592,8 +582,72 @@ def find_average(data, T):
     return midpoint
 
 
-def plot_gap_function(
-    aniso_workchain,
+def plot_iso_gap_function(
+    iso_gap_function: orm.ArrayData,
+    axis = None,
+    fit=False,
+    p0=None,
+    **kwargs,
+):
+    """Plot the isotropic gap (Imaginary) vs. temeprature."""
+    import matplotlib.ticker as ticker
+
+    def bcs_gap_function(T, Tc, p, Delta_0):
+        """BCS gap function."""
+        return Delta_0 * numpy.sqrt(1 - (T / Tc) ** p)
+
+    imag_delta = []
+    imag_temp = []
+
+    for arrayname, array in iso_gap_function.get_iterarrays():
+        gap = array[0, -1] * 1000
+        if numpy.isnan(gap):
+            continue
+        imag_delta.append(gap)  # Convert to meV
+        imag_temp.append(float(arrayname.replace("_", ".")))
+
+    ##Plot
+    if axis is None:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True)
+        fig.patch.set_facecolor('white')
+    else:
+        ax = axis
+
+    ax.set_title("Superconducting Gap vs. Temperature", fontsize=kwargs.get('label_fontsize', 16))
+    ax.set_xlabel("Temeperature (K)", fontsize=kwargs.get('label_fontsize', 16))
+    ax.set_xlim(0, numpy.max(imag_temp))
+    ax.set_ylabel(r"$\Delta_0$ (meV)", fontsize=kwargs.get('label_fontsize', 16))
+    ax.tick_params(axis="y", labelsize=kwargs.get('ticklabel_fontsize', 16))
+    ax.tick_params(axis="x", labelsize=kwargs.get('ticklabel_fontsize', 16))
+    ax.plot(
+        imag_temp,
+        imag_delta,
+        linestyle="-",
+        marker="o",
+        c="k",
+        label="Im. axis",
+    )
+    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
+
+    if fit:
+        if p0 is None:
+            p0 = [imag_temp[-1], 3.3, imag_delta[0]]
+        popt, pcov = curve_fit(bcs_gap_function, imag_temp, imag_delta, p0=p0)
+        Tc, p, Delta_0 = popt
+        T = numpy.linspace(0, Tc, 100)
+        ax.plot(
+            T,
+            bcs_gap_function(T, Tc, p, Delta_0),
+            linestyle="--",
+            c="r",
+            label="Fit",
+        )
+
+    return axis
+
+def plot_aniso_gap_function(
+    aniso_gap_functions_arraydata,
     axis,
     remove_temps = [0, 0],
     suggested_p = None,
@@ -614,10 +668,9 @@ def plot_gap_function(
     rhos = []
 
 
-    aniso_gap_functions = aniso_workchain.outputs.aniso.aniso_gap_functions
 
-    for filename in aniso_gap_functions.get_arraynames():
-        parse = aniso_gap_functions.get_array(filename)
+    for arraynames in aniso_gap_functions_arraydata.get_arraynames():
+        parse = aniso_gap_functions_arraydata.get_array(arraynames)
         temp = numpy.min(parse[:,0])
         try:
             rho = parse[:,0]
@@ -664,6 +717,26 @@ def plot_gap_function(
             'average_deltas': average_deltas,
             'rhos': rhos,
         }
+
+    width_and_incre = []
+    for idr, rho in enumerate(sorted_rhos[:-1]):
+        width_of_rho  = numpy.max(rho[:,0]) - temps_sorted[idr]
+        incre_of_temp = temps_sorted[idr+1] - temps_sorted[idr]
+        width_and_incre.append([width_of_rho/incre_of_temp])
+
+    max_ratio = numpy.max(width_and_incre)
+    if max_ratio > 1:
+        suppression = 0.9/max_ratio
+    else:
+        suppression = 1
+
+    max_rho = 0
+
+    for T, rho in zip(temps_sorted, sorted_rhos):
+        axis.axvline(numpy.min(rho[:,0]), color='k', linestyle='-', linewidth=1.5)
+        axis.plot(T + suppression*(rho[:,0] - T), rho[:,1], color='black', linewidth=1.5)
+        max_rho = numpy.max([numpy.max(rho[:,1]), max_rho])
+
     well_fit = False
 
     if ntemps == 3:
@@ -695,13 +768,10 @@ def plot_gap_function(
 
 
     if well_fit:
-        final_temps = temps_sorted
-        final_rhos  = sorted_rhos
-
         width_and_incre = []
-        for idr, rho in enumerate(final_rhos[:-1]):
-            width_of_rho  = numpy.max(rho[:,0]) - final_temps[idr]
-            incre_of_temp = final_temps[idr+1] - final_temps[idr]
+        for idr, rho in enumerate(sorted_rhos[:-1]):
+            width_of_rho  = numpy.max(rho[:,0]) - temps_sorted[idr]
+            incre_of_temp = temps_sorted[idr+1] - temps_sorted[idr]
             width_and_incre.append([width_of_rho/incre_of_temp])
 
         max_ratio = numpy.max(width_and_incre)
@@ -712,12 +782,12 @@ def plot_gap_function(
 
         max_rho = 0
 
-        for T, rho in zip(final_temps, final_rhos):
+        for T, rho in zip(temps_sorted, sorted_rhos):
             axis.axvline(numpy.min(rho[:,0]), color='k', linestyle='-', linewidth=1.5)
             axis.plot(T + suppression*(rho[:,0] - T), rho[:,1], color='black', linewidth=1.5)
             max_rho = numpy.max([numpy.max(rho[:,1]), max_rho])
 
-        axis.scatter(final_temps, average_deltas_sorted, c = 'r', s=70)
+        axis.scatter(temps_sorted, average_deltas_sorted, c = 'r', s=70)
         axis.set_xlabel('$T$ [K]', fontsize=kwargs.get('label_fontsize', 16))
         axis.set_ylabel('$\Delta_{nk}$ [meV]', fontsize=kwargs.get('label_fontsize', 16))
         axis.set_ylim([0, max_rho])

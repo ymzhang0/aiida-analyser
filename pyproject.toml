@@ -25,9 +25,14 @@ requires-python = ">=3.7"
 dependencies = [
     "aiida-core",
     "aiida-wannier90-workflows",
+<<<<<<< Updated upstream
     "aiida-quantumespresso>=4.11",
+=======
+    "aiida-quantumespresso~=5.0.0a1",
+>>>>>>> Stashed changes
     "importlib_resources",
     "PyYAML",
+    "rich"
 ]
 
 [project.urls]

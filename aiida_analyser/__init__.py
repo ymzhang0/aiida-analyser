@@ -28,7 +28,6 @@ from .epw_prep import (
 )
 from .supercon import (
     EpwSuperConWorkChainAnalyser,
-    EpwSuperConWorkChainState,
 )
 from .transport import (
     EpwTransportWorkChainAnalyser,
@@ -49,7 +48,6 @@ __all__ = [
     'EpwBaseWorkChainAnalyser',
     'EpwPrepWorkChainAnalyser',
     'EpwSuperConWorkChainAnalyser',
-    'EpwSuperConWorkChainState',
     'EpwTransportWorkChainAnalyser',
     'EpwTransportWorkChainState',
     'ThermoPwBaseAnalyser',
