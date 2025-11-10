@@ -49,7 +49,7 @@ class ProcessTree:
                     link_label = subprocess.base.attributes.all['metadata_inputs']['metadata']['call_link_label']
                 except Exception:
                     # If no label, use the pk or uuid of the subprocess as a fallback
-                    link_label = f"unlabeled_process_{subprocess.pk}"
+                    link_label = subprocess.base.attributes.all.get('process_label', f"unlabeled_process_{subprocess.pk}")
 
                 # Recursively create the ProcessTree child node
                 # The power of this is that it can handle CalcJobNode stopping the recursion,
@@ -282,7 +282,7 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     """
 
     @staticmethod
-    def get_calcjob_paths(processes_dict, parent_label=''):
+    def _get_calcjob_paths(processes_tree, parent_label=''):
         """
         Recursively extract all CalcJob remote paths from the nested dictionary created by get_processes_dict.
 
@@ -291,30 +291,36 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         :return: A flattened dictionary { 'full label': 'remote path' }.
         """
         flat_paths = {}
-        for label, sub_dict in processes_dict.items():
-            if not isinstance(sub_dict, dict):
-                continue
-            full_label = f"{parent_label}/{label}" if parent_label else label
+        for name, node in processes_tree.children.items():
 
-            if 'calcjob_node' in sub_dict:
-                calcjob = sub_dict['calcjob_node']
-                remote_path = calcjob.outputs.remote_folder.get_remote_path()
-                flat_paths[full_label] = remote_path
+            full_label = f"{parent_label}/{name}" if parent_label else name
 
-            if 'workchain_node' in sub_dict:
-                # Pass the current workchain's subprocess dictionary and the new parent label
-                nested_paths = BaseWorkChainAnalyser.get_calcjob_paths(
-                    sub_dict,
+            if not node.children:
+                if node.node.is_finished_ok and node.node.node_type == 'process.calculation.calcjob.CalcJobNode.':
+                    remote_path = node.node.outputs.remote_folder.get_remote_path()
+                    flat_paths[full_label] = remote_path
+
+            else:
+                nested_paths = BaseWorkChainAnalyser._get_calcjob_paths(
+                    node,
                     parent_label=full_label
                 )
                 flat_paths.update(nested_paths)
 
         return flat_paths
 
+    def get_calcjob_paths(self):
+        """Get the remote paths of the all CalcJobNodes in the process tree."""
+        return self._get_calcjob_paths(self.process_tree)
+
     @property
     def process_tree(self):
         """Get the ProcessTree of the workchain."""
         return ProcessTree(self.node)
+
+    def print_process_tree(self):
+        """Print the process tree."""
+        self.process_tree.print_tree()
 
     @staticmethod
     def get_retrieved(node):
@@ -406,15 +412,15 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     def clean_workchain(self, exempted_states, dry_run=True):
         """Clean the workchain."""
 
-        path, state = self.get_state()
-        message = f'Process {self.node.pk} is now {state} at {path}. Please check if you really want to clean this workchain.'
-        if state in exempted_states:
+        path, status, message   = self.get_state()
+        message = f'Process<{self.node.pk}> is now {status} at {path}. Please check if you really want to clean this workchain.\n'
+        if status in exempted_states:
             print(message)
             return message, False
         cleaned_calcs = clean_workdir(self.node, dry_run=dry_run)
-        message += f'Cleaned the workchain {self.node.pk}:\n'
+        message += f'Cleaned the workchain <{self.node.pk}>:\n'
         message += '  ' + ' '.join(map(str, cleaned_calcs)) + '\n'
-        message += f'Deleted the workchain {self.node.pk}:\n'
+        message += f'Deleted the workchain <{self.node.pk}>:\n'
         deleted_nodes, _ = delete_nodes([self.node.pk], dry_run=dry_run)
         message += '  ' + ' '.join(map(str, deleted_nodes))
 

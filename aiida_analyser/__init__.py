@@ -19,15 +19,12 @@ from .wannier90 import (
 )
 from .ph_base import (
     PhBaseWorkChainAnalyser,
-    PhBaseWorkChainState,
 )
 from .epw_base import (
     EpwBaseWorkChainAnalyser,
-    EpwBaseWorkChainState,
 )
 from .epw_prep import (
     EpwPrepWorkChainAnalyser,
-    EpwPrepWorkChainState,
 )
 from .supercon import (
     EpwSuperConWorkChainAnalyser,
@@ -49,11 +46,8 @@ __all__ = [
     'Wannier90WorkChainAnalyser',
     'Wannier90WorkChainState',
     'PhBaseWorkChainAnalyser',
-    'PhBaseWorkChainState',
     'EpwBaseWorkChainAnalyser',
-    'EpwBaseWorkChainState',
     'EpwPrepWorkChainAnalyser',
-    'EpwPrepWorkChainState',
     'EpwSuperConWorkChainAnalyser',
     'EpwSuperConWorkChainState',
     'EpwTransportWorkChainAnalyser',

@@ -24,8 +24,8 @@ keywords = ["aiida", "postprocessing"]
 requires-python = ">=3.7"
 dependencies = [
     "aiida-core",
-    "aiida-wannier90-workflows~=2.2",
-    "aiida-quantumespresso~=4.11",
+    "aiida-wannier90-workflows",
+    "aiida-quantumespresso>=4.11",
     "importlib_resources",
     "PyYAML",
 ]

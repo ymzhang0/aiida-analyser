@@ -7,49 +7,56 @@ from collections import OrderedDict
 
 from .base import BaseWorkChainAnalyser
 
-class PhBaseWorkChainState(Enum):
-    """
-    Analyser for the PhWorkChain.
-    """
-    FINISHED_OK = 0
-    WAITING = 1
-    RUNNING = 2
-    EXCEPTED = 3
-    KILLED = 4
-    S_MATRIX_NOT_POSITIVE_DEFINITE = 4010
-    NODE_FAILURE = 4011
-    UNSTABLE = 4012
-    UNKNOWN = 999   
-
 class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
     """
 
+    def merge_output_parameters(self):
+        """Merge the output parameters of the workchain."""
 
-    def get_qpoints_and_frequencies(self):
+        output_parameters = {}
 
-        nqpoints = self.node.outputs.output_parameters.get('number_of_qpoints')
-        frequencies = [
-            self.node.outputs.output_parameters.get(f'dynamical_matrix_{iq}').get('frequencies') # unit: cm^{-1} (THz)
-            for iq in range(1, 1+nqpoints)
-        ]
-        q_points = [
-            self.node.outputs.output_parameters.get(f'dynamical_matrix_{iq}').get('q_point')
-            for iq in range(1, 1+nqpoints)
-        ]
-        return q_points, frequencies
+        for child in self.process_tree.children.values():
+            if child.node.process_label == 'PhCalculation':
+                if child.node.is_finished and 'output_parameters' in child.node.outputs:
+                    output_parameters.update(child.node.outputs.output_parameters.get_dict())
+                else:
+                    continue
+            else:
+                continue
 
-    def is_stable(
-        self, 
+        return output_parameters
+
+    @staticmethod
+    def get_qpoints_and_frequencies(output_parameters):
+
+        nqpoints = output_parameters.get('number_of_qpoints')
+        iqs = []
+        q_points = []
+        frequencies = []
+
+        for key, value in output_parameters.items():
+            if key.startswith('dynamical_matrix_'):
+                iqs.append(int(key.split('_')[2]))
+                frequencies.append(value.get('frequencies'))
+                q_points.append(value.get('q_point'))
+
+        q_points = sorted(q_points, key=lambda x: iqs[q_points.index(x)])
+        frequencies = sorted(frequencies, key=lambda x: iqs[frequencies.index(x)])
+
+        return nqpoints, q_points, frequencies
+        
+    @staticmethod
+    def _is_stable(
+        qpoints, 
+        frequencies,
+        message = '',
         tolerance: float = -5.0 # cm^{-1}
         ) -> tuple[bool, str]:
         """Check if the workchain is stable."""
         is_stable = True
-        message = ''
         negative_freqs = {}
-
-        qpoints, frequencies = self.get_qpoints_and_frequencies()
 
         neg_freq0 = [f for f in frequencies[0] if f < 0]
         if len(neg_freq0) > 3:
@@ -63,13 +70,36 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
                 negative_freqs[iq+2] = neg_freq
 
         if is_stable:
-            message = 'Phonon is stable from `ph_base`.'
+            message += 'Phonon is stable from `ph_base`.'
         else:
-            message = f'Phonon is unstable from `ph_base`.\n'
+            message += f'Phonon is unstable from `ph_base`.\n'
             for iq, freqs in negative_freqs.items():
                 q_points_str = ', '.join(map(str, qpoints[iq-1]))
                 negative_freqs_str = ', '.join(map(str, freqs))
-                message += f'{iq}th qpoint [{q_points_str}] has negative frequencies: {negative_freqs_str} cm^{-1}\n'
+                message += f'{iq}th qpoint ({q_points_str}) has negative frequencies: {negative_freqs_str} cm^{-1}\n'
+        return is_stable, message
+
+    @property
+    def is_stable(self):
+        """Check if the workchain is stable."""
+
+        if self.node.is_finished_ok:
+            header = f"PhBaseWorkChain<{self.node.pk}> finished OK:\n"
+            output_parameters = self.node.outputs.output_parameters.get_dict()
+        else:
+            output_parameters = self.merge_output_parameters()
+            header = f"PhBaseWorkChain<{self.node.pk}> exited with status {self.node.exit_status}:\n"
+
+        nqs, q_points, frequencies = self.get_qpoints_and_frequencies(output_parameters)
+        if not len(q_points):
+            print('No q-points found')
+            return True
+
+        is_stable, message = self._is_stable(
+            q_points,
+            frequencies,
+            message = header + f"From the calculated {len(q_points)} q-points out of {nqs} we find:\n"
+            )
         print(message)
         return is_stable
 
@@ -125,12 +155,11 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
                 exit_status = 'UNSTABLE'
 
         return path, exit_status, message
+
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
 
         message = super().clean_workchain([
-            PhBaseWorkChainState.WAITING,
-            PhBaseWorkChainState.RUNNING,
             ],
             dry_run=dry_run
             )
