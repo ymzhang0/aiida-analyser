@@ -13,9 +13,20 @@ from .base import (
 from .pw_bands import (
     PwBandsWorkChainAnalyser,
 )
+from .pw_base import (
+    PwBaseWorkChainAnalyser,
+)
+from .projwfc_base import (
+    ProjwfcBaseWorkChainAnalyser,
+)
+from .pw2wannier90_base import (
+    Pw2Wannier90BaseWorkChainAnalyser,
+)
 from .wannier90 import (
     Wannier90WorkChainAnalyser,
-    Wannier90WorkChainState,
+)
+from .wannier90_base import (
+    Wannier90BaseWorkChainAnalyser,
 )
 from .ph_base import (
     PhBaseWorkChainAnalyser,
@@ -29,10 +40,7 @@ from .epw_prep import (
 from .supercon import (
     EpwSuperConWorkChainAnalyser,
 )
-from .transport import (
-    EpwTransportWorkChainAnalyser,
-    EpwTransportWorkChainState,
-)
+
 
 from .thermo_pw import (
     ThermoPwBaseAnalyser,
@@ -42,13 +50,14 @@ __all__ = [
     'ProcessTree',
     'BaseWorkChainAnalyser',
     'PwBandsWorkChainAnalyser',
+    'PwBaseWorkChainAnalyser',
+    'ProjwfcBaseWorkChainAnalyser',
+    'Pw2Wannier90BaseWorkChainAnalyser',
     'Wannier90WorkChainAnalyser',
-    'Wannier90WorkChainState',
+    'Wannier90BaseWorkChainAnalyser',
     'PhBaseWorkChainAnalyser',
     'EpwBaseWorkChainAnalyser',
     'EpwPrepWorkChainAnalyser',
     'EpwSuperConWorkChainAnalyser',
-    'EpwTransportWorkChainAnalyser',
-    'EpwTransportWorkChainState',
     'ThermoPwBaseAnalyser',
 ]

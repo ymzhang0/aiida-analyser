@@ -1,9 +1,11 @@
 from aiida import orm
 from .base import BaseWorkChainAnalyser
 
-class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class Wannier90BaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the EpwBaseWorkChain.
+    Analyser for the Wannier90BaseWorkChain.
+    This analyser handles a single Wannier90 base workchain,
+    not the composite Wannier90WorkChain that contains multiple sub-workchains.
     """
 
     def get_source(self):
@@ -17,7 +19,18 @@ class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-        return self._get_state_from_tree()
+        # Start with the base implementation
+        try:
+            path, exit_status, message = self._get_state_from_tree()
+        except (AttributeError, ValueError) as e:
+            print(f'Wannier90BaseWorkChain<{self.node.pk}> has unknown exit status: {e}')
+            return 'ROOT', -1, 'Unknown status'
+
+        # Handle specific error codes for Wannier90 calculations if needed
+        # For now, just return the base state
+        # In the future, we can add specific error handling for Wannier90 calculation errors
+
+        return path, exit_status, message
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
@@ -25,3 +38,4 @@ class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
+

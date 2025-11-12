@@ -1,12 +1,4 @@
-from re import S
-from tkinter import N
 from aiida import orm
-from aiida.common.links import LinkType
-from aiida.engine import ProcessState
-from enum import Enum
-from collections import OrderedDict
-from abc import ABC, abstractmethod
-from rich import print as rprint
 import numpy
 from .base import BaseWorkChainAnalyser
 
@@ -26,6 +18,10 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
                 print('Source is not set')
                 return None
         return source
+
+    def get_state(self):
+        """Get the state of the workchain."""
+        return self._get_state_from_tree()
 
     def print_state(self):
         """Print the state of the workchain."""
@@ -106,9 +102,10 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
             average: (elastic_constants[0][1] - elastic_constants[3][3]) / young_modulus[average] for average in ['voigt', 'reuss', 'vrh']
         }
 
-    def clean_workchain(self, exempted_states, dry_run: bool = True):
+    def clean_workchain(self, dry_run: bool = True):
         """Clean the workchain."""
-        super().clean_workchain(exempted_states, dry_run)
+        message, success = super().clean_workchain(dry_run=dry_run)
+        return message
 
     def get_fitting_coefficients(self):
         """Get the fitting coefficients of the workchain."""

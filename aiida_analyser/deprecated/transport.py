@@ -1,10 +1,5 @@
-from doctest import FAIL_FAST
-from email import message
-from re import S
-import re
-from socket import NI_NOFQDN
 from pathlib import Path
-from tkinter import E
+from collections import OrderedDict
 
 from aiida import orm
 from aiida.common.links import LinkType
@@ -80,8 +75,6 @@ class EpwTransportWorkChainState(Enum):
     BANDS_FINISHED_OK = 1010
     IBTE_FINISHED_OK = 1012
     UNKNOWN = 999
-
-from collections import OrderedDict
 
 class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -181,43 +174,52 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def b2w_w90_intp(self):
         if self.descendants['b2w'] == []:
-            raise None
-        else:
-            return self.b2w_analyser.w90_intp
+            raise ValueError('b2w is not found')
+        if self.b2w_analyser is None:
+            raise ValueError('b2w_analyser is not available')
+        return self.b2w_analyser.w90_intp
 
     @property
     def b2w_ph_base(self):
         if self.descendants['b2w'] == []:
-            raise None
-        else:
-            return self.b2w_analyser.ph_base
+            raise ValueError('b2w is not found')
+        if self.b2w_analyser is None:
+            raise ValueError('b2w_analyser is not available')
+        return self.b2w_analyser.ph_base
 
     @property
     def b2w_q2r_base(self):
         if self.descendants['b2w'] == []:
-            raise None
-        else:
-            return self.b2w_analyser.q2r_base
+            raise ValueError('b2w is not found')
+        if self.b2w_analyser is None:
+            raise ValueError('b2w_analyser is not available')
+        if 'q2r_base' not in self.b2w_analyser.process_tree:
+            raise AttributeError('q2r_base is not found in b2w_analyser')
+        return self.b2w_analyser.process_tree.q2r_base.node
 
     @property
     def b2w_matdyn_base(self):
         if self.descendants['b2w'] == []:
-            raise None
-        else:
-            return self.b2w_analyser.matdyn_base
+            raise ValueError('b2w is not found')
+        if self.b2w_analyser is None:
+            raise ValueError('b2w_analyser is not available')
+        if 'matdyn_base' not in self.b2w_analyser.process_tree:
+            raise AttributeError('matdyn_base is not found in b2w_analyser')
+        return self.b2w_analyser.process_tree.matdyn_base.node
+
     @property
     def b2w_epw_base(self):
         if self.descendants['b2w'] == []:
-            raise None
-        else:
-            return self.b2w_analyser.epw_base
+            raise ValueError('b2w is not found')
+        if self.b2w_analyser is None:
+            raise ValueError('b2w_analyser is not available')
+        return self.b2w_analyser.epw_base
 
     @property
     def epw_bands(self):
         if self.descendants['bands'] == []:
-            raise None
-        else:
-            return self.descendants['bands']
+            raise ValueError('bands is not found')
+        return self.descendants['bands']
 
     @property
     def a2f(self):

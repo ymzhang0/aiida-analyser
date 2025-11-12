@@ -1,10 +1,4 @@
-from doctest import FAIL_FAST
-from email import message
-from re import S
-import re
-from socket import NI_NOFQDN
 from pathlib import Path
-from tkinter import E
 
 from aiida import orm
 from aiida.common.links import LinkType
@@ -12,7 +6,6 @@ from aiida.engine import ProcessState
 import numpy
 from .workchains import clean_workdir
 from .base import BaseWorkChainAnalyser
-from enum import Enum
 from .epw_prep import EpwPrepWorkChainAnalyser
 from .calculators import _calculate_iso_tc, check_convergence
 from .plot import (
@@ -22,8 +15,6 @@ from .plot import (
     plot_phdos,
     plot_iso_gap_function
 )
-
-from collections import OrderedDict
 
 class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -96,6 +87,10 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
                 print('Source is not set')
                 return None
         return source
+
+    def get_state(self):
+        """Get the state of the workchain."""
+        return self._get_state_from_tree()
 
     @property
     def a2f_results(self):
@@ -191,10 +186,7 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
 
-        message = super().clean_workchain([
-            ],
-            dry_run=dry_run
-            )
+        message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
 

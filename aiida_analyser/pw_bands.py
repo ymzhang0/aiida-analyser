@@ -1,9 +1,4 @@
-from re import S
 from aiida import orm
-from aiida.common.links import LinkType
-from aiida.engine import ProcessState
-from enum import Enum
-from collections import OrderedDict
 from .base import BaseWorkChainAnalyser
 
 class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
@@ -22,6 +17,10 @@ class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
                 print('Source is not set')
                 return None
         return source
+
+    def get_state(self):
+        """Get the state of the workchain."""
+        return self._get_state_from_tree()
 
     def show_mpl(self, y_min_lim=-2, y_max_lim=2):
         """Show the bands in matplotlib."""

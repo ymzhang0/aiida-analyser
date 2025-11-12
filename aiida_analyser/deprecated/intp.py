@@ -1,10 +1,7 @@
 from aiida import orm
-from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 from enum import Enum
 from collections import OrderedDict
-from .b2w import EpwB2WWorkChainAnalyser
-from .base import EpwBaseWorkChainAnalyser
 class EpwIntpWorkChainState(Enum):
     FINISHED_OK = 0
     WAITING = 1

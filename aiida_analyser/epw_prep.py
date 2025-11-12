@@ -1,10 +1,4 @@
-from re import S
-import re
 from aiida import orm
-from aiida.common.links import LinkType
-from aiida.engine import ProcessState
-from enum import Enum
-from collections import OrderedDict
 from .ph import check_stability_matdyn_base
 from .base import BaseWorkChainAnalyser
 from .wannier90 import Wannier90WorkChainAnalyser
@@ -16,8 +10,6 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwPrepWorkChain.
     """
-    def __init__(self, workchain: orm.WorkChainNode):
-        self.node = workchain
 
     @property
     def w90_intp(self):
@@ -38,19 +30,6 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
             raise AttributeError('ph_base is not found')
         else:
             return PhBaseWorkChainAnalyser(self.process_tree.ph_base.node)
-    @property
-    def q2r_base(self):
-        if 'q2r_base' not in self.process_tree:
-            raise ValueError('q2r_base is not found')
-        else:
-            return self.process_tree.q2r_base.node
-
-    @property
-    def matdyn_base(self):
-        if 'matdyn_base' not in self.process_tree:
-            raise ValueError('matdyn_base is not found')
-        else:
-            return self.process_tree.matdyn_base.node
 
     @property
     def epw_base(self):
@@ -61,23 +40,16 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
     @property
     def epw_bands(self):
+        if 'epw_bands' not in self.process_tree:
+            raise ValueError('epw_bands is not found')
         if self.process_tree.epw_bands.node is None:
             raise ValueError('epw_bands is not found')
-        else:
-            return self.process_tree.epw_bands.node
+        return self.process_tree.epw_bands.node
 
     def get_source(self):
         """Get the source of the workchain."""
         return super().get_source()
 
-    def get_iterations(self, link_label: str):
-        """Get the iterations of the workchain."""
-
-        iterations = []
-        for (node, link_type, link_label) in self.descendants[link_label][-1].base.links.get_outgoing().all():
-            if link_label.startswith('iteration'):
-                iterations.append(node)
-        return iterations
 
     def get_state(self):
         """Get the state of the workchain."""
@@ -85,6 +57,7 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
         if self.node.is_finished_ok:
             return 'ROOT', 0, 'finished OK'
         
+        # Check subprocesses in order
         for subprocess_name, subprocess_analyser in [
             ('w90_bands', Wannier90WorkChainAnalyser), 
             ('ph_base', PhBaseWorkChainAnalyser), 
@@ -95,24 +68,26 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
                 if not self.process_tree[subprocess_name].node.is_finished_ok:
                     analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
                     path, exit_code, message = analyser.get_state()
-                    return path, exit_code, message
-                else:
-                    continue
-
-        raise ValueError(f'Unknown exit status: {self.node.exit_status}')
+                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, exit_code, message
+        
+        # If all subprocesses are finished but main node is not, use tree traversal
+        # to find the actual error in the process tree
+        return self._get_state_from_tree()
 
     def check_stability_matdyn_base(self):
         """Get the qpoints and frequencies of the matdyn_base workchain."""
-        state, _ = self.check_matdyn_base()
-        if state == EpwPrepWorkChainState.MATDYN_BASE_FINISHED_OK:
-            return check_stability_matdyn_base(self.matdyn_base[0])
-        else:
-            raise ValueError('matdyn_base is not finished')
+        # TODO: This method needs to be implemented properly
+        # It should check if matdyn_base workchain exists and is finished
+        # For now, raise NotImplementedError
+        raise NotImplementedError('check_stability_matdyn_base method is not yet implemented')
 
     def clean_workchain(self, exempted_states=[], dry_run=True):
         """Clean the workchain."""
-        message = super().clean_workchain(
-            exempted_states,
-            dry_run=dry_run
-        )
-        return message
+        path, status, _ = self.get_state()
+        message = f'Process<{self.node.pk}> is now {status} at {path}. Please check if you really want to clean this workchain.\n'
+        if status in exempted_states:
+            print(message)
+            return message, False
+
+        message, success = super().clean_workchain(dry_run=dry_run)
+        return message, True

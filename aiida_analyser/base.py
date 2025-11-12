@@ -1,9 +1,6 @@
-from unittest import result
 from aiida import orm
 from aiida.common.links import LinkType
 from aiida.engine import ProcessState
-from enum import Enum
-from collections import OrderedDict
 from abc import ABC, abstractmethod
 from pathlib import Path
 from .workchains import clean_workdir
@@ -190,11 +187,11 @@ class ProcessTree:
     def traverse_and_check(
         node: 'ProcessTree',
         current_path: str,
-        ) -> tuple[str, str] | None: # Explicitly specify the return type
+        ) -> tuple[str, 'ProcessTree'] | None: # Explicitly specify the return type
         """
         Traverse the ProcessTree and check if the node is the first errored CalcJobNode.
         
-        :returns: (path_to_errored_node, process_state) or None
+        :returns: (path_to_errored_node, ProcessTree_node) or None
         """
         # 1. Construct the full path of the current node
         new_path = f"{current_path}/{node.name}" if current_path else node.name
@@ -347,59 +344,102 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         ):
         """Copy the tree of the workchain to the destination directory."""
         self.process_tree.copy_tree(destpath)
+    
+    def _get_state_from_tree(self):
+        """
+        Helper method to get state by traversing the process tree.
+        This is a utility method for subclasses to use in their get_state() implementation.
         
-    def get_state(self):
-        """Get the state of the workchain."""
+        Returns:
+            tuple: (path, exit_status, message) or None if no error found
+        """
         if self.node.is_finished_ok:
             return 'ROOT', 0, 'finished OK'    
         else:
+            # Try to find the first errored CalcJobNode in the process tree
             result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
-            if not result:
-                return 'ROOT', -1, 'Unknown status'
-            else:
+            if result:
                 path, node = result
                 exit_code = node.node.exit_code
-                return path, exit_code.status, exit_code.message  
+                if exit_code is None:
+                    return path, -1, 'No exit code available'
+                return path, exit_code.status, exit_code.message
+            else:
+                # No errored CalcJobNode found, check the process state
+                # This might happen if:
+                # 1. The workchain is still running
+                # 2. The error is at the WorkChainNode level
+                # 3. The workchain structure is unexpected
+                process_state = self.node.process_state
+                if process_state == ProcessState.RUNNING:
+                    return 'ROOT', -1, 'Workchain is still running'
+                elif process_state == ProcessState.WAITING:
+                    return 'ROOT', -1, 'Workchain is waiting'
+                elif process_state == ProcessState.EXCEPTED:
+                    try:
+                        exception = self.node.exception
+                        return 'ROOT', -1, f'Workchain excepted: {exception}'
+                    except AttributeError:
+                        return 'ROOT', -1, 'Workchain excepted'
+                elif process_state == ProcessState.KILLED:
+                    return 'ROOT', -1, 'Workchain was killed'
+                else:
+                    # ProcessState.FINISHED but not finished_ok
+                    exit_status = self.node.exit_status
+                    if exit_status is not None:
+                        return 'ROOT', exit_status, f'Workchain finished with exit status {exit_status}'
+                    else:
+                        return 'ROOT', -1, 'Unknown status: workchain finished but no exit status available'
     
     def print_state(self, print_output=False, print_stdout=False, print_stderr=False):
-        """Print the state of the workchain."""
-        if self.node.is_finished_ok:
+        """
+        Print the state of the workchain.
+        This method requires get_state() to be implemented in subclasses.
+        """
+        try:
+            path, exit_status, message = self.get_state()
+        except AttributeError:
+            print(f"WorkChain<{self.node.pk}>: get_state() method not implemented.")
+            return -1
+        
+        if exit_status == 0:
             print(f"WorkChain<{self.node.pk}> is finished OK.")
             return 0
-        result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
-        if not result:
-            print(f"Can't check the state of WorkChain<{self.node.pk}>.")
-            return -1
-        path, node = result
-        exit_code = node.node.exit_code
-
+        
         print(
-            f"WorkChain<{self.node.pk}> exit with {exit_code.status} at {path}.\n"
-            f"    Message: {exit_code.message}"
+            f"WorkChain<{self.node.pk}> exit with {exit_status} at {path}.\n"
+            f"    Message: {message}"
         )
 
-        if exit_code.status:
-            if print_output:
-                if 'aiida.out' not in node.node.get_retrieve_list():
-                    print('aiida.out not found in retrieved')
-                    return
-                print('Found in standard output:')
-                print(node.node.get_retrieved_node().get_object_content('aiida.out'))
-            if print_stdout:
-                if '_scheduler-stdout.txt' not in node.node.get_retrieve_list():
-                    print('_scheduler-stdout.txt not found in retrieved')
-                    return
-                print('Found in standard output:')
-                print(node.node.get_scheduler_stdout())
-            if print_stderr:
-                if '_scheduler-stderr.txt' not in node.node.get_retrieve_list():
-                    print('_scheduler-stderr.txt not found in retrieved')
-                    return
-                print('Found in standard error:')
-                print(node.node.get_scheduler_stderr())
-            return exit_code.status
-        else:
-            return -1
+        # If exit_status is an integer and non-zero, try to get detailed output
+        if isinstance(exit_status, int) and exit_status != 0:
+            result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
+            if result:
+                path, node = result
+                if print_output:
+                    try:
+                        if 'aiida.out' in node.node.get_retrieve_list():
+                            print('Found in standard output:')
+                            print(node.node.get_retrieved_node().get_object_content('aiida.out'))
+                    except (AttributeError, KeyError):
+                        print('aiida.out not found in retrieved')
+                if print_stdout:
+                    try:
+                        if '_scheduler-stdout.txt' in node.node.get_retrieve_list():
+                            print('Found in scheduler standard output:')
+                            print(node.node.get_scheduler_stdout())
+                    except (AttributeError, KeyError):
+                        print('_scheduler-stdout.txt not found in retrieved')
+                if print_stderr:
+                    try:
+                        if '_scheduler-stderr.txt' in node.node.get_retrieve_list():
+                            print('Found in scheduler standard error:')
+                            print(node.node.get_scheduler_stderr())
+                    except (AttributeError, KeyError):
+                        print('_scheduler-stderr.txt not found in retrieved')
+                return exit_status
+        
+        return exit_status if isinstance(exit_status, int) else -1
     
     def get_source(self):
         """Get the source of the workchain."""
@@ -409,16 +449,11 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
             return None
         return f"{source_db}-{source_id}"
 
-    def clean_workchain(self, exempted_states, dry_run=True):
+    def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
 
-        path, status, message   = self.get_state()
-        message = f'Process<{self.node.pk}> is now {status} at {path}. Please check if you really want to clean this workchain.\n'
-        if status in exempted_states:
-            print(message)
-            return message, False
         cleaned_calcs = clean_workdir(self.node, dry_run=dry_run)
-        message += f'Cleaned the workchain <{self.node.pk}>:\n'
+        message = f'Cleaned the workchain <{self.node.pk}>:\n'
         message += '  ' + ' '.join(map(str, cleaned_calcs)) + '\n'
         message += f'Deleted the workchain <{self.node.pk}>:\n'
         deleted_nodes, _ = delete_nodes([self.node.pk], dry_run=dry_run)
