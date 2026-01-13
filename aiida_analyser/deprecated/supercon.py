@@ -4,11 +4,14 @@ from aiida import orm
 from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 import numpy
-from .workchains import clean_workdir
-from .base import BaseWorkChainAnalyser
-from .epw_base import EpwBaseWorkChainAnalyser
-from .calculators import _calculate_iso_tc, check_convergence
-from .plot import (
+from ..workchains import clean_workdir
+from ..base import BaseWorkChainAnalyser
+from ..pw_relax import PwRelaxWorkChainAnalyser
+from ..pw_bands import PwBandsWorkChainAnalyser
+from ..epw_prep import EpwPrepWorkChainAnalyser
+from ..epw_base import EpwBaseWorkChainAnalyser
+from ..calculators import _calculate_iso_tc, check_convergence
+from ..plot import (
     plot_a2f,
     plot_eldos,
     plot_aniso_gap_function,
@@ -16,7 +19,7 @@ from .plot import (
     plot_iso_gap_function
 )
 
-class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwSuperConWorkChain.
     """
@@ -88,22 +91,26 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
                 return None
         return source
 
-
     def get_state(self):
         """Get the state of the workchain."""
 
         # Check subprocesses in order
         for subprocess_name, subprocess_analyser in [
-            ('conv', EpwBaseWorkChainAnalyser), 
-            ('epw_final_iso', EpwBaseWorkChainAnalyser), 
-            ('epw_final_aniso', EpwBaseWorkChainAnalyser)
+            ('pw_relax', PwRelaxWorkChainAnalyser), 
+            ('pw_bands', PwBandsWorkChainAnalyser), 
+            ('b2w', EpwPrepWorkChainAnalyser), 
+            ('bands', EpwBaseWorkChainAnalyser),
+            ('a2f', EpwBaseWorkChainAnalyser),
+            ('a2f_conv', EpwBaseWorkChainAnalyser),
+            ('iso', EpwBaseWorkChainAnalyser),
+            ('aniso', EpwBaseWorkChainAnalyser),
             ]:
             if subprocess_name in self.process_tree:
                 if not self.process_tree[subprocess_name].node.is_finished_ok:
                     analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
                     path, process_state, exit_code = analyser.get_state()
                     return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, process_state, exit_code
-        
+
         if self.node.is_finished_ok:
             return 'ROOT', 'finished_ok', 0
         

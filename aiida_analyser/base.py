@@ -296,7 +296,6 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                 if node.node.is_finished_ok and node.node.node_type == 'process.calculation.calcjob.CalcJobNode.':
                     remote_path = node.node.outputs.remote_folder.get_remote_path()
                     flat_paths[full_label] = remote_path
-
             else:
                 nested_paths = BaseWorkChainAnalyser._get_calcjob_paths(
                     node,
@@ -354,43 +353,25 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
             tuple: (path, exit_status, message) or None if no error found
         """
         if self.node.is_finished_ok:
-            return 'ROOT', 0, 'finished OK'    
-        else:
-            # Try to find the first errored CalcJobNode in the process tree
-            result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
-            if result:
-                path, node = result
-                exit_code = node.node.exit_code
-                if exit_code is None:
-                    return path, -1, 'No exit code available'
-                return path, exit_code.status, exit_code.message
-            else:
-                # No errored CalcJobNode found, check the process state
-                # This might happen if:
-                # 1. The workchain is still running
-                # 2. The error is at the WorkChainNode level
-                # 3. The workchain structure is unexpected
-                process_state = self.node.process_state
-                if process_state == ProcessState.RUNNING:
-                    return 'ROOT', -1, 'Workchain is still running'
-                elif process_state == ProcessState.WAITING:
-                    return 'ROOT', -1, 'Workchain is waiting'
-                elif process_state == ProcessState.EXCEPTED:
-                    try:
-                        exception = self.node.exception
-                        return 'ROOT', -1, f'Workchain excepted: {exception}'
-                    except AttributeError:
-                        return 'ROOT', -1, 'Workchain excepted'
-                elif process_state == ProcessState.KILLED:
-                    return 'ROOT', -1, 'Workchain was killed'
-                else:
-                    # ProcessState.FINISHED but not finished_ok
-                    exit_status = self.node.exit_status
-                    if exit_status is not None:
-                        return 'ROOT', exit_status, f'Workchain finished with exit status {exit_status}'
-                    else:
-                        return 'ROOT', -1, 'Unknown status: workchain finished but no exit status available'
-    
+            return 'ROOT', 'finished_ok', 0
+        # else:
+            # 3. Recursively traverse the child nodes
+            # for name, child_node in self.process_tree.children.items():
+            #     if not child_node.node.is_finished_ok:
+            #         return (
+            #             name, 
+            #             child_node.node.process_state.value,
+            #             child_node.node.exit_code if child_node.node.is_finished else None
+            #             )
+        elif not self.process_tree.find_last_node().node.is_finished_ok:
+            return (
+                self.process_tree.find_last_node().name,
+                self.process_tree.find_last_node().node.process_state.value,
+                self.process_tree.find_last_node().node.exit_code if self.process_tree.find_last_node().node.is_finished else None
+            )
+            
+        return 'ROOT', 'unknown_status', None
+
     def print_state(self, print_output=False, print_stdout=False, print_stderr=False):
         """
         Print the state of the workchain.

@@ -54,9 +54,6 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     def get_state(self):
         """Get the state of the workchain."""
 
-        if self.node.is_finished_ok:
-            return 'ROOT', 0, 'finished OK'
-        
         # Check subprocesses in order
         for subprocess_name, subprocess_analyser in [
             ('w90_bands', Wannier90WorkChainAnalyser), 
@@ -67,8 +64,11 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
             if subprocess_name in self.process_tree:
                 if not self.process_tree[subprocess_name].node.is_finished_ok:
                     analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
-                    path, exit_code, message = analyser.get_state()
-                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, exit_code, message
+                    path, process_state, exit_code = analyser.get_state()
+                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, process_state, exit_code
+        
+        if self.node.is_finished_ok:
+            return 'ROOT', 'finished_ok', 0
         
         # If all subprocesses are finished but main node is not, use tree traversal
         # to find the actual error in the process tree
@@ -83,9 +83,9 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def clean_workchain(self, exempted_states=[], dry_run=True):
         """Clean the workchain."""
-        path, status, _ = self.get_state()
-        message = f'Process<{self.node.pk}> is now {status} at {path}. Please check if you really want to clean this workchain.\n'
-        if status in exempted_states:
+        path, process_state, exit_code = self.get_state()
+        message = f'Process<{self.node.pk}> is now {process_state} at {path} with exit code {exit_code}. Please check if you really want to clean this workchain.\n'
+        if process_state in exempted_states:
             print(message)
             return message, False
 

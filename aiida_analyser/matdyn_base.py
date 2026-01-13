@@ -1,17 +1,15 @@
 from aiida import orm
 from .base import BaseWorkChainAnalyser
 
-class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class MatdynBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the PwBaseWorkChain.
+    Analyser for the MatdynBaseWorkChain.
     """
 
     def get_source(self):
         """Get the source of the workchain."""
         if all(key in self.node.base.extras for key in ['source_db', 'source_id']):
             return (self.node.base.extras.get('source_db'), self.node.base.extras.get('source_id'))
-        elif all(key in self.node.inputs.structure.base.extras for key in ['source_db', 'source_id']):
-            return (self.node.inputs.structure.base.extras.get('source_db'), self.node.inputs.structure.base.extras.get('source_id'))
         else:
             raise ValueError('Source is not set')
 

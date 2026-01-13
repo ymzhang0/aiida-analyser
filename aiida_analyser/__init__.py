@@ -3,6 +3,9 @@
 """
 __version__ = "0.1.0"
 
+from .dict import (
+    NestedDict,
+)
 from .printer import (
     Printer,
 )
@@ -10,11 +13,15 @@ from .base import (
     ProcessTree,
     BaseWorkChainAnalyser,
 )
-from .pw_bands import (
-    PwBandsWorkChainAnalyser,
-)
+
 from .pw_base import (
     PwBaseWorkChainAnalyser,
+)
+from .pw_relax import (
+    PwRelaxWorkChainAnalyser,
+)
+from .pw_bands import (
+    PwBandsWorkChainAnalyser,
 )
 from .projwfc_base import (
     ProjwfcBaseWorkChainAnalyser,
@@ -31,6 +38,30 @@ from .wannier90_base import (
 from .ph_base import (
     PhBaseWorkChainAnalyser,
 )
+from .q2r_base import (
+    Q2rBaseWorkChainAnalyser,
+)
+from .matdyn_base import (
+    MatdynBaseWorkChainAnalyser,
+)
+from .layer_relax import (
+    LayerRelaxWorkChainAnalyser,
+)
+from .sfebase import (
+    SFEBaseWorkChainAnalyser,
+)
+from .isfe import (
+    ISFEWorkChainAnalyser,
+)
+from .esfe import (
+    ESFEWorkChainAnalyser,
+)
+from .usfe import (
+    USFEWorkChainAnalyser,
+)
+from .gsfe import (
+    GSFEWorkChainAnalyser,
+)
 from .epw_base import (
     EpwBaseWorkChainAnalyser,
 )
@@ -38,26 +69,42 @@ from .epw_prep import (
     EpwPrepWorkChainAnalyser,
 )
 from .supercon import (
-    EpwSuperConWorkChainAnalyser,
+    SuperConWorkChainAnalyser,
 )
-
 
 from .thermo_pw import (
     ThermoPwBaseAnalyser,
 )
+
+from .structure import (
+    create_structure,
+)
+
 __all__ = [
+    'NestedDict',
+    'deprecated',
     'Printer',
     'ProcessTree',
     'BaseWorkChainAnalyser',
-    'PwBandsWorkChainAnalyser',
     'PwBaseWorkChainAnalyser',
+    'PwRelaxWorkChainAnalyser',
+    'PwBandsWorkChainAnalyser',
     'ProjwfcBaseWorkChainAnalyser',
     'Pw2Wannier90BaseWorkChainAnalyser',
     'Wannier90WorkChainAnalyser',
     'Wannier90BaseWorkChainAnalyser',
     'PhBaseWorkChainAnalyser',
+    'Q2rBaseWorkChainAnalyser',
+    'MatdynBaseWorkChainAnalyser',
+    'LayerRelaxWorkChainAnalyser',
+    'SFEBaseWorkChainAnalyser',
+    'ISFEWorkChainAnalyser',
+    'ESFEWorkChainAnalyser',
+    'USFEWorkChainAnalyser',
+    'GSFEWorkChainAnalyser',
     'EpwBaseWorkChainAnalyser',
     'EpwPrepWorkChainAnalyser',
-    'EpwSuperConWorkChainAnalyser',
+    'SuperConWorkChainAnalyser',
     'ThermoPwBaseAnalyser',
+    'create_structure',
 ]

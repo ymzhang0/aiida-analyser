@@ -110,13 +110,13 @@ def plot_a2f(
         w,
         color=kwargs.get('color', 'r'),
         linestyle=kwargs.get('linestyle', '-'),
-        label=r"$\alpha^2F$")
+        label=kwargs.get('label1', r"$\alpha^2F$"))
     ax.plot(
         spectral[:, 19],
         w,
         color=kwargs.get('color', 'k'),
         linestyle=kwargs.get('linestyle', '--'),
-        label=r"$\lambda$")
+        label=kwargs.get('label2', r"$\lambda$"))
 
     ax.set_xticks(
         [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
@@ -231,7 +231,14 @@ def plot_aniso(epw_calc, axis=None, ignore_temps=0, add_fit=False):
 
     return plt
 
-def plot_bands(bands: orm.BandsData, axis=None, reference_energy=0, seekpath_params=None, **kwargs):
+def plot_bands(
+    bands: orm.BandsData,
+    axis=None,
+    reference_energy=0,
+    seekpath_params=None,
+    label='Energy (eV)',
+    **kwargs,
+    ):
     """Plot a band structure from a ``BandsData`` node."""
 
     color = kwargs.pop('color', 'blue')
@@ -254,6 +261,9 @@ def plot_bands(bands: orm.BandsData, axis=None, reference_energy=0, seekpath_par
 
     if len(xticks) > 0:
         ax.set_xticks(xticks, xtick_labels)
+    
+    xlim = kwargs.pop('xlim', [xticks[0], xticks[-1]])
+    ax.set_xlim(xlim)
 
     for tick in xticks:
         ax.axvline(tick, color='k')
@@ -262,7 +272,10 @@ def plot_bands(bands: orm.BandsData, axis=None, reference_energy=0, seekpath_par
         ax.plot(band - reference_energy, color=color, **kwargs)
 
     ax.axhline(0, color='k', linestyle='--')
-
+    ax.set_ylim([-2, 2])
+    ax.set_yticks([-2, 0, 2])
+    ax.set_yticklabels([-2, '$E_F$', 2], fontsize=kwargs.get('ticklabel_fontsize', 16))
+    ax.set_ylabel(label, fontsize=kwargs.get('label_fontsize', 16))
     if axis is None:
         return plt
 
@@ -294,7 +307,6 @@ def create_xticks(seekpath_params):
         xticks.append(explicit_segment[1])
 
     return xticks, xtick_labels
-
 
 def create_xticks_bands(bands: orm.BandsData) -> Tuple[list, list]:
     """Create xticks and xtick_labels for a band structure plot.
@@ -424,6 +436,8 @@ def create_xticklabels(plain_path):
 def plot_epw_interpolated_bands(
     epw_workchain,
     axes=None,
+    elabel = 'Energy (eV)',
+    plabel = 'Frequency (meV)',
     **kwargs,
     ):
     """Plot the interpolated bands from an ``EpwWorkChain`` node."""
@@ -470,13 +484,13 @@ def plot_epw_interpolated_bands(
     axes[0].set_ylim([-2, 2])
     axes[0].set_yticks([-2, 0, 2])
     axes[0].set_yticklabels([-2, '$E_F$', 2], fontsize=kwargs.get('ticklabel_fontsize', 16))
-    axes[0].set_ylabel('Energy (eV)', fontsize=kwargs.get('label_fontsize', 16))
+    axes[0].set_ylabel(elabel, fontsize=kwargs.get('label_fontsize', 16))
     axes[0].set_xlim([explicit_kpoints_linearcoord[0], explicit_kpoints_linearcoord[-1]])
 
     axes[1].set_ylim([min_freq, max_freq*1.05])
     axes[1].set_yticks([numpy.floor(min_freq), numpy.ceil(max_freq*1.05)])
     axes[1].set_yticklabels([numpy.floor(min_freq), numpy.ceil(max_freq*1.05)], fontsize=kwargs.get('ticklabel_fontsize', 16))
-    axes[1].set_ylabel('Frequency (meV)', fontsize=kwargs.get('label_fontsize', 16))
+    axes[1].set_ylabel(plabel, fontsize=kwargs.get('label_fontsize', 16))
     axes[1].set_xlim([explicit_kpoints_linearcoord[0], explicit_kpoints_linearcoord[-1]])
 
     for tick in xticks:
@@ -492,22 +506,25 @@ def plot_epw_interpolated_bands(
     axes[1].set_xticks(xticks)
     axes[1].set_xticklabels(xticklabels, fontsize=kwargs.get('ticklabel_fontsize', 16))
 
-    axes[1].plot([], [])
+    axes[0].plot([], [], label = kwargs.get('label', ''))
 
 
-    for el_band, ph_band in zip(el_bands.T, ph_bands.T):
+    for el_band in el_bands.T:
         axes[0].plot(
             explicit_kpoints_linearcoord,
             el_band-fermi_energy_coarse,
             linestyle=kwargs.get('linestyle', '--'),
-            color=kwargs.get('color', 'r'),
+            color=kwargs.get('color_el', 'r'),
             )
+    for ph_band in ph_bands.T:
         axes[1].plot(
             explicit_kpoints_linearcoord,
             ph_band,
             linestyle=kwargs.get('linestyle', '-'),
-            color=kwargs.get('color', 'k'),
+            color=kwargs.get('color_ph', 'k'),
             )
+
+    axes[0].legend()
     return axes
 
 def check_wannier_optimize(w90_optimize_workchain, filename=None):
@@ -588,7 +605,7 @@ def plot_iso_gap_function(
     fit=False,
     p0=None,
     **kwargs,
-):
+    ):
     """Plot the isotropic gap (Imaginary) vs. temeprature."""
     import matplotlib.ticker as ticker
 
@@ -633,7 +650,7 @@ def plot_iso_gap_function(
     if fit:
         if p0 is None:
             p0 = [imag_temp[-1], 3.3, imag_delta[0]]
-        popt, pcov = curve_fit(bcs_gap_function, imag_temp, imag_delta, p0=p0)
+        popt, pcov = curve_fit(bcs_gap_function, imag_temp, imag_delta, p0=p0, maxfev=1000000)
         Tc, p, Delta_0 = popt
         T = numpy.linspace(0, Tc, 100)
         ax.plot(
@@ -643,6 +660,7 @@ def plot_iso_gap_function(
             c="r",
             label="Fit",
         )
+        print(f'popt: {popt}')
 
     return axis
 
@@ -666,8 +684,6 @@ def plot_aniso_gap_function(
     temps = []
     average_deltas = []
     rhos = []
-
-
 
     for arraynames in aniso_gap_functions_arraydata.get_arraynames():
         parse = aniso_gap_functions_arraydata.get_array(arraynames)
@@ -693,6 +709,18 @@ def plot_aniso_gap_function(
     sorted_pairs = sorted(zip(temps, average_deltas), key=lambda x: x[0])
     temps_sorted, average_deltas_sorted = zip(*sorted_pairs)
 
+    ntemps = len(temps_sorted)
+    if ntemps <=2:
+        rprint('[bold red]less than 2 temperature, can\'t be fit[/bold red]')
+        return {
+            'well_fit': False,
+            'remove_temps': remove_temps,
+            'exclude_points': exclude_points,
+            'temps': temps,
+            'average_deltas': average_deltas,
+            'rhos': rhos,
+        }
+
     if remove_temps != [0, 0]:
         rprint(f'[italic green]Removed temps[/italic green]: {remove_temps}')
         temps_sorted = temps_sorted[remove_temps[0]:ntemps-remove_temps[1]]
@@ -706,17 +734,6 @@ def plot_aniso_gap_function(
         sorted_rhos = [sorted_rhos[i] for i in range(ntemps) if i not in exclude_points]
 
 
-    ntemps = len(temps_sorted)
-    if ntemps <=2:
-        rprint('[bold red]less than 2 temperature, can\'t be fit[/bold red]')
-        return {
-            'well_fit': False,
-            'remove_temps': remove_temps,
-            'exclude_points': exclude_points,
-            'temps': temps,
-            'average_deltas': average_deltas,
-            'rhos': rhos,
-        }
 
     width_and_incre = []
     for idr, rho in enumerate(sorted_rhos[:-1]):

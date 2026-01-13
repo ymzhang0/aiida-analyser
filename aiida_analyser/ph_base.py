@@ -1,6 +1,6 @@
 from aiida import orm
 from .base import BaseWorkChainAnalyser
-
+from itertools import chain
 class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
@@ -62,19 +62,20 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
             if len(neg_freq) > 0:
                 is_stable = False
                 negative_freqs[iq+2] = neg_freq
-
+        
         if is_stable:
             message += 'Phonon is stable from `ph_base`.'
         else:
+            min_freq = min(chain.from_iterable(negative_freqs.values()))
             message += f'Phonon is unstable from `ph_base`.\n'
-            for iq, freqs in negative_freqs.items():
-                q_points_str = ', '.join(map(str, qpoints[iq-1]))
-                negative_freqs_str = ', '.join(map(str, freqs))
-                message += f'{iq}th qpoint ({q_points_str}) has negative frequencies: {negative_freqs_str} cm^{-1}\n'
+            # for iq, freqs in negative_freqs.items():
+                # q_points_str = ', '.join(map(str, qpoints[iq-1]))
+                # negative_freqs_str = ', '.join(map(str, freqs))
+                # message += f'{iq}th qpoint ({q_points_str}) has negative frequencies: {negative_freqs_str} cm^{-1}\n'
+            message += f'{len(negative_freqs)} qpoints have negative frequency. minimum frequency: {min_freq} cm^{-1}'
         return is_stable, message
 
-    @property
-    def is_stable(self):
+    def is_stable(self, mute_print=False):
         """Check if the workchain is stable."""
 
         if self.node.is_finished_ok:
@@ -87,14 +88,15 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         nqs, q_points, frequencies = self.get_qpoints_and_frequencies(output_parameters)
         if not len(q_points):
             print('No q-points found')
-            return (True, 0, nqs)
-
-        is_stable, message = self._is_stable(
-            q_points,
-            frequencies,
-            message = header + f"From the calculated {len(q_points)} q-points out of {nqs} we find:\n"
-            )
-        print(message)
+            return (False, 0, nqs)
+        else:
+            is_stable, message = self._is_stable(
+                q_points,
+                frequencies,
+                message = header + f"From the calculated {len(q_points)} q-points out of {nqs} we find:\n"
+                )
+        if not mute_print:
+            print(message)
         return (is_stable, len(q_points), nqs)
 
     def get_source(self):
@@ -109,77 +111,74 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     def get_state(self):
         """Get the state of the workchain."""
         # Start with the base implementation
+
+        path, process_state, exit_code = self._get_state_from_tree()
+        # Check stability if exit_code is 0 (finished successfully)
+
         try:
-            path, exit_status, message = self._get_state_from_tree()
-        except (AttributeError, ValueError) as e:
-            print(f'PhBaseWorkChain<{self.node.pk}> has unknown exit status: {e}')
-            return 'ROOT', -1, 'Unknown status'
+            is_stable, _, _ = self.is_stable(mute_print=True)
+            if not is_stable:
+                message = message + f'\n    Phonon is unstable from `ph_base`.'
+                exit_status = 'UNSTABLE'
+        except Exception as e:
+            # If stability check fails, log but don't change status
+            message = f'Stability check failed: {e}'
 
         # Handle exit_status == 312 (specific error code that needs detailed analysis)
-        if exit_status == 312:
-            detected_error = None
-            try:
-                last_node = self.process_tree.find_last_node().node
-                if last_node.process_label != 'PhCalculation':
-                    # If last node is not PhCalculation, return the original status
-                    return path, exit_status, f'{message} (Last node is {last_node.process_label}, not PhCalculation)'
-                
-                # Try to get output files for error analysis
+        if process_state == 'finished':
+            if exit_code.status == 312:
+                detected_error = None
                 try:
-                    aiida_out = last_node.outputs.retrieved.get_object_content('aiida.out')
-                except (AttributeError, KeyError):
-                    aiida_out = ''
-                
-                try:
-                    stderr = last_node.get_scheduler_stderr()
-                except (AttributeError, KeyError):
-                    stderr = ''
-                
-                # Check for specific error messages in output
-                for error_flag, error_message in [
-                    ('ERROR_FIND_MODE_SYM', 'Error in routine find_mode_sym (1)'),
-                    ('ERROR_SET_IRR_SYM_NEW', 'Error in routine set_irr_sym_new (922)'),
-                    ('ERROR_WRONG_REPRESENTATION', 'Error in routine set_irr_sym_new (822)'),
-                    ('ERROR_CDIAGHG', 'Error in routine cdiaghg (4)'),
-                    ('ERROR_S_MATRIX_NOT_POSITIVE_DEFINITE', 'Error in routine cdiaghg (126)'),
-                    ('ERROR_PHQ_SETUP', 'Error in routine phq_setup (1)'),
-                    ('ERROR_Q_POINTS', 'Error in routine q_points (1)'),
-                    ('ERROR_DAVCIO', 'Error in routine davcio (99)'),
-                    ('ERROR_CHECK_ALL_CONVT', 'Error in routine check_all_convt (1)'),
-                    ('ERROR_READ_WFC', 'Error in routine read_wfc (29)'),
-                ]:
-                    if error_message in aiida_out:
-                        detected_error = error_flag
-                        break
+                    last_node = self.process_tree.find_last_node().node
+                    if last_node.process_label != 'PhCalculation':
+                        # If last node is not PhCalculation, return the original status
+                        return path, exit_status, f'{self.node.exit_message} (Last node is {last_node.process_label}, not PhCalculation)'
+                    
+                    # Try to get output files for error analysis
+                    try:
+                        aiida_out = last_node.outputs.retrieved.get_object_content('aiida.out')
+                    except (AttributeError, KeyError):
+                        aiida_out = ''
+                    
+                    try:
+                        stderr = last_node.get_scheduler_stderr()
+                    except (AttributeError, KeyError):
+                        stderr = ''
+                    
+                    # Check for specific error messages in output
+                    for error_flag, error_message in [
+                        ('ERROR_FIND_MODE_SYM', 'Error in routine find_mode_sym (1)'),
+                        ('ERROR_SET_IRR_SYM_NEW', 'Error in routine set_irr_sym_new (922)'),
+                        ('ERROR_WRONG_REPRESENTATION', 'Error in routine set_irr_sym_new (822)'),
+                        ('ERROR_CDIAGHG', 'Error in routine cdiaghg (4)'),
+                        ('ERROR_S_MATRIX_NOT_POSITIVE_DEFINITE', 'Error in routine cdiaghg (126)'),
+                        ('ERROR_PHQ_SETUP', 'Error in routine phq_setup (1)'),
+                        ('ERROR_Q_POINTS', 'Error in routine q_points (1)'),
+                        ('ERROR_DAVCIO', 'Error in routine davcio (99)'),
+                        ('ERROR_CHECK_ALL_CONVT', 'Error in routine check_all_convt (1)'),
+                        ('ERROR_READ_WFC', 'Error in routine read_wfc (29)'),
+                    ]:
+                        if error_message in aiida_out:
+                            detected_error = error_flag
+                            break
 
-                if detected_error:
-                    exit_status = detected_error
-                    message = f'{message} (Detected: {detected_error})'
-                elif 'TIME LIMIT' in stderr:
-                    exit_status = 'SCHEDULER_TIME_LIMIT'
-                    message = f'{message} (Scheduler time limit reached)'
-                elif 'process killed' in stderr:
-                    exit_status = 'KILLED_BY_SCHEDULER'
-                    message = f'{message} (Process killed by scheduler)'
-                else:
-                    exit_status = -1
-                    message = f'{message} (Unable to determine specific error)'
-            except Exception as e:
-                # If error analysis fails, return original status with error info
-                return path, exit_status, f'{message} (Error analysis failed: {e})'
+                    if detected_error:
+                        exit_status = detected_error
+                        message = f'{message} (Detected: {detected_error})'
+                    elif 'TIME LIMIT' in stderr:
+                        exit_status = 'SCHEDULER_TIME_LIMIT'
+                        message = f'{message} (Scheduler time limit reached)'
+                    elif 'process killed' in stderr:
+                        exit_status = 'KILLED_BY_SCHEDULER'
+                        message = f'{message} (Process killed by scheduler)'
+                    else:
+                        exit_status = -1
+                        message = f'Unable to determine specific error'
+                except Exception as e:
+                    # If error analysis fails, return original status with error info
+                    return path, process_state, f'Error analysis failed: {e}'
 
-        # Check stability if exit_status is 0 (finished successfully)
-        if exit_status == 0:
-            try:
-                is_stable, n_calculated, n_total = self.is_stable
-                if not is_stable:
-                    message = message + f'\n    Phonon is unstable from `ph_base`.'
-                    exit_status = 'UNSTABLE'
-            except Exception as e:
-                # If stability check fails, log but don't change status
-                message = f'{message} (Stability check failed: {e})'
-
-        return path, exit_status, message
+        return path, process_state, exit_code
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
