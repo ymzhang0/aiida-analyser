@@ -186,3 +186,67 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
+
+
+class SPDFPTData:
+    def __init__(self, data):
+        self._groups = None
+        self._data = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: None
+                    )
+                )
+            )
+        )
+        self.get_data()
+
+    @property
+    def groups(self):
+        if self._groups is None:
+            self._groups = self._data.keys()
+        return self._groups
+    
+    def check_protocol(self, node):
+        if node.process_label not in ['PhBaseWorkChain']:
+            raise ValueError(f'Node<{node.pk}> is not a PhBaseWorkChain')
+        extras = node.base.extras.all
+        for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss', ]:
+            if key not in extras:
+                raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+
+    def get_data(self):
+        for grpname in self._groups:
+            group = orm.load_group(grpname)
+            for node in group.nodes:
+                try:
+                    extras = node.base.extras.all
+                    self.check_protocol(node)
+                    
+                    mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
+                    
+                    if node.process_label in ['PhBaseWorkChain']:
+                        # Use 'relax' key to avoid overwriting the dict at this level
+                        self._data[mat_key][extras['kpoints_distance']][extras['degauss']]['relax'] = node
+                    elif node.process_label in ['EpwPrepWorkChain']:
+                        self._data[mat_key][extras['kpoints_distance']][extras['degauss']][extras['qpoints_distance']] = node
+                except Exception as e:
+                    # Provide more context in error message
+                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+    
+    def plot_convergence(self):
+        import re
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        for degauss, degauss_dict in self._data.items():
+            sorted_degauss_dict = dict(sorted(degauss_dict.items()))
+            ax.scatter(list(sorted_degauss_dict.keys()), list(sorted_degauss_dict.values()))
+            ax.plot(list(sorted_degauss_dict.keys()), list(sorted_degauss_dict.values()), label=degauss)
+        ax.set_xlabel('Number of Kpoints')
+        ax.set_ylabel('Frequency [cm$^{-1}$] @ [-0.5, 0, 0]')
+        ax.legend()
+        ax.set_xscale('log')
+        fig.tight_layout()

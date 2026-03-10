@@ -61,15 +61,24 @@ from .usfe import (
 )
 from .gsfe import (
     GSFEWorkChainAnalyser,
+    GSFEGroupData,
+)
+
+from .surface import (
+    SurfaceWorkChainAnalyser,
+    SurfaceEnergyData,
 )
 from .epw_base import (
     EpwBaseWorkChainAnalyser,
 )
 from .epw_prep import (
     EpwPrepWorkChainAnalyser,
+    EpwPrepConvergenceData,
+    EpwPrepData
 )
 from .supercon import (
     SuperConWorkChainAnalyser,
+    SuperConData,
 )
 
 from .thermo_pw import (
@@ -102,9 +111,15 @@ __all__ = [
     'ESFEWorkChainAnalyser',
     'USFEWorkChainAnalyser',
     'GSFEWorkChainAnalyser',
+    'GSFEGroupData',
+    'SurfaceWorkChainAnalyser',
+    'SurfaceEnergyData',
     'EpwBaseWorkChainAnalyser',
     'EpwPrepWorkChainAnalyser',
+    'EpwPrepConvergenceData',
+    'EpwPrepData',
     'SuperConWorkChainAnalyser',
+    'SuperConData',
     'ThermoPwBaseAnalyser',
     'create_structure',
 ]

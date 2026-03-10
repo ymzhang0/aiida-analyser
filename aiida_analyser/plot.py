@@ -9,7 +9,7 @@ from scipy.optimize import curve_fit
 from rich import print as rprint
 import re
 import os
-
+import pandas as pd
 
 def plot_eldos(
     dos_xydata,
@@ -17,6 +17,12 @@ def plot_eldos(
     axis = None,
     **kwargs,
     ):
+    color = kwargs.pop('color', 'r')
+    linestyle = kwargs.pop('linestyle', '-')
+    label = kwargs.pop('label', r"phdos")
+
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
+    label_fontsize = kwargs.pop('label_fontsize', 16)
 
     E        = dos_xydata.get_array('Energy') - fermi_energy_coarse
     dos = dos_xydata.get_array('EDOS')
@@ -30,20 +36,20 @@ def plot_eldos(
     ax.plot(
         dos,
         E,
-        color=kwargs.get('color', 'r'),
-        linestyle=kwargs.get('linestyle', '-'),
-        label=r"phdos")
+        color=color,
+        linestyle=linestyle,
+        label=label)
 
     ax.set_xticks(
         [0, round(numpy.max(dos) * 1.05, 1)],
         [0, round(numpy.max(dos) * 1.05, 1)],
-        fontsize=kwargs.get('ticklabel_fontsize', 16),
+        fontsize=ticklabel_fontsize,
         )
     ax.set_yticks([], [])
 
     ax.set_xlim(0, round(numpy.max(dos) * 1.05, 1))
-    ax.set_ylim(-2, 2)
-    ax.set_ylabel(r"Energy (eV)", fontsize=kwargs.get('label_fontsize', 16))
+    ax.set_ylim(-2, 2)  
+    ax.set_ylabel(r"Energy (eV)", fontsize=label_fontsize)
 
 
     if axis is None:
@@ -54,8 +60,18 @@ def plot_phdos(
     axis = None,
     **kwargs,
     ):
+    color = kwargs.pop('color', 'r')
+    linestyle = kwargs.pop('linestyle', '-')
+    label = kwargs.pop('label', r"phdos")
+
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
+    label_fontsize = kwargs.pop('label_fontsize', 16)
+
     w        = phdos_xydata.get_array('Frequency')
     dos = phdos_xydata.get_array('PHDOS')
+    idos = pd.Series(dos).cumsum()
+
+    idos /= numpy.max(idos)
 
     if axis is None:
         from matplotlib import pyplot as plt
@@ -66,23 +82,30 @@ def plot_phdos(
     ax.plot(
         dos,
         w,
-        color=kwargs.get('color', 'r'),
-        linestyle=kwargs.get('linestyle', '-'),
-        label=r"phdos")
+        color=color,
+        linestyle=linestyle,
+        label=label)
+
+    ax.plot(
+        idos,
+        w,
+        color=color,
+        linestyle='--',
+        label=label)
 
     ax.set_xticks(
         [0, round(numpy.max(dos) * 1.05, 1)],
         [0, round(numpy.max(dos) * 1.05, 1)],
-        fontsize=kwargs.get('ticklabel_fontsize', 16),
+        fontsize=ticklabel_fontsize,
         )
     ax.set_yticks(
         [0, round(numpy.max(w) * 1.05, 1)],
         [0, round(numpy.max(w) * 1.05, 1)],
-        fontsize=kwargs.get('ticklabel_fontsize', 16),
+        fontsize=ticklabel_fontsize,
         )
     ax.set_xlim(0, round(numpy.max(dos) * 1.05, 1))
     ax.set_ylim(0, round(numpy.max(w) * 1.05, 1))
-    ax.set_ylabel(r"$\omega$ [meV]", fontsize=kwargs.get('label_fontsize', 16))
+    ax.set_ylabel(r"$\omega$ [meV]", fontsize=label_fontsize)
 
 
     if axis is None:
@@ -93,6 +116,7 @@ def plot_a2f(
     output_parameters,
     axis = None,
     show_data = False,
+    integrated_a2f = True,
     **kwargs,
     ):
     w        = a2f_arraydata.get_array('frequency')
@@ -111,28 +135,30 @@ def plot_a2f(
         color=kwargs.get('color', 'r'),
         linestyle=kwargs.get('linestyle', '-'),
         label=kwargs.get('label1', r"$\alpha^2F$"))
-    ax.plot(
-        spectral[:, 19],
-        w,
-        color=kwargs.get('color', 'k'),
-        linestyle=kwargs.get('linestyle', '--'),
-        label=kwargs.get('label2', r"$\lambda$"))
+    if integrated_a2f:
+        ax.plot(
+            spectral[:, 19],
+            w,
+            color=kwargs.get('color', 'k'),
+            linestyle=kwargs.get('linestyle', '--'),
+            label=kwargs.get('label2', r"$\lambda$")
+            )
 
-    ax.set_xticks(
-        [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
-        [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
-        fontsize=kwargs.get('ticklabel_fontsize', 16),
-        )
-    ax.set_yticks(
-        [0, round(numpy.max(w) * 1.05, 1)],
-        [0, round(numpy.max(w) * 1.05, 1)],
-        fontsize=kwargs.get('ticklabel_fontsize', 16),
-        )
+    # ax.set_xticks(
+    #     [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
+    #     [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
+    #     fontsize=kwargs.get('ticklabel_fontsize', 16),
+    #     )
+    # ax.set_yticks(
+    #     [0, round(numpy.max(w) * 1.05, 1)],
+    #     [0, round(numpy.max(w) * 1.05, 1)],
+    #     fontsize=kwargs.get('ticklabel_fontsize', 16),
+    #     )
     ax.set_xlim(0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1))
-    ax.set_ylim(0, round(numpy.max(w) * 1.05, 1))
+    ax.set_ylim(0, round(numpy.max(w) * 1.0, 1))
     # ax.set_ylabel(r"$\alpha^2F$")
     ax.set_ylabel(r"$\omega$ [meV]", fontsize=kwargs.get('label_fontsize', 16))
-    ax.legend(fontsize=kwargs.get('legend_fontsize', 16))
+    # ax.legend(fontsize=kwargs.get('legend_fontsize', 16))
 
     if show_data and output_parameters:
         lambda_ = output_parameters.get('lambda')
@@ -241,7 +267,9 @@ def plot_bands(
     ):
     """Plot a band structure from a ``BandsData`` node."""
 
-    color = kwargs.pop('color', 'blue')
+    color = kwargs.pop('color', 'black')
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
+    label_fontsize = kwargs.pop('label_fontsize', 16)
 
     if axis is None:
         import matplotlib.pyplot as plt
@@ -274,8 +302,8 @@ def plot_bands(
     ax.axhline(0, color='k', linestyle='--')
     ax.set_ylim([-2, 2])
     ax.set_yticks([-2, 0, 2])
-    ax.set_yticklabels([-2, '$E_F$', 2], fontsize=kwargs.get('ticklabel_fontsize', 16))
-    ax.set_ylabel(label, fontsize=kwargs.get('label_fontsize', 16))
+    ax.set_yticklabels([-2, '$E_F$', 2], fontsize=ticklabel_fontsize)
+    ax.set_ylabel(label, fontsize=label_fontsize)
     if axis is None:
         return plt
 
@@ -449,8 +477,8 @@ def plot_epw_interpolated_bands(
         raise ValueError("axes must be a 2D array")
 
     fermi_energy_coarse = epw_workchain.outputs.output_parameters.get('fermi_energy_coarse')
-    parameters = epw_workchain.outputs.seekpath_parameters.get_dict()
-
+    # parameters = epw_workchain.outputs.seekpath_parameters.get_dict()
+    parameters = epw_workchain.inputs.kfpoints.creator.outputs.parameters.get_dict()
     path = parameters['path']
     explicit_segments = parameters['explicit_segments']
     explicit_kpoints_linearcoord = parameters['explicit_kpoints_linearcoord']
@@ -475,8 +503,10 @@ def plot_epw_interpolated_bands(
     xticks = [explicit_kpoints_linearcoord[k] for k in kpoints_indicies]
     xticklabels = create_xticklabels(plain_path)
 
-    el_bands = epw_workchain.outputs.bands.el_band_structure.get_bands()
-    ph_bands = epw_workchain.outputs.bands.ph_band_structure.get_bands()
+    # el_bands = epw_workchain.outputs.bands.el_band_structure.get_bands()
+    # ph_bands = epw_workchain.outputs.bands.ph_band_structure.get_bands()
+    el_bands = epw_workchain.outputs.el_band_structure.get_bands()
+    ph_bands = epw_workchain.outputs.ph_band_structure.get_bands()
 
     max_freq = numpy.max(ph_bands)
     min_freq = numpy.min(ph_bands)
@@ -506,7 +536,8 @@ def plot_epw_interpolated_bands(
     axes[1].set_xticks(xticks)
     axes[1].set_xticklabels(xticklabels, fontsize=kwargs.get('ticklabel_fontsize', 16))
 
-    axes[0].plot([], [], label = kwargs.get('label', ''))
+    axes[0].plot([], [], color=kwargs.get('color_el', 'r'), label = kwargs.get('label', ''))
+    axes[1].plot([], [], color=kwargs.get('color_ph', 'b'), label = kwargs.get('label', ''))
 
 
     for el_band in el_bands.T:

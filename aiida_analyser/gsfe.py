@@ -1,3 +1,5 @@
+from collections import defaultdict
+from aiida import orm
 from .pw_relax import PwRelaxWorkChainAnalyser
 from .base import BaseWorkChainAnalyser
 from scipy.optimize import curve_fit
@@ -11,6 +13,16 @@ from aiida_dislocation.tools import (
     L21GlidingSystem,
     get_strukturbericht
     )
+from aiida_dislocation.tools.structure_utils import (
+    get_strukturbericht
+    )
+
+import re
+from copy import deepcopy
+
+def formula_to_latex(formula):
+    latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
+    return rf"${latex_formula}$"
 
 def gamma_isf(x, cG, g_isf):
     """
@@ -20,24 +32,42 @@ def gamma_isf(x, cG, g_isf):
     """
     return cG * numpy.sin(numpy.pi * x)**2 + g_isf * x
 
-def gamma_esf(x, cG, b, c):
+def gamma_esf(x, cG1, cG2, cG3, cG4, b, c):
     """
     Calculates the value for the second region: 0 < x <= 1
     Formula: cG * sin^2(pi*x) + gamma_ISF * (2 - c) + gamma_ESF * (x - c)
     """
     return numpy.where(
         x <= 1, 
-        cG * numpy.sin(numpy.pi * x)**2 + b * x, 
-        cG * numpy.sin(numpy.pi * x)**2 + c * x + (b - c)
+        cG1 * numpy.sin(numpy.pi * x)**2 + 
+        cG2 * numpy.sin(numpy.pi * x)**4 + 
+        cG3 * numpy.sin(numpy.pi * x)**6 + 
+        cG4 * numpy.sin(numpy.pi * x)**8 + 
+        b * x, 
+        cG1 * numpy.sin(numpy.pi * x)**2 + 
+        cG2 * numpy.sin(numpy.pi * x)**4 + 
+        cG3 * numpy.sin(numpy.pi * x)**6 + 
+        cG4 * numpy.sin(numpy.pi * x)**8 + 
+        c * x + (b - c)
     )
 
-def gamma_usf(x, e_usf):
+def gamma_usf(x, a, b, c, d):
     """
     Calculates the value for the third region: 1 < x <= 2
     Formula: gamma_USF * sin^2(pi*x)
     """
-    return e_usf * numpy.sin(numpy.pi * x)**2
+    return  a * numpy.sin(numpy.pi * x)**2 + \
+            b * numpy.sin(numpy.pi * x)**4 + \
+            c * numpy.sin(numpy.pi * x)**6 + \
+            d * numpy.sin(numpy.pi * x)**8
 
+def gamma_usf2(x, e_usf1, e_usf2):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: gamma_USF * sin^2(pi*x)
+    """
+    return  e_usf1 * numpy.sin(numpy.pi * x)**2 + \
+            e_usf2 * numpy.sin(2*numpy.pi * x)**2
 
 fit_function_map = {
     'A1': {
@@ -55,25 +85,25 @@ fit_function_map = {
     'B1': {
         'gliding_system': B1GlidingSystem,
         '100': gamma_usf,
-        '011': gamma_usf,
+        '011': gamma_usf2,
         '111': gamma_esf,
     },
     'B2': {
         'gliding_system': B2GlidingSystem,
         '100': gamma_usf,
-        '011': gamma_usf,
+        '011': gamma_usf2,
         '111': gamma_isf,
     },
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
         '100': gamma_usf,
-        '011': gamma_usf,
+        '011': gamma_usf2,
         '111': gamma_esf,
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
         '100': gamma_usf,
-        '011': gamma_usf,
+        '011': gamma_usf2,
         '111': gamma_esf,
     },
 }
@@ -169,7 +199,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
                         energy_section.append(_energies.pop(0))
                 energies[slipping_direction].append(energy_section)
     
-        return energies
+        return deepcopy(energies)
 
     def get_surface_energy(self):
         """Get the surface energy."""
@@ -218,6 +248,14 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def fit_curve(self, plot=False, axis=None, **kwargs):
         """Fit the curve."""
+        from matplotlib.legend_handler import HandlerTuple
+        def get_gradient_shades(hex_color, num=5):
+            import matplotlib.colors as mcolors
+            cmap = mcolors.LinearSegmentedColormap.from_list("custom", [hex_color, "#ffffff"])
+            return [mcolors.to_hex(cmap(i)) for i in numpy.linspace(0, 0.8, num)]
+        
+        markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x']
+        # color = kwargs.get('color', 'black')
         xs = self.serialize_faults()
         energies = self.get_sfe_energies()
         results = {}
@@ -227,11 +265,12 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         
         func = fit_function_map[self.strukturbericht][gliding_plane]
         nsteps = gliding_system.general.nsteps
-        print(nsteps)
 
-        for slipping_direction, x_section in xs.items():
+        sorted_keys = sorted(energies, key=lambda k: max(energies[k]), reverse=True)
+        colors = get_gradient_shades(kwargs.get('color', 'black'), num = len(sorted_keys))
+        for slipping_direction, color in zip(sorted_keys, colors):
             results[slipping_direction] = {}
-            for x, y in zip(x_section, energies[slipping_direction]):
+            for x, y in zip(xs[slipping_direction], energies[slipping_direction]):
                 x_plot = numpy.linspace(0, x[-1], 500)
 
                 # y = numpy.array(energies[slipping_direction])
@@ -250,36 +289,325 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
                 if func == gamma_esf:
                     b = y[nsteps]
-                    c = y[2*nsteps-1]-y[nsteps]
-                    cG, pcov = curve_fit(
-                        lambda x, cG: func(x, cG, b, c)
+                    c = y[2*nsteps]-y[nsteps]
+                    (cG1, cG2, cG3, cG4), pcov = curve_fit(
+                        lambda x, cG1, cG2, cG3, cG4: func(x, cG1, cG2, cG3, cG4, b, c)
                         , x, y, maxfev=100000)
 
-                    y_fit = func(x_plot, cG, b, c)
+                    y_fit = func(x_plot, cG1, cG2, cG3, cG4, b, c)
 
-                    x_max = numpy.arcsin(-b / numpy.pi / cG) / 2 * numpy.pi
+                    x_max = numpy.arcsin(-b / numpy.pi / cG1) / 2 * numpy.pi
+                    results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                     results[slipping_direction]['isf'] = b
-                    results[slipping_direction]['usf'] = func(x_max, cG, b, c)[0]
+                    results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
+                    # results[slipping_direction]['usf'] = func(x_max, cG1, cG2, cG3, cG4, b, c)
                     results[slipping_direction]['esf'] = b+c
 
 
                 if func == gamma_usf:
-                    e_usf, pcov = curve_fit(
+                    (a, b, c, d), pcov = curve_fit(
                         func, x, y, maxfev=100000)
 
-                    y_fit = func(x_plot, e_usf)
+                    y_fit = func(x_plot, a, b, c, d)
 
-                    results[slipping_direction]['usf'] = e_usf
-                    
+                    results[slipping_direction]['usf'] = a + b + c + d
+
+                if func == gamma_usf2:
+                    (e_usf1, e_usf2), pcov = curve_fit(
+                        func, x, y, maxfev=100000)
+
+                    y_fit = func(x_plot, e_usf1, e_usf2)
+
+                    results[slipping_direction]['usf'] = numpy.max(y_fit)
+                    results[slipping_direction]['s'] = e_usf2
+                                        
                 if plot:
                     if not axis:
                         import matplotlib.pyplot as plt
                         fig, axis = plt.subplots(figsize=(10, 6))
-                    axis.scatter(x, y, color='black', zorder=5)
+                    scatter = axis.scatter(
+                        x, y, 
+                        color=color, 
+                        s=50, 
+                        zorder=5, 
+                        marker=markers.pop(0))
 
-                    axis.plot(x_plot, y_fit, linestyle='--', label = kwargs.get('label', '$\Gamma_{ISF}$'))
-
-                    axis.legend()
+                    line, = axis.plot(
+                        x_plot, 
+                        y_fit, 
+                        linestyle=kwargs.get('linestyle', '--'), 
+                        color=color,
+                        lw=kwargs.get('lw', 1.0),
+                        label = kwargs.get('label', '') + f' <{slipping_direction}>')
                     axis.grid(True, alpha=0.3)
 
+        return results
+
+class GSFEGroupData:
+
+    def __init__(self, groups = []):
+        self._groups = groups
+        # Data structure: StructureType -> Material -> Plane -> Process -> Layers -> K_Dist -> Node
+        self._data = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: defaultdict(
+                            lambda: defaultdict(
+                                lambda: None
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        self.get_data()
+
+    @property
+    def groups(self):
+        return self._groups
+
+    @property
+    def data(self):
+        return self._data
+
+    def get_data(self):
+        for grpname in self._groups:
+            group = orm.load_group(grpname)
+            for node in group.nodes:
+                try:
+                    process_label = node.process_label
+                    structure = node.inputs.structure
+                    structuretype = get_strukturbericht(structure.get_ase())
+                    formula = structure.get_formula()
+                    n_repeats = node.inputs.n_repeats.value
+                    gliding_plane = node.inputs.gliding_plane.value
+                    kpoints_distance = node.inputs.kpoints_distance.value
+                                        
+                    # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
+                    if process_label in ['GSFEWorkChain']:
+                        self._data[structuretype][formula][gliding_plane][process_label][n_repeats][kpoints_distance] = node
+
+                except Exception as e:
+                    # Provide more context in error message
+                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+
+    def get_surface_energies(self):
+        results = {}
+        structures = sorted(self._data.keys(), key=lambda x: str(x))
+        all_planes = set()
+        for struct in structures:
+            for planes_dict in self._data[struct].values(): # val is dict of planes
+                all_planes.update(planes_dict.keys())
+        planes = sorted(list(all_planes), key=lambda x: str(x))
+        
+        for struct in structures:
+            for plane in planes:
+                
+                # Check if we have data for this cell
+                mat_dict = self._data[struct]
+                
+                found_any = False
+                for formula, planes_dict in mat_dict.items():
+                    if plane in planes_dict:
+                        # Found data for this (Struct, Plane) for this Formula
+                        process_dict = planes_dict[plane]
+                        if 'GSFEWorkChain' in process_dict:
+                            layers_dict = process_dict['GSFEWorkChain']
+                            for layers, k_dist_dict in layers_dict.items():
+                                for k_dist, node in k_dist_dict.items():
+                                    if node and node.is_finished_ok:
+                                        try:
+                                            analyser = GSFEWorkChainAnalyser(node)
+                                            # fit_curve plots on axis if provided
+                                            # Label with formula, maybe layers/kdist if distinct?
+                                            # For now just formula as typically we compare materials
+                                            label = f'{formula}'
+                                            res = analyser.get_surface_energy()
+                                            
+                                            # Store results
+                                            if struct not in results: results[struct] = {}
+                                            if plane not in results[struct]: results[struct][plane] = {}
+                                            results[struct][plane][formula] = {
+                                                'surface_energy': res
+                                                }
+                                            
+                                            found_any = True
+                                        except Exception as e:
+                                            print(f"Failed to fit/plot {node.pk}: {e}")
+                                                            
+        return results
+
+    def get_table(self):
+        import pandas as pd
+        import numpy as np
+
+        def get_status_string(node):
+            if node is None:
+                return 'N/A'
+
+            if not node.is_terminated:
+                return '⏳'
+            if node.is_finished_ok:
+                return '✅'
+            elif node.is_failed:
+                return f'❌ ({node.exit_status})'
+            elif node.is_excepted:
+                return '⚠️ Excepted'
+            elif node.is_killed:
+                return '💀 Killed'
+            else:
+                return f'🏃 {node.process_state.value}'
+
+        flattened_list = []
+
+        # Iterate over the nested dictionary:
+        # StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
+        for struct_type, formulas in self._data.items():
+            for formula, planes in formulas.items():
+                for plane, processes in planes.items():
+                    for process_label, layers_dict in processes.items():
+                        for layers, k_dists in layers_dict.items():
+                            for k_dist, node in k_dists.items():
+                                flattened_list.append({
+                                    'Structure': struct_type,
+                                    'Material': formula,
+                                    'Plane': plane,
+                                    'Process': process_label,
+                                    'Layers': layers,
+                                    'K_Dist': k_dist,
+                                    'Status': get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                })
+
+        if not flattened_list:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(flattened_list)
+        
+        # Pivot table to show status for each Material with shared parameters
+        # Index: Structure, Plane, Layers, K_Dist
+        # Columns: Material
+        
+        pivot_df = df.pivot_table(
+            values='Status',
+            index=['Structure', 'Material', 'Layers', 'K_Dist'],
+            columns='Plane',
+            aggfunc='first' 
+        )
+
+        pivot_df = pivot_df.fillna('')
+
+        # Sort columns (Materials) alphabetically
+        pivot_df = pivot_df.sort_index(axis=1)
+        return pivot_df
+
+    def fit(self, destpath = None, axs = None, **kwargs):
+        import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
+        base_colors = [
+            '#1f77b4', 
+            '#ff7f0e', 
+            '#2ca02c',
+            '#d62728', # 红
+            '#9467bd', # 紫
+            '#8c564b', # 棕
+            '#e377c2', # 粉
+            '#7f7f7f', # 灰
+            '#bcbd22', # 黄绿
+            '#17becf'  # 青
+        ]
+        markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x']
+
+        self._data.pop(None, None)
+        structures = sorted(self._data.keys(), key=lambda x: str(x))
+        all_planes = set()
+        for struct in structures:
+            for planes_dict in self._data[struct].values(): # val is dict of planes
+                all_planes.update(planes_dict.keys())
+        planes = sorted(list(all_planes), key=lambda x: str(x))
+        
+        if not structures or not planes:
+             return {}
+             
+        n_rows = len(structures)
+        n_cols = len(planes)
+        
+        if axs is None:
+            fig, axs = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows), squeeze=False)
+
+        if n_rows > len(base_colors):
+            raise ValueError(f"Number of structures ({n_rows}) is greater than number of base colors ({len(base_colors)})")
+        if n_cols > len(markers):
+            raise ValueError(f"Number of planes ({n_cols}) is greater than number of markers ({len(markers)})")
+        
+        results = {}
+
+        for i, struct in enumerate(structures):
+            results[struct] = {}
+            for j, plane in enumerate(planes):
+                results[struct][plane] = {}
+                _base_colors = deepcopy(base_colors)
+                ax = axs[i, j]
+                
+                mat_dict = self._data[struct]
+
+                all_formulas = set()
+                for formula in mat_dict.keys():
+                    all_formulas.add(formula)
+
+                sorted_formulas = sorted(list(all_formulas))
+
+                cmap = plt.get_cmap('tab10') 
+                formula_colors = {
+                    formula: mcolors.to_hex(cmap(i % 10)) 
+                    for i, formula in enumerate(sorted_formulas)
+                }
+                for formula, planes_dict in mat_dict.items():
+
+                    if plane in planes_dict:
+                        process_dict = planes_dict[plane]
+                        color = _base_colors.pop(0)
+                        if 'GSFEWorkChain' in process_dict:
+                            for layers, k_dist_dict in process_dict['GSFEWorkChain'].items():
+                                for k_dist, node in k_dist_dict.items():
+                                    if node and node.is_finished_ok:
+                                        print(node.pk, formula, plane)
+                                        analyser = GSFEWorkChainAnalyser(node)
+                                        
+                                        # alpha_val = max(0.3, 1.0 - rank * 0.2) 
+                                        
+                                        # current_marker = markers[rank % len(markers)]
+
+                                        results[struct][plane][formula] = analyser.fit_curve(
+                                            plot=True, 
+                                            axis=ax, 
+                                            label=formula_to_latex(formula),
+                                            color=color,
+                                            # alpha=alpha_val,
+                                            # marker=current_marker,
+                                            markevery=5,
+                                            linestyle='-',
+                                            lw=kwargs.get('lw', 1.5),
+                                            **kwargs
+                                        )
+                                    
+                ax.set_title(f"${struct}$ ({plane})", fontsize=kwargs.get('title_fontsize', 16))
+                
+                ax.legend(
+                    loc='upper right',
+                    fontsize=10, 
+                    frameon=False,      
+                    facecolor='white',  
+                    edgecolor='white',
+                )
+
+        for ax in axs[:, 0]:
+            ax.set_ylabel(r'$\gamma [J/m^2]$', fontsize=kwargs.get('ylabel_fontsize', 16))
+
+        for ax in axs[-1, :]:
+            ax.set_xlabel(r'$\vec{b}$', fontsize=kwargs.get('xlabel_fontsize', 16))
+
+        if destpath and axs is None:
+            plt.tight_layout()
+            plt.savefig(destpath)
         return results
