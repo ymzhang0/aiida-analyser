@@ -27,17 +27,10 @@ keywords = ["aiida", "postprocessing"]
 requires-python = ">=3.9"
 dependencies = [
     "aiida-core[atomic_tools]~=2.6",
-    "aiida-dislocation",
-    "aiida-epw",
     "aiida-quantumespresso>=4.11",
     "aiida-wannier90-workflows",
-    "ase",
-    "matplotlib",
-    "numpy",
-    "pandas",
     "PyYAML",
     "rich",
-    "scipy",
 ]
 
 [project.urls]
@@ -45,6 +38,38 @@ Home = "https://github.com/ymzhang0/aiida-analyser"
 Source = "https://github.com/ymzhang0/aiida-analyser"
 
 [project.optional-dependencies]
+structure = [
+    "ase",
+]
+thermo = [
+    "matplotlib",
+    "numpy",
+]
+dislocation = [
+    "aiida-dislocation",
+    "ase",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+]
+epw = [
+    "aiida-epw",
+    "ase",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+]
+all = [
+    "aiida-dislocation",
+    "aiida-epw",
+    "ase",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+]
 docs = [
     "myst-parser",
     "sphinx",
@@ -60,11 +85,18 @@ tests = [
     "pytest-regressions",
 ]
 dev = [
+    "aiida-dislocation",
+    "aiida-epw",
+    "ase",
+    "matplotlib",
     "myst-parser",
+    "numpy",
+    "pandas",
     "pre-commit",
     "pylint",
     "pytest",
     "pytest-regressions",
+    "scipy",
     "sphinx",
     "sphinx-book-theme",
     "sphinx-rtd-theme",
