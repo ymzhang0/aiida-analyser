@@ -2,6 +2,7 @@ from aiida import orm
 from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 from abc import ABC, abstractmethod
+from functools import cached_property
 from pathlib import Path
 from .workchains import clean_workdir
 from aiida.tools import delete_nodes
@@ -309,10 +310,43 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """Get the remote paths of the all CalcJobNodes in the process tree."""
         return self._get_calcjob_paths(self.process_tree)
 
-    @property
+    @cached_property
     def process_tree(self):
         """Get the ProcessTree of the workchain."""
         return ProcessTree(self.node)
+
+    def _get_state_from_subprocesses(self, subprocesses, required_subprocesses=()):
+        """
+        Resolve the first unfinished subprocess in execution order.
+
+        :param subprocesses: Iterable of ``(link_label, analyser_class)`` pairs.
+        :param required_subprocesses: Namespaces that must exist in the process tree.
+        """
+        process_tree = self.process_tree
+        required = set(required_subprocesses)
+
+        for subprocess_name, subprocess_analyser in subprocesses:
+            if subprocess_name not in process_tree:
+                if subprocess_name in required:
+                    return self._get_state_from_tree()
+                continue
+
+            subprocess_node = process_tree[subprocess_name].node
+            if subprocess_node.is_finished_ok:
+                continue
+
+            analyser = subprocess_analyser(subprocess_node)
+            path, process_state, exit_code = analyser.get_state()
+            return (
+                subprocess_name if path == 'ROOT' else f'{subprocess_name}/{path}',
+                process_state,
+                exit_code,
+            )
+
+        if self.node.is_finished_ok:
+            return 'ROOT', 'finished_ok', 0
+
+        return self._get_state_from_tree()
 
     def print_process_tree(self):
         """Print the process tree."""
@@ -354,20 +388,13 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """
         if self.node.is_finished_ok:
             return 'ROOT', 'finished_ok', 0
-        # else:
-            # 3. Recursively traverse the child nodes
-            # for name, child_node in self.process_tree.children.items():
-            #     if not child_node.node.is_finished_ok:
-            #         return (
-            #             name, 
-            #             child_node.node.process_state.value,
-            #             child_node.node.exit_code if child_node.node.is_finished else None
-            #             )
-        elif not self.process_tree.find_last_node().node.is_finished_ok:
+
+        last_node = self.process_tree.find_last_node()
+        if last_node is not None and not last_node.node.is_finished_ok:
             return (
-                self.process_tree.find_last_node().name,
-                self.process_tree.find_last_node().node.process_state.value,
-                self.process_tree.find_last_node().node.exit_code if self.process_tree.find_last_node().node.is_finished else None
+                last_node.name,
+                last_node.node.process_state.value,
+                last_node.node.exit_code if last_node.node.is_finished else None,
             )
             
         return 'ROOT', 'unknown_status', None

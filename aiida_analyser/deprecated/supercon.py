@@ -165,7 +165,7 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def iso_results(self):
         """Get the results of the iso workchain."""
-        from aiida_epw_workflows.parsers.epw import EpwParser
+        from aiida_epw.parsers.epw import EpwParser
         results = {}
         for iteration, folderdata in self.retrieved['iso']['iso'].items():
             parsed_stdout, _ = EpwParser.parse_stdout(folderdata.get_object_content('aiida.out'), None)

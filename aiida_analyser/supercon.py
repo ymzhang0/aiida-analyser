@@ -92,25 +92,11 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-
-        # Check subprocesses in order
-        for subprocess_name, subprocess_analyser in [
-            ('conv', EpwBaseWorkChainAnalyser), 
-            ('epw_final_iso', EpwBaseWorkChainAnalyser), 
-            ('epw_final_aniso', EpwBaseWorkChainAnalyser)
-            ]:
-            if subprocess_name in self.process_tree:
-                if not self.process_tree[subprocess_name].node.is_finished_ok:
-                    analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
-                    path, process_state, exit_code = analyser.get_state()
-                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, process_state, exit_code
-        
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
+        return self._get_state_from_subprocesses([
+            ('conv', EpwBaseWorkChainAnalyser),
+            ('epw_final_iso', EpwBaseWorkChainAnalyser),
+            ('epw_final_aniso', EpwBaseWorkChainAnalyser),
+        ])
 
     @property
     def a2f_results(self):
@@ -144,7 +130,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def iso_results(self):
         """Get the results of the iso workchain."""
-        from aiida_epw_workflows.parsers.epw import EpwParser
+        from aiida_epw.parsers.epw import EpwParser
         results = {}
         for iteration, folderdata in self.retrieved['iso']['iso'].items():
             parsed_stdout, _ = EpwParser.parse_stdout(folderdata.get_object_content('aiida.out'), None)

@@ -32,11 +32,14 @@ def recursive_merge(d1: dict, d2: dict) -> dict:
                 merged[key] = recursive_merge(value_merged, value_d2)
             
             # 4.2. Both are lists -> concatenate
-            elif any(
-                (isinstance(value_merged, t) and isinstance(value_d2, t))
-                for t in [list, set, tuple]
-                ):
+            elif isinstance(value_merged, list) and isinstance(value_d2, list):
                 merged[key] = value_merged + value_d2
+
+            elif isinstance(value_merged, tuple) and isinstance(value_d2, tuple):
+                merged[key] = value_merged + value_d2
+
+            elif isinstance(value_merged, set) and isinstance(value_d2, set):
+                merged[key] = value_merged | value_d2
             
             # 4.5. All other cases -> d2 overrides d1
             else:
@@ -68,8 +71,9 @@ def count_groups(profile, log=print):
     for group in qb.all(flat=True):
         log(f"{group.pk:<10} {group.label:<35} {group.count():<10}")
 
-def count_nodes(profile, node_type, process_type):
-    load_profile(profile, allow_switch=True)
+def count_nodes(node_type, process_type, profile=None):
+    if profile:
+        load_profile(profile, allow_switch=True)
     qb = QueryBuilder().append(Node, filters={
         "node_type": node_type,
         "process_type": process_type

@@ -55,33 +55,23 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-
-        # Check subprocesses in order
-        for subprocess_name, subprocess_analyser in [
-            ('w90_bands', Wannier90WorkChainAnalyser), 
-            ('ph_base', PhBaseWorkChainAnalyser), 
-            ('epw_base', EpwBaseWorkChainAnalyser), 
-            ('epw_bands', EpwBaseWorkChainAnalyser)
-            ]:
-            if subprocess_name in self.process_tree:
-                if not self.process_tree[subprocess_name].node.is_finished_ok:
-                    analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
-                    path, process_state, exit_code = analyser.get_state()
-                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, process_state, exit_code
-        
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
+        return self._get_state_from_subprocesses([
+            ('w90_bands', Wannier90WorkChainAnalyser),
+            ('ph_base', PhBaseWorkChainAnalyser),
+            ('epw_base', EpwBaseWorkChainAnalyser),
+            ('epw_bands', EpwBaseWorkChainAnalyser),
+        ])
 
     def check_stability_matdyn_base(self):
         """Get the qpoints and frequencies of the matdyn_base workchain."""
-        # TODO: This method needs to be implemented properly
-        # It should check if matdyn_base workchain exists and is finished
-        # For now, raise NotImplementedError
-        raise NotImplementedError('check_stability_matdyn_base method is not yet implemented')
+        if 'matdyn_base' not in self.process_tree:
+            raise AttributeError('matdyn_base is not found')
+
+        matdyn_base = self.process_tree.matdyn_base.node
+        if not matdyn_base.is_finished_ok:
+            raise ValueError('matdyn_base is not finished ok')
+
+        return check_stability_matdyn_base(matdyn_base)
 
     def clean_workchain(self, exempted_states=[], dry_run=True):
         """Clean the workchain."""
