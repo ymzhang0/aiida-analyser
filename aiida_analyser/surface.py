@@ -29,7 +29,12 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
     def _parse_spacing_key(key) -> float:
         if isinstance(key, (float, int)):
             return float(key)
-        return float(str(key).replace('_', '.'))
+        key = str(key)
+        for prefix in ('slab_', 'vacuum_spacing_'):
+            if key.startswith(prefix):
+                key = key.removeprefix(prefix)
+                break
+        return float(key.replace('_', '.'))
     
     @property
     def strukturbericht(self):
@@ -100,7 +105,7 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
 
         child_labels = [
             label for label in self.process_tree.children
-            if label.startswith('spacing_') or label.startswith('slab_idx_')
+            if label.startswith('spacing_') or label.startswith('slab_idx_') or label.startswith('slab_')
         ]
         if not child_labels:
             raise ValueError('No surface-energy child calculations were found in the process tree.')
@@ -121,7 +126,11 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
         
         for call_link_label, child in self.process_tree.children.items():
-            if call_link_label.startswith('spacing_') or call_link_label.startswith('slab_idx_'):
+            if (
+                call_link_label.startswith('spacing_')
+                or call_link_label.startswith('slab_idx_')
+                or call_link_label.startswith('slab_')
+            ):
                 total_energy_cleavaged_geometry = child.node.outputs.output_parameters.get('energy')
                 energy_difference = (total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier)
                 cleavaged_surface_energy = energy_difference / (surface_area) * self._eVA22Jm2
