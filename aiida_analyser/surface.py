@@ -45,10 +45,10 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
     
     @property
     def surface_energies(self):
-        if 'surface_energy' not in self.process_tree:
-            raise AttributeError('surface_energy is not found')
-        else:
-            return self.process_tree.surface_energy.node
+        for label in ('results', 'surface_results'):
+            if label in self.node.outputs:
+                return self.node.outputs[label]
+        raise AttributeError('surface results output is not found')
     
     def get_state(self):
         """Get the state of the workchain."""
@@ -69,15 +69,38 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_surface_energies(self):
         """Get the energies of the workchain."""
+        if 'results' in self.node.outputs or 'surface_results' in self.node.outputs:
+            aggregated_results = self.surface_energies.get_dict().get('results', {})
+            return {
+                float(result['vacuum_spacing']): result['surface_energy_j_m2']
+                for _, result in sorted(
+                    aggregated_results.items(),
+                    key=lambda item: float(item[1]['vacuum_spacing']),
+                )
+            }
+
         from ase.formula import Formula
         from aiida_dislocation.tools import calculate_surface_area
 
-        spacings = sorted(self.node.inputs.vacuum_spacings.get_list(), reverse=True)
+        if 'cleavaged_structure_data' in self.node.inputs:
+            spacings = sorted(self.node.inputs.cleavaged_structure_data.vacuum_spacings, reverse=True)
+        else:
+            spacings = sorted(self.node.inputs.vacuum_spacings.get_list(), reverse=True)
 
         conventional_formula = Formula(self.scf.inputs.pw.structure.get_ase().get_chemical_formula())
         _, conventional_multiplier = conventional_formula.reduce()
-        
-        surface_formula = Formula(self.process_tree.spacing_01.node.inputs.pw.structure.get_ase().get_chemical_formula())
+
+        child_labels = [
+            label for label in self.process_tree.children
+            if label.startswith('spacing_') or label.startswith('slab_idx_')
+        ]
+        if not child_labels:
+            raise ValueError('No surface-energy child calculations were found in the process tree.')
+
+        first_child_label = sorted(child_labels)[0]
+        surface_formula = Formula(
+            self.process_tree[first_child_label].node.inputs.pw.structure.get_ase().get_chemical_formula()
+        )
         _, surface_multiplier = surface_formula.reduce()
 
         energies = {}
@@ -90,7 +113,7 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
         
         for call_link_label, child in self.process_tree.children.items():
-            if call_link_label.startswith('spacing_'):
+            if call_link_label.startswith('spacing_') or call_link_label.startswith('slab_idx_'):
                 total_energy_cleavaged_geometry = child.node.outputs.output_parameters.get('energy')
                 energy_difference = (total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier)
                 cleavaged_surface_energy = energy_difference / (surface_area) * self._eVA22Jm2
