@@ -26,8 +26,10 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
     _eVA22Jm2 = 1.602176634E-19 * 1E+20
 
     @staticmethod
-    def _parse_spacing_key(key: str) -> float:
-        return float(key.replace('_', '.'))
+    def _parse_spacing_key(key) -> float:
+        if isinstance(key, (float, int)):
+            return float(key)
+        return float(str(key).replace('_', '.'))
     
     @property
     def strukturbericht(self):
@@ -78,10 +80,10 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
             if 'results' in aggregated_results:
                 aggregated_results = aggregated_results['results']
             return {
-                self._parse_spacing_key(spacing): result['surface_energy_j_m2']
+                float(result.get('vacuum_spacing', self._parse_spacing_key(spacing))): result['surface_energy_j_m2']
                 for spacing, result in sorted(
                     aggregated_results.items(),
-                    key=lambda item: self._parse_spacing_key(item[0]),
+                    key=lambda item: float(item[1].get('vacuum_spacing', self._parse_spacing_key(item[0]))),
                 )
             }
 
