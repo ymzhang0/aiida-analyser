@@ -32,6 +32,7 @@ _EXPORTS = {
     'ESFEWorkChainAnalyser': ('esfe', 'ESFEWorkChainAnalyser', None),
     'USFEWorkChainAnalyser': ('usfe', 'USFEWorkChainAnalyser', None),
     'GSFEWorkChainAnalyser': ('gsfe', 'GSFEWorkChainAnalyser', 'dislocation'),
+    'GSFEWorkChainAnalyserLatest': ('gsfe_latest', 'GSFEWorkChainAnalyserLatest', 'dislocation'),
     'GSFEGroupData': ('gsfe', 'GSFEGroupData', 'dislocation'),
     'SurfaceWorkChainAnalyser': ('surface', 'SurfaceWorkChainAnalyser', 'dislocation'),
     'SurfaceEnergyData': ('surface', 'SurfaceEnergyData', 'dislocation'),
