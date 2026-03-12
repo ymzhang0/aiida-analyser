@@ -15,6 +15,18 @@ from aiida_dislocation.tools.structure_utils import get_strukturbericht
 class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
     """Analyser for the current `GSFEWorkChain` output contract."""
 
+    @staticmethod
+    def _shift_series_to_first_value(values: list[float | None]) -> list[float | None]:
+        """Shift a numeric series so the first point becomes the zero reference."""
+        if not values or values[0] is None:
+            return values
+
+        reference = values[0]
+        return [
+            None if value is None else value - reference
+            for value in values
+        ]
+
     @property
     def relax(self) -> orm.WorkChainNode:
         if 'relax' not in self.process_tree:
@@ -101,6 +113,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
     def get_plot_data(
         self,
         x_axis: str = 'step',
+        zero_reference: bool = False,
     ) -> dict[str, dict[str, list[float | None]]]:
         """Return simple plot-ready x/y arrays for each GSFE direction."""
         plot_data: dict[str, dict[str, list[float | None]]] = {}
@@ -119,6 +132,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                 energies.append(entry.get('energy'))
                 sfes.append(entry.get('sfe'))
 
+            if zero_reference:
+                energies = self._shift_series_to_first_value(energies)
+                sfes = self._shift_series_to_first_value(sfes)
+
             plot_data[direction] = {
                 'x': xs,
                 'energy': energies,
@@ -132,6 +149,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         ax=None,
         value: str = 'sfe',
         x_axis: str = 'step',
+        zero_reference: bool = False,
         **kwargs,
     ):
         """Plot the selected GSFE quantity for each direction."""
@@ -143,7 +161,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
             _, ax = plt.subplots()
 
-        plot_data = self.get_plot_data(x_axis=x_axis)
+        plot_data = self.get_plot_data(x_axis=x_axis, zero_reference=zero_reference)
 
         for direction, data in plot_data.items():
             ax.plot(
