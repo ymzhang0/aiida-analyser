@@ -1,7 +1,7 @@
-from .base import BaseWorkChainAnalyser
-from .pw_base import PwBaseWorkChainAnalyser
-from .projwfc_base import ProjwfcBaseWorkChainAnalyser
-from .pw2wannier90_base import Pw2Wannier90BaseWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
+from ..quantumespresso.projwfc_base import ProjwfcBaseWorkChainAnalyser
+from ..quantumespresso.pw2wannier90_base import Pw2Wannier90BaseWorkChainAnalyser
 from .wannier90_base import Wannier90BaseWorkChainAnalyser
 
 class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):

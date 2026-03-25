@@ -5,11 +5,11 @@ from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 import numpy
 from collections import defaultdict
-from .workchains import clean_workdir
-from .base import BaseWorkChainAnalyser
+from ..workchains import clean_workdir
+from ..base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
-from .calculators import _calculate_iso_tc, check_convergence
-from .plot import (
+from ..calculators import _calculate_iso_tc, check_convergence
+from ..plot import (
     plot_a2f,
     plot_eldos,
     plot_aniso_gap_function,

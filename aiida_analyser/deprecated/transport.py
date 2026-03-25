@@ -9,7 +9,7 @@ from ..workchains import clean_workdir
 from ..base import BaseWorkChainAnalyser
 from enum import Enum
 from aiida.tools import delete_nodes
-from ..epw_prep import EpwPrepWorkChainAnalyser
+from ..epw.epw_prep import EpwPrepWorkChainAnalyser
 from ..plot import (
     plot_epw_interpolated_bands,
     plot_a2f,

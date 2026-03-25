@@ -2,10 +2,10 @@ from aiida_analyser.plot import plot_bands, plot_epw_interpolated_bands
 import numpy
 from collections import defaultdict
 from aiida import orm
-from .ph import check_stability_matdyn_base
-from .base import BaseWorkChainAnalyser
-from .wannier90 import Wannier90WorkChainAnalyser
-from .ph_base import PhBaseWorkChainAnalyser
+from ..quantumespresso.ph import check_stability_matdyn_base
+from ..base import BaseWorkChainAnalyser
+from ..wannier.wannier90 import Wannier90WorkChainAnalyser
+from ..quantumespresso.ph_base import PhBaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 
 class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):

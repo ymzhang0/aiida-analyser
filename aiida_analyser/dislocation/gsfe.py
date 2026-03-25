@@ -1,7 +1,7 @@
 from collections import defaultdict
 from aiida import orm
-from .pw_relax import PwRelaxWorkChainAnalyser
-from .base import BaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 from scipy.optimize import curve_fit
 import numpy
 from aiida_dislocation.tools import (
@@ -160,44 +160,65 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def pristine_energy(self):
         """Get the pristine energy."""
-
-        return self.process_tree.structure_01.node.outputs.output_parameters.get('energy')
+        if 'structure_01' in self.process_tree:
+            return self.process_tree.structure_01.node.outputs.output_parameters.get('energy')
+        
+        # Try to find the first sfe_ child (e.g., sfe_111_000)
+        sfe_labels = sorted([l for l in self.process_tree.children.keys() if l.startswith('sfe_')])
+        if sfe_labels:
+            return self.process_tree[sfe_labels[0]].node.outputs.output_parameters.get('energy')
+            
+        raise AttributeError('Pristine energy (structure_01 or sfe_*) not found in process tree')
     
     def get_sfe_energies(self):
         """Get the energies of the workchain."""
         from ase.formula import Formula
         from aiida_dislocation.tools import calculate_surface_area
-        gliding_plane = self.node.inputs.gliding_plane.value
+        if 'gliding_plane' in self.node.inputs:
+            gliding_plane = self.node.inputs.gliding_plane.value
+        elif 'faulted_structure_data' in self.node.inputs:
+            gliding_plane = self.node.inputs.faulted_structure_data.gliding_plane
+        else:
+            raise AttributeError("Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
         gliding_system = fit_function_map[self.strukturbericht]['gliding_system'](self.strukturbericht).get_plane(gliding_plane)
 
-        nsteps = gliding_system.general.nsteps
+        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
+        
+        # Find all SFE subprocesses
+        sfe_children = []
+        for call_link_label, child in self.process_tree.children.items():
+            if call_link_label.startswith('structure_') or call_link_label.startswith('sfe_'):
+                sfe_children.append((call_link_label, child))
+        
+        # Sort them by their label
+        sfe_children.sort(key=lambda x: x[0])
 
         _energies =[]
+        for call_link_label, child in sfe_children:
+            total_energy_faulted_geometry = child.node.outputs.output_parameters.get('energy')
+            # energy_difference = total_energy_faulted_geometry - total_energy_conventional_geometry / conventional_multiplier * faulted_multiplier
+            energy_difference = total_energy_faulted_geometry - self.pristine_energy
+            faulted_stacking_fault_energy = energy_difference / surface_area * self._eVA22Jm2
+            _energies.append(faulted_stacking_fault_energy)
+        
+        nsteps = gliding_system.general.nsteps
         energies = {}
-        # total_energy_conventional_geometry = self.scf_energy
-
-        # faulted_formula = Formula(self.process_tree.structure_01.node.inputs.pw.structure.get_ase().get_chemical_formula())
-        # _, faulted_multiplier = faulted_formula.reduce()
-        # conventional_formula = Formula(self.scf.inputs.pw.structure.get_ase().get_chemical_formula())
-        # _, conventional_multiplier = conventional_formula.reduce()
-        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
-        for call_link_label, child in self.process_tree.children.items():
-            if call_link_label.startswith('structure_'):
-                total_energy_faulted_geometry = child.node.outputs.output_parameters.get('energy')
-                # energy_difference = total_energy_faulted_geometry - total_energy_conventional_geometry / conventional_multiplier * faulted_multiplier
-                energy_difference = total_energy_faulted_geometry - self.pristine_energy
-                faulted_stacking_fault_energy = energy_difference / surface_area * self._eVA22Jm2
-                _energies.append(faulted_stacking_fault_energy)
-
         for slipping_direction, sections in gliding_system.general.burger_vectors.items():
-            energies[slipping_direction] = []
+            # Join all sections/segments into a single continuous path
+            energy_path = []
+            energy_path.append(_energies.pop(0))
+            
             for section in sections:
-                energy_section = []
-                energy_section.append(_energies.pop(0))
-                for _ in section:
+                if isinstance(section[0], int):
+                    segments = [section]
+                else:
+                    segments = section
+                
+                for _ in segments:
                     for _ in range(nsteps):
-                        energy_section.append(_energies.pop(0))
-                energies[slipping_direction].append(energy_section)
+                        energy_path.append(_energies.pop(0))
+            
+            energies[slipping_direction] = [energy_path]
     
         return deepcopy(energies)
 
@@ -231,18 +252,31 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         
         xs = {}
 
-        gliding_plane = self.node.inputs.gliding_plane.value
+        if 'gliding_plane' in self.node.inputs:
+            gliding_plane = self.node.inputs.gliding_plane.value
+        elif 'faulted_structure_data' in self.node.inputs:
+            gliding_plane = self.node.inputs.faulted_structure_data.gliding_plane
+        else:
+            raise AttributeError("Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
         gliding_system = fit_function_map[self.strukturbericht]['gliding_system'](self.strukturbericht).get_plane(gliding_plane)
 
         nsteps = gliding_system.general.nsteps
         
         for slipping_direction, sections in gliding_system.general.burger_vectors.items():
-            xs[slipping_direction] = []
+            # Collect all segments for this slipping direction
+            all_segments = []
             for section in sections:
-                x = numpy.linspace(0, 1, nsteps+1)
-                for i in range(len(section)-1):
-                    x = numpy.concatenate((x, numpy.linspace(i+1, i+2, nsteps+1)[1:]))
-                xs[slipping_direction].append(x)
+                if isinstance(section[0], int):
+                    all_segments.append(section)
+                else:
+                    all_segments.extend(section)
+            
+            # Create a single continuous x-axis for all segments
+            x = numpy.linspace(0, 1, nsteps+1)
+            for i in range(len(all_segments)-1):
+                x = numpy.concatenate((x, numpy.linspace(i+1, i+2, nsteps+1)[1:]))
+            
+            xs[slipping_direction] = [x]
         
         return xs
 
@@ -260,7 +294,12 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         energies = self.get_sfe_energies()
         results = {}
 
-        gliding_plane = self.node.inputs.gliding_plane.value
+        if 'gliding_plane' in self.node.inputs:
+            gliding_plane = self.node.inputs.gliding_plane.value
+        elif 'faulted_structure_data' in self.node.inputs:
+            gliding_plane = self.node.inputs.faulted_structure_data.gliding_plane
+        else:
+            raise AttributeError("Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
         gliding_system = fit_function_map[self.strukturbericht]['gliding_system'](self.strukturbericht).get_plane(gliding_plane)
         
         func = fit_function_map[self.strukturbericht][gliding_plane]
@@ -380,8 +419,21 @@ class GSFEGroupData:
                     structure = node.inputs.structure
                     structuretype = get_strukturbericht(structure.get_ase())
                     formula = structure.get_formula()
-                    n_repeats = node.inputs.n_repeats.value
-                    gliding_plane = node.inputs.gliding_plane.value
+                    
+                    if 'n_repeats' in node.inputs:
+                        n_repeats = node.inputs.n_repeats.value
+                    elif 'faulted_structure_data' in node.inputs:
+                        n_repeats = node.inputs.faulted_structure_data.n_unit_cells
+                    else:
+                        raise AttributeError(f"Node<{node.pk}>: Neither 'n_repeats' nor 'faulted_structure_data' found in inputs")
+
+                    if 'gliding_plane' in node.inputs:
+                        gliding_plane = node.inputs.gliding_plane.value
+                    elif 'faulted_structure_data' in node.inputs:
+                        gliding_plane = node.inputs.faulted_structure_data.gliding_plane
+                    else:
+                        raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
+
                     kpoints_distance = node.inputs.kpoints_distance.value
                                         
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node

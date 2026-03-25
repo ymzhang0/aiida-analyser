@@ -1,7 +1,7 @@
 from aiida import orm
-from .base import BaseWorkChainAnalyser
-from .pw_base import PwBaseWorkChainAnalyser
-from .pw_relax import PwRelaxWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 from .layer_relax import LayerRelaxWorkChainAnalyser
 
 class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):

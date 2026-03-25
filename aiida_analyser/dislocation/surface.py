@@ -1,7 +1,7 @@
 from collections import defaultdict
 from aiida import orm
-from .pw_relax import PwRelaxWorkChainAnalyser
-from .base import BaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 from scipy.optimize import curve_fit
 import numpy
 from aiida_dislocation.tools import (

@@ -1,4 +1,4 @@
-from .base import BaseWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 
 class Pw2Wannier90BaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """

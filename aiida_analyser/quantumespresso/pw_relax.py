@@ -1,5 +1,5 @@
 from aiida import orm
-from .base import BaseWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 from .pw_base import PwBaseWorkChainAnalyser
 
 class PwRelaxWorkChainAnalyser(BaseWorkChainAnalyser):

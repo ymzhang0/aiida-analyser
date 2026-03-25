@@ -1,5 +1,5 @@
 from aiida import orm
-from .base import BaseWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 
 class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
     """

@@ -1,9 +1,9 @@
 from aiida import orm
-from .base import BaseWorkChainAnalyser
+from ..base import BaseWorkChainAnalyser
 
-class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the PwBaseWorkChain.
+    Analyser for the EpwBaseWorkChain.
     """
 
     def get_source(self):
@@ -17,8 +17,6 @@ class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-        # Start with the base implementation
-
         return self._get_state_from_tree()
 
     def clean_workchain(self, dry_run=True):
@@ -27,4 +25,3 @@ class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
-

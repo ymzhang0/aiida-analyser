@@ -1,5 +1,5 @@
-from .pw_relax import PwRelaxWorkChainAnalyser
-from .pw_base import PwBaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from .sfebase import SFEBaseWorkChainAnalyser
 from .layer_relax import LayerRelaxWorkChainAnalyser
 
