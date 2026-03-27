@@ -8,9 +8,6 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the SFEBaseWorkChain.
     """
-    _RY2eV    = 13.605693122990
-    _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
-    _eVA22Jm2 = 1.602176634E-19 * 1E+20
     
     @property
     def relax(self):

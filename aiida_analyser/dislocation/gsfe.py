@@ -1,7 +1,9 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from aiida import orm
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 from ..base import BaseWorkChainAnalyser
+from .basegroup import BaseGroupData
+import logging
 from scipy.optimize import curve_fit
 import numpy
 from aiida_dislocation.tools import (
@@ -112,9 +114,6 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the GsfeWorkChain.
     """
-    _RY2eV    = 13.605693122990
-    _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
-    _eVA22Jm2 = 1.602176634E-19 * 1E+20
     
     @property
     def strukturbericht(self):
@@ -190,10 +189,10 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
             if call_link_label.startswith('structure_') or call_link_label.startswith('sfe_'):
                 sfe_children.append((call_link_label, child))
         
-        # Sort them by their label
-        sfe_children.sort(key=lambda x: x[0])
+        # Sort them by their label (natural sort to avoid sfe_10 < sfe_2)
+        sfe_children.sort(key=lambda x: [int(s) if s.isdigit() else s.lower() for s in re.split(r'(\d+)', x[0])])
 
-        _energies =[]
+        _energies = deque()
         for call_link_label, child in sfe_children:
             total_energy_faulted_geometry = child.node.outputs.output_parameters.get('energy')
             # energy_difference = total_energy_faulted_geometry - total_energy_conventional_geometry / conventional_multiplier * faulted_multiplier
@@ -206,7 +205,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         for slipping_direction, sections in gliding_system.general.burger_vectors.items():
             # Join all sections/segments into a single continuous path
             energy_path = []
-            energy_path.append(_energies.pop(0))
+            energy_path.append(_energies.popleft())
             
             for section in sections:
                 if isinstance(section[0], int):
@@ -216,7 +215,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
                 
                 for _ in segments:
                     for _ in range(nsteps):
-                        energy_path.append(_energies.pop(0))
+                        energy_path.append(_energies.popleft())
             
             energies[slipping_direction] = [energy_path]
     
@@ -382,10 +381,10 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
         return results
 
-class GSFEGroupData:
+class GSFEGroupData(BaseGroupData):
 
-    def __init__(self, groups = []):
-        self._groups = groups
+    def __init__(self, groups=None):
+        super().__init__(groups)
         # Data structure: StructureType -> Material -> Plane -> Process -> Layers -> K_Dist -> Node
         self._data = defaultdict(
             lambda: defaultdict(
@@ -441,8 +440,8 @@ class GSFEGroupData:
                         self._data[structuretype][formula][gliding_plane][process_label][n_repeats][kpoints_distance] = node
 
                 except Exception as e:
-                    # Provide more context in error message
-                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+                    logging.warning(f'Node<{node.pk}> processing failed: {e}')
+                    continue
 
     def get_surface_energies(self):
         results = {}
@@ -490,27 +489,7 @@ class GSFEGroupData:
                                                             
         return results
 
-    def get_table(self):
-        import pandas as pd
-        import numpy as np
-
-        def get_status_string(node):
-            if node is None:
-                return 'N/A'
-
-            if not node.is_terminated:
-                return '⏳'
-            if node.is_finished_ok:
-                return '✅'
-            elif node.is_failed:
-                return f'❌ ({node.exit_status})'
-            elif node.is_excepted:
-                return '⚠️ Excepted'
-            elif node.is_killed:
-                return '💀 Killed'
-            else:
-                return f'🏃 {node.process_state.value}'
-
+    def _flatten_data(self):
         flattened_list = []
 
         # Iterate over the nested dictionary:
@@ -528,30 +507,9 @@ class GSFEGroupData:
                                     'Process': process_label,
                                     'Layers': layers,
                                     'K_Dist': k_dist,
-                                    'Status': get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                    'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                                 })
-
-        if not flattened_list:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(flattened_list)
-        
-        # Pivot table to show status for each Material with shared parameters
-        # Index: Structure, Plane, Layers, K_Dist
-        # Columns: Material
-        
-        pivot_df = df.pivot_table(
-            values='Status',
-            index=['Structure', 'Material', 'Layers', 'K_Dist'],
-            columns='Plane',
-            aggfunc='first' 
-        )
-
-        pivot_df = pivot_df.fillna('')
-
-        # Sort columns (Materials) alphabetically
-        pivot_df = pivot_df.sort_index(axis=1)
-        return pivot_df
+        return flattened_list
 
     def fit(self, destpath = None, axs = None, **kwargs):
         import matplotlib.colors as mcolors

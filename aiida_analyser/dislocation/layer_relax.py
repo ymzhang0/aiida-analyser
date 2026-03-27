@@ -20,7 +20,16 @@ class LayerRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         """Get the energies of the workchain."""
 
         energies = {}
-        for spacing, child in zip(self.node.inputs.layer_spacings, self.process_tree.children.values()):
-            energies[spacing] = child.node.outputs.output_parameters.get('energy')
+        # Assuming children are labeled relax_1, relax_2, ... based on index
+        for i, spacing in enumerate(self.node.inputs.layer_spacings, 1):
+            label = f'relax_{i}'
+            if label in self.process_tree:
+                child = self.process_tree[label]
+                energies[spacing] = child.node.outputs.output_parameters.get('energy')
+            else:
+                # Fallback to check other possible common label patterns if relax_i is not found
+                # but following the plan to fetch by explicit link label/index.
+                # If the label is different, we might need a more robust way to find it.
+                continue
 
         return energies

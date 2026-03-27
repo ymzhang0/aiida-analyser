@@ -11,6 +11,8 @@ from scipy.optimize import curve_fit
 from aiida import orm
 
 from ..base import BaseWorkChainAnalyser
+from .basegroup import BaseGroupData
+import logging
 from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 
@@ -405,10 +407,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         return ax
 
 
-class GSFEGroupDataLatest:
+class GSFEGroupDataLatest(BaseGroupData):
 
-    def __init__(self, groups=[]):
-        self._groups = groups
+    def __init__(self, groups=None):
+        super().__init__(groups)
         # Data structure: StructureType -> Material -> Plane -> Process -> Layers -> K_Dist -> Node
         self._data = defaultdict(
             lambda: defaultdict(
@@ -464,29 +466,10 @@ class GSFEGroupDataLatest:
                         self._data[structuretype][formula][gliding_plane][process_label][n_repeats][kpoints_distance] = node
 
                 except Exception as e:
-                    # Provide more context in error message
-                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+                    logging.warning(f'Node<{node.pk}> processing failed: {e}')
+                    continue
 
-    def get_table(self):
-        import pandas as pd
-
-        def get_status_string(node):
-            if node is None:
-                return 'N/A'
-
-            if not node.is_terminated:
-                return '⏳'
-            if node.is_finished_ok:
-                return '✅'
-            elif node.is_failed:
-                return f'❌ ({node.exit_status})'
-            elif node.is_excepted:
-                return '⚠️ Excepted'
-            elif node.is_killed:
-                return '💀 Killed'
-            else:
-                return f'🏃 {node.process_state.value}'
-
+    def _flatten_data(self):
         flattened_list = []
 
         # Iterate over the nested dictionary:
@@ -504,24 +487,9 @@ class GSFEGroupDataLatest:
                                     'Process': process_label,
                                     'Layers': layers,
                                     'K_Dist': k_dist,
-                                    'Status': get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                    'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                                 })
-
-        if not flattened_list:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(flattened_list)
-
-        pivot_df = df.pivot_table(
-            values='Status',
-            index=['Structure', 'Material', 'Layers', 'K_Dist'],
-            columns='Plane',
-            aggfunc='first'
-        )
-
-        pivot_df = pivot_df.fillna('')
-        pivot_df = pivot_df.sort_index(axis=1)
-        return pivot_df
+        return flattened_list
 
     def fit(self, destpath=None, axs=None, **kwargs):
         import matplotlib.colors as mcolors

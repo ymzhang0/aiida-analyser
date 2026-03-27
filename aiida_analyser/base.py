@@ -7,7 +7,7 @@ from pathlib import Path
 from .workchains import clean_workdir
 from aiida.tools import delete_nodes
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Any, Callable
+from typing import Optional, Dict, Any, Callable
 from collections import deque
 
 
@@ -278,6 +278,9 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     """
     BaseAnalyser for the WorkChain.
     """
+    _RY2eV    = 13.605693122990
+    _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
+    _eVA22Jm2 = 1.602176634E-19 * 1E+20
 
     @staticmethod
     def _get_calcjob_paths(processes_tree, parent_label=''):

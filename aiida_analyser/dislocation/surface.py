@@ -2,6 +2,8 @@ from collections import defaultdict
 from aiida import orm
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 from ..base import BaseWorkChainAnalyser
+from .basegroup import BaseGroupData
+import logging
 from scipy.optimize import curve_fit
 import numpy
 from aiida_dislocation.tools import (
@@ -21,9 +23,6 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the SurfaceWorkChain.
     """
-    _RY2eV    = 13.605693122990
-    _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
-    _eVA22Jm2 = 1.602176634E-19 * 1E+20
 
     @staticmethod
     def _parse_spacing_key(key) -> float:
@@ -160,10 +159,10 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         )
         return ax
 
-class SurfaceEnergyData:
+class SurfaceEnergyData(BaseGroupData):
 
-    def __init__(self, groups = []):
-        self._groups = groups
+    def __init__(self, groups=None):
+        super().__init__(groups)
         # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
         self._data = defaultdict(
             lambda: defaultdict(
@@ -214,29 +213,10 @@ class SurfaceEnergyData:
                         a = SurfaceWorkChainAnalyser(node)
                         self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance] = node
                 except Exception as e:
-                    # Provide more context in error message
-                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+                    logging.warning(f'Node<{node.pk}> processing failed: {e}')
+                    continue
 
-    def get_table(self):
-        import pandas as pd
-
-        def get_status_string(node):
-            if node is None:
-                return 'N/A'
-
-            if not node.is_terminated:
-                return '⏳'
-            if node.is_finished_ok:
-                return '✅'
-            elif node.is_failed:
-                return f'❌ ({node.exit_status})'
-            elif node.is_excepted:
-                return '⚠️ Excepted'
-            elif node.is_killed:
-                return '💀 Killed'
-            else:
-                return f'🏃 {node.process_state.value}'
-
+    def _flatten_data(self):
         flattened_list = []
 
         # Iterate over the nested dictionary:
@@ -252,24 +232,9 @@ class SurfaceEnergyData:
                                 'Plane': plane,
                                 'Layers': layers,
                                 'K_Dist': k_dist,
-                                'Status': get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                             })
-
-        if not flattened_list:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(flattened_list)
-
-        pivot_df = df.pivot_table(
-            values='Status',
-            index=['Structure', 'Material', 'Layers', 'K_Dist'],
-            columns='Plane',
-            aggfunc='first'
-        )
-
-        pivot_df = pivot_df.fillna('')
-        pivot_df = pivot_df.sort_index(axis=1)
-        return pivot_df
+        return flattened_list
 
     def plot(self, axes=None, kpoints_distance=None, n_repeats=None, dest=None):
         """Plot the surface energies."""
