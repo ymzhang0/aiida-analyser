@@ -300,7 +300,9 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """
         if not node:
             return None
-        return node.outputs.get('output_parameters', {}).get('energy')
+        if 'output_parameters' not in node.outputs._get_keys():
+            return None
+        return node.outputs.output_parameters.get('energy')
 
     @staticmethod
     def _get_calcjob_paths(processes_tree, parent_label=''):

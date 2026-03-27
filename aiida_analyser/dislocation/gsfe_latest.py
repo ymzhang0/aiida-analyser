@@ -202,7 +202,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         normalized: dict[str, dict[str, dict[str, ty.Any]]] = {}
         for direction, entries in results.items():
             normalized[direction] = {
-                str(step): dict(value)
+                str(step): dict(entry)
                 for step, entry in sorted(entries.items(), key=lambda item: int(item[0]))
             }
         return normalized
@@ -215,14 +215,26 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         return results[direction_name]
 
 
+    # @property
+    # def pristine_energy(self) -> float | None:
+    #     """Return the pristine energy from the conventional structure."""
+    #     if 'conventional_structure' in self.node.inputs:
+    #         conventional_node = self.node.inputs.conventional_structure
+    #         return self._get_safe_energy(conventional_node)
+    #     return None
     @property
-    def pristine_energy(self) -> float | None:
-        """Return the pristine energy from the conventional structure."""
-        if 'conventional_structure' in self.node.inputs:
-            conventional_node = self.node.inputs.conventional_structure
-            return self._get_safe_energy(conventional_node)
-        return None
-
+    def pristine_energy(self):
+        """Get the pristine energy."""
+        if 'structure_01' in self.process_tree:
+            return self._get_safe_energy(self.process_tree.structure_01.node)
+        
+        # Try to find the first sfe_ child (e.g., sfe_111_000)
+        sfe_labels = sorted([l for l in self.process_tree.children.keys() if l.startswith('sfe_')])
+        if sfe_labels:
+            return self._get_safe_energy(self.process_tree[sfe_labels[0]].node)
+            
+        raise AttributeError('Pristine energy (structure_01 or sfe_*) not found in process tree')
+    
     def get_sfe_energies(self) -> dict[str, dict[int, float | None]]:
         """Return only the SFE values grouped by direction and step."""
         sfe_energies = {}
@@ -268,11 +280,15 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         self,
         x_axis: str = 'step',
         zero_reference: bool = False,
+        directions: list[str] | None = None,
     ) -> dict[str, dict[str, list[float | None]]]:
         """Return simple plot-ready x/y arrays for each GSFE direction."""
         plot_data: dict[str, dict[str, list[float | None]]] = {}
 
         for direction, entries in self.get_results().items():
+            if directions is not None and direction not in directions:
+                continue
+
             xs: list[float] = []
             energies: list[float | None] = []
             sfes: list[float | None] = []
@@ -307,7 +323,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             for direction, data in plot_data.items()
         }
 
-    def fit_curve(self, plot=False, axis=None, **kwargs):
+    def fit_curve(self, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
         """Fit the curve."""
         from matplotlib.legend_handler import HandlerTuple
 
@@ -320,10 +336,16 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         xs_dict = self.serialize_faults()
         sfe_energies = self.get_sfe_energies()
         
+        # Filter energies first
+        if directions is not None:
+            filtered_energies = {d: v for d, v in sfe_energies.items() if d in directions}
+        else:
+            filtered_energies = sfe_energies
+
         # Convert sfe_energies to the format expected by the port: direction -> [[value, ...]]
         energies = {
             direction: [[val for _, val in sorted(steps.items())]]
-            for direction, steps in sfe_energies.items()
+            for direction, steps in filtered_energies.items()
         }
 
         results = {}
@@ -334,7 +356,8 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         nsteps = gliding_system.general.nsteps
 
         sorted_keys = sorted(energies, key=lambda k: max(energies[k][0]), reverse=True)
-        colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=len(sorted_keys)))
+        num_to_plot = len(sorted_keys)
+        colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=max(1, num_to_plot)))
 
         for slipping_direction in sorted_keys:
             color = next(colors)
@@ -415,6 +438,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         value: str = 'sfe',
         x_axis: str = 'step',
         zero_reference: bool = False,
+        directions: list[str] | None = None,
         **kwargs,
     ):
         """Plot the selected GSFE quantity for each direction."""
@@ -426,7 +450,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
             _, ax = plt.subplots()
 
-        plot_data = self.get_plot_data(x_axis=x_axis, zero_reference=zero_reference)
+        plot_data = self.get_plot_data(x_axis=x_axis, zero_reference=zero_reference, directions=directions)
 
         for direction, data in plot_data.items():
             ax.plot(
@@ -596,7 +620,7 @@ class GSFEGroupDataLatest(BaseGroupData):
             plt.savefig(destpath)
         return results
 
-    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, **kwargs):
+    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, directions=None, **kwargs):
         """Plot GSFE curves for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -635,8 +659,9 @@ class GSFEGroupDataLatest(BaseGroupData):
                     analyser.fit_curve(
                         plot=True,
                         axis=ax,
-                        label=f"k-dist: {k_dist}",
+                        label=f"{k_dist}",
                         color=color,
+                        directions=directions,
                         **kwargs
                     )
                 else:
@@ -645,6 +670,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                         label_prefix=f"{k_dist} ",
                         color=color,
                         zero_reference=kwargs.get('zero_reference', True),
+                        directions=directions,
                         **kwargs
                     )
 
