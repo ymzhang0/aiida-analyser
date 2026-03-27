@@ -242,8 +242,8 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
         
         total_energy_cleavaged_geometry = self.surface_energy.outputs.output_parameters.get('energy')
-        energy_difference = 2*(total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier)
-        surface_energy = energy_difference / surface_area * self._eVA22Jm2
+        energy_difference = total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier
+        surface_energy = energy_difference / (2*surface_area) * self._eVA22Jm2
         
         return surface_energy
 
@@ -349,7 +349,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
                     y_fit = func(x_plot, a, b, c, d)
 
-                    results[slipping_direction]['usf'] = a + b + c + d
+                    results[slipping_direction]['usf'] = func(numpy.pi/4, a, b, c, d)
 
                 if func == gamma_usf2:
                     (e_usf1, e_usf2), pcov = curve_fit(
@@ -357,8 +357,8 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
                     y_fit = func(x_plot, e_usf1, e_usf2)
 
-                    results[slipping_direction]['usf'] = numpy.max(y_fit)
-                    results[slipping_direction]['s'] = e_usf2
+                    results[slipping_direction]['usf'] = func(numpy.pi/4, e_usf1, e_usf2)
+                    results[slipping_direction]['s'] = func(numpy.pi/2, e_usf1, e_usf2)
                                         
                 if plot:
                     if not axis:
@@ -647,7 +647,7 @@ class GSFEGroupData:
                 
                 ax.legend(
                     loc='upper right',
-                    fontsize=10, 
+                    fontsize=kwargs.get('legend_fontsize', 16), 
                     frameon=False,      
                     facecolor='white',  
                     edgecolor='white',

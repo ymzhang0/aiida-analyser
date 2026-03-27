@@ -133,7 +133,7 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
             ):
                 total_energy_cleavaged_geometry = child.node.outputs.output_parameters.get('energy')
                 energy_difference = (total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier)
-                cleavaged_surface_energy = energy_difference / (surface_area) * self._eVA22Jm2
+                cleavaged_surface_energy = energy_difference / (2*surface_area) * self._eVA22Jm2
                 # energies.append(cleavaged_surface_energy)
                 energies[spacings.pop()] = cleavaged_surface_energy
 
@@ -169,7 +169,9 @@ class SurfaceEnergyData:
             lambda: defaultdict(
                 lambda: defaultdict(
                     lambda: defaultdict(
-                        lambda: None
+                        lambda: defaultdict(
+                            lambda: None
+                        )
                     )
                 )
             )
@@ -192,17 +194,84 @@ class SurfaceEnergyData:
                 if not node.is_finished_ok:
                     continue
                 try:
-                    formula = node.inputs.structure.get_formula()
-                    
                     # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
                     if node.process_label == 'SurfaceEnergyWorkChain':
+                        formula = node.inputs.structure.get_formula()
+                        kpoints_distance = node.inputs.kpoints_distance.value
+                        if 'n_repeats' in node.inputs:
+                            n_repeats = node.inputs.n_repeats.value
+                        elif 'cleavaged_structure_data' in node.inputs:
+                            n_repeats = node.inputs.cleavaged_structure_data.n_unit_cells
+                        else:
+                            raise AttributeError(f"Node<{node.pk}>: Neither 'n_repeats' nor 'cleavaged_structure_data' found in inputs")
+
+                        if 'gliding_plane' in node.inputs:
+                            gliding_plane = node.inputs.gliding_plane.value
+                        elif 'cleavaged_structure_data' in node.inputs:
+                            gliding_plane = node.inputs.cleavaged_structure_data.gliding_plane
+                        else:
+                            raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'cleavaged_structure_data' found in inputs")
                         a = SurfaceWorkChainAnalyser(node)
-                        self._data[a.strukturbericht][formula] = node
+                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance] = node
                 except Exception as e:
                     # Provide more context in error message
                     raise ValueError(f'Node<{node.pk}> processing failed: {e}')
 
-    def plot(self, axes=None, dest=None):
+    def get_table(self):
+        import pandas as pd
+
+        def get_status_string(node):
+            if node is None:
+                return 'N/A'
+
+            if not node.is_terminated:
+                return '⏳'
+            if node.is_finished_ok:
+                return '✅'
+            elif node.is_failed:
+                return f'❌ ({node.exit_status})'
+            elif node.is_excepted:
+                return '⚠️ Excepted'
+            elif node.is_killed:
+                return '💀 Killed'
+            else:
+                return f'🏃 {node.process_state.value}'
+
+        flattened_list = []
+
+        # Iterate over the nested dictionary:
+        # StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
+        for struct_type, formulas in self._data.items():
+            for formula, planes in formulas.items():
+                for plane, processes in planes.items():
+                    for layers, k_dists in processes.items():
+                        for k_dist, node in k_dists.items():
+                            flattened_list.append({
+                                'Structure': struct_type,
+                                'Material': formula,
+                                'Plane': plane,
+                                'Layers': layers,
+                                'K_Dist': k_dist,
+                                'Status': get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                            })
+
+        if not flattened_list:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(flattened_list)
+
+        pivot_df = df.pivot_table(
+            values='Status',
+            index=['Structure', 'Material', 'Layers', 'K_Dist'],
+            columns='Plane',
+            aggfunc='first'
+        )
+
+        pivot_df = pivot_df.fillna('')
+        pivot_df = pivot_df.sort_index(axis=1)
+        return pivot_df
+
+    def plot(self, axes=None, kpoints_distance=None, n_repeats=None, dest=None):
         """Plot the surface energies."""
         import numpy
         if axes is None:
