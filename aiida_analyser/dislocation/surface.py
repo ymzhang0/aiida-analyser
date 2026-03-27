@@ -41,17 +41,11 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
 
     @property
     def relax(self):
-        if 'relax' not in self.process_tree:
-            raise AttributeError('relax is not found')
-        else:
-            return self.process_tree.relax.node
+        return self._get_node_from_tree('relax')
 
     @property
     def scf(self):
-        if 'scf' not in self.process_tree:
-            raise AttributeError('scf is not found')
-        else:
-            return self.process_tree.scf.node
+        return self._get_node_from_tree('scf')
     
     @property
     def surface_energies(self):
@@ -130,7 +124,10 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
                 or call_link_label.startswith('slab_idx_')
                 or call_link_label.startswith('slab_')
             ):
-                total_energy_cleavaged_geometry = child.node.outputs.output_parameters.get('energy')
+                total_energy_cleavaged_geometry = self._get_safe_energy(child.node)
+                if total_energy_cleavaged_geometry is None:
+                    logging.warning(f"Node<{child.node.pk}>: energy not found in output_parameters")
+                    continue
                 energy_difference = (total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier)
                 cleavaged_surface_energy = energy_difference / (2*surface_area) * self._eVA22Jm2
                 # energies.append(cleavaged_surface_energy)

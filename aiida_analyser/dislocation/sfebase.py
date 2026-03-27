@@ -11,24 +11,15 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     
     @property
     def relax(self):
-        if 'relax' not in self.process_tree:
-            raise AttributeError('relax is not found')
-        else:
-            return self.process_tree.relax.node
+        return self._get_node_from_tree('relax')
 
     @property
     def scf(self):
-        if 'scf' not in self.process_tree:
-            raise AttributeError('scf is not found')
-        else:
-            return self.process_tree.scf.node
+        return self._get_node_from_tree('scf')
 
     @property
     def surface_energy(self):
-        if 'surface_energy' not in self.process_tree:
-            raise AttributeError('sfe is not found')
-        else:
-            return self.process_tree.surface_energy.node
+        return self._get_node_from_tree('surface_energy')
 
     def get_source(self):
         """Get the source of the workchain."""

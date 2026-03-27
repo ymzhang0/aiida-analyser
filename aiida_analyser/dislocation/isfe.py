@@ -7,16 +7,9 @@ class ISFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
     Analyser for the ISFEWorkChain.
     """
 
-    _RY2eV    = 13.605693122990
-    _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
-    _eVA22Jm2 = 1.602176634E-19 * 1E+20
-
     @property
     def isfe(self):
-        if 'isfe' not in self.process_tree:
-            raise AttributeError('isfe is not found')
-        else:
-            return self.process_tree.isfe.node
+        return self._get_node_from_tree('isfe')
 
     def get_state(self):
         """Get the state of the workchain."""
@@ -41,9 +34,13 @@ class ISFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
         _, intrinsic_multiplier = intrinsic_formula.reduce()
         conventional_formula = Formula(self.scf.inputs.pw.structure.get_ase().get_chemical_formula())
         _, conventional_multiplier = conventional_formula.reduce()
-        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase().cell)
-        total_energy_isf_geometry = self.isfe.outputs.output_parameters.get('energy')
-        total_energy_conventional_geometry = self.scf.outputs.output_parameters.get('energy')
+        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
+        total_energy_isf_geometry = self._get_safe_energy(self.isfe)
+        total_energy_conventional_geometry = self._get_safe_energy(self.scf)
+        
+        if total_energy_isf_geometry is None or total_energy_conventional_geometry is None:
+            raise ValueError('Energy not found in output_parameters for isfe or scf')
+
         energy_difference = total_energy_isf_geometry - total_energy_conventional_geometry / conventional_multiplier * intrinsic_multiplier
         intrinsic_stacking_fault_energy = energy_difference / surface_area * self._eVA22Jm2
         return intrinsic_stacking_fault_energy

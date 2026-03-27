@@ -9,10 +9,7 @@ class ESFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
 
     @property
     def esfe(self):
-        if 'esfe' not in self.process_tree:
-            raise AttributeError('esfe is not found')
-        else:
-            return self.process_tree.esfe.node
+        return self._get_node_from_tree('esfe')
 
     def get_state(self):
         """Get the state of the workchain."""
@@ -37,9 +34,13 @@ class ESFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
         _, extrinsic_multiplier = extrinsic_formula.reduce()
         conventional_formula = Formula(self.scf.inputs.pw.structure.get_ase().get_chemical_formula())
         _, conventional_multiplier = conventional_formula.reduce()
-        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase().cell)
-        total_energy_esf_geometry = self.esfe.outputs.output_parameters.get('energy')
-        total_energy_conventional_geometry = self.scf.outputs.output_parameters.get('energy')
+        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
+        total_energy_esf_geometry = self._get_safe_energy(self.esfe)
+        total_energy_conventional_geometry = self._get_safe_energy(self.scf)
+        
+        if total_energy_esf_geometry is None or total_energy_conventional_geometry is None:
+            raise ValueError('Energy not found in output_parameters for esfe or scf')
+
         energy_difference = total_energy_esf_geometry - total_energy_conventional_geometry / conventional_multiplier * extrinsic_multiplier
         extrinsic_stacking_fault_energy = energy_difference / surface_area * self._eVA22Jm2
         return extrinsic_stacking_fault_energy

@@ -9,6 +9,8 @@ from aiida.tools import delete_nodes
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Callable
 from collections import deque
+import logging
+import itertools
 
 
 @dataclass
@@ -281,6 +283,24 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     _RY2eV    = 13.605693122990
     _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
     _eVA22Jm2 = 1.602176634E-19 * 1E+20
+
+    def _get_node_from_tree(self, label: str) -> orm.Node:
+        """
+        Helper method to get a node from the process tree by its label.
+        Raises AttributeError if the label is not found.
+        """
+        if label not in self.process_tree:
+            raise AttributeError(f"'{label}' is not found in the process tree of WorkChain<{self.node.pk}>")
+        return self.process_tree[label].node
+
+    @staticmethod
+    def _get_safe_energy(node: orm.Node) -> float | None:
+        """
+        Safely retrieve the 'energy' from output_parameters.
+        """
+        if not node:
+            return None
+        return node.outputs.get('output_parameters', {}).get('energy')
 
     @staticmethod
     def _get_calcjob_paths(processes_tree, parent_label=''):

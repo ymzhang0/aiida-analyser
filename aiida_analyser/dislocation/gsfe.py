@@ -121,24 +121,15 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
     @property
     def relax(self):
-        if 'relax' not in self.process_tree:
-            raise AttributeError('relax is not found')
-        else:
-            return self.process_tree.relax.node
+        return self.get_node_from_tree('relax')
 
     @property
     def scf(self):
-        if 'scf' not in self.process_tree:
-            raise AttributeError('scf is not found')
-        else:
-            return self.process_tree.scf.node
-    
+        return self._get_node_from_tree('scf')
+
     @property
     def surface_energy(self):
-        if 'surface_energy' not in self.process_tree:
-            raise AttributeError('surface_energy is not found')
-        else:
-            return self.process_tree.surface_energy.node
+        return self._get_node_from_tree('surface_energy')
     
     def get_state(self):
         """Get the state of the workchain."""
@@ -154,18 +145,18 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     def scf_energy(self):
         """Get the energy of the scf calculation."""
 
-        return self.scf.outputs.output_parameters.get('energy')
+        return self._get_safe_energy(self.scf)
 
     @property
     def pristine_energy(self):
         """Get the pristine energy."""
         if 'structure_01' in self.process_tree:
-            return self.process_tree.structure_01.node.outputs.output_parameters.get('energy')
+            return self._get_safe_energy(self.process_tree.structure_01.node)
         
         # Try to find the first sfe_ child (e.g., sfe_111_000)
         sfe_labels = sorted([l for l in self.process_tree.children.keys() if l.startswith('sfe_')])
         if sfe_labels:
-            return self.process_tree[sfe_labels[0]].node.outputs.output_parameters.get('energy')
+            return self._get_safe_energy(self.process_tree[sfe_labels[0]].node)
             
         raise AttributeError('Pristine energy (structure_01 or sfe_*) not found in process tree')
     
@@ -194,7 +185,10 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
         _energies = deque()
         for call_link_label, child in sfe_children:
-            total_energy_faulted_geometry = child.node.outputs.output_parameters.get('energy')
+            total_energy_faulted_geometry = self._get_safe_energy(child.node)
+            if total_energy_faulted_geometry is None:
+                logging.warning(f"Node<{child.node.pk}>: energy not found in output_parameters")
+                continue
             # energy_difference = total_energy_faulted_geometry - total_energy_conventional_geometry / conventional_multiplier * faulted_multiplier
             energy_difference = total_energy_faulted_geometry - self.pristine_energy
             faulted_stacking_fault_energy = energy_difference / surface_area * self._eVA22Jm2
@@ -223,6 +217,11 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_surface_energy(self):
         """Get the surface energy."""
+        return self.surface_energy_value
+
+    @property
+    def surface_energy_value(self):
+        """Get the surface energy of the workchain."""
         from ase.formula import Formula
         from aiida_dislocation.tools import calculate_surface_area
         from aiida_dislocation.workflows.gsfe import GSFEWorkChain
@@ -240,7 +239,10 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         
         surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
         
-        total_energy_cleavaged_geometry = self.surface_energy.outputs.output_parameters.get('energy')
+        total_energy_cleavaged_geometry = self._get_safe_energy(self.surface_energy)
+        if total_energy_cleavaged_geometry is None:
+            logging.warning(f"Node<{self.surface_energy.pk}>: energy not found in output_parameters")
+            return None
         energy_difference = total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier
         surface_energy = energy_difference / (2*surface_area) * self._eVA22Jm2
         
@@ -287,7 +289,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", [hex_color, "#ffffff"])
             return [mcolors.to_hex(cmap(i)) for i in numpy.linspace(0, 0.8, num)]
         
-        markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x']
+        markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
         # color = kwargs.get('color', 'black')
         xs = self.serialize_faults()
         energies = self.get_sfe_energies()
@@ -305,8 +307,9 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         nsteps = gliding_system.general.nsteps
 
         sorted_keys = sorted(energies, key=lambda k: max(energies[k]), reverse=True)
-        colors = get_gradient_shades(kwargs.get('color', 'black'), num = len(sorted_keys))
-        for slipping_direction, color in zip(sorted_keys, colors):
+        colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num = len(sorted_keys)))
+        for slipping_direction in sorted_keys:
+            color = next(colors)
             results[slipping_direction] = {}
             for x, y in zip(xs[slipping_direction], energies[slipping_direction]):
                 x_plot = numpy.linspace(0, x[-1], 500)
@@ -368,7 +371,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
                         color=color, 
                         s=50, 
                         zorder=5, 
-                        marker=markers.pop(0))
+                        marker=next(markers))
 
                     line, = axis.plot(
                         x_plot, 
@@ -567,34 +570,32 @@ class GSFEGroupData(BaseGroupData):
 
                 sorted_formulas = sorted(list(all_formulas))
 
-                cmap = plt.get_cmap('tab10') 
-                formula_colors = {
-                    formula: mcolors.to_hex(cmap(i % 10)) 
-                    for i, formula in enumerate(sorted_formulas)
-                }
+                base_colors = itertools.cycle([
+                    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+                ])
+                markers = itertools.cycle(['o', 's', 'v', '^', '<', '>', '8', 'p', '*', 'h', 'H', 'D', 'd', 'P', 'X'])
+
                 for formula, planes_dict in mat_dict.items():
 
                     if plane in planes_dict:
                         process_dict = planes_dict[plane]
-                        color = _base_colors.pop(0)
+                        color = next(base_colors)
+                        marker = next(markers)
                         if 'GSFEWorkChain' in process_dict:
                             for layers, k_dist_dict in process_dict['GSFEWorkChain'].items():
                                 for k_dist, node in k_dist_dict.items():
                                     if node and node.is_finished_ok:
-                                        print(node.pk, formula, plane)
+                                        # print(node.pk, formula, plane)
+                                        logging.info(f"Fitting node<{node.pk}> for {formula} {plane}")
                                         analyser = GSFEWorkChainAnalyser(node)
                                         
-                                        # alpha_val = max(0.3, 1.0 - rank * 0.2) 
-                                        
-                                        # current_marker = markers[rank % len(markers)]
-
                                         results[struct][plane][formula] = analyser.fit_curve(
                                             plot=True, 
                                             axis=ax, 
                                             label=formula_to_latex(formula),
                                             color=color,
-                                            # alpha=alpha_val,
-                                            # marker=current_marker,
+                                            marker=marker,
                                             markevery=5,
                                             linestyle='-',
                                             lw=kwargs.get('lw', 1.5),

@@ -10,10 +10,7 @@ class USFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
 
     @property
     def layer_relax(self):
-        if 'layer_relax' not in self.process_tree:
-            raise AttributeError('layer_relax is not found')
-        else:
-            return self.process_tree.layer_relax.node
+        return self._get_node_from_tree('layer_relax')
 
     def get_state(self):
         """Get the state of the workchain."""

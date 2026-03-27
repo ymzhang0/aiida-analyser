@@ -13,6 +13,11 @@ from aiida import orm
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
 import logging
+import itertools
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import warnings
+from scipy.optimize import curve_fit, OptimizeWarning
 from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 
@@ -135,17 +140,14 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             for value in values
         ]
 
-    @property
-    def relax(self) -> orm.WorkChainNode:
-        if 'relax' not in self.process_tree:
-            raise AttributeError('relax is not found')
-        return self.process_tree.relax.node
 
     @property
-    def scf(self) -> orm.WorkChainNode:
-        if 'scf' not in self.process_tree:
-            raise AttributeError('scf is not found')
-        return self.process_tree.scf.node
+    def relax(self):
+        return self._get_node_from_tree('relax')
+
+    @property
+    def scf(self):
+        return self._get_node_from_tree('scf')
 
     @property
     def strukturbericht(self) -> str:
@@ -201,7 +203,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         for direction, entries in results.items():
             normalized[direction] = {
                 str(step): dict(value)
-                for step, value in sorted(entries.items(), key=lambda item: int(item[0]))
+                for step, entry in sorted(entries.items(), key=lambda item: int(item[0]))
             }
         return normalized
 
@@ -212,15 +214,45 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             raise KeyError(f'direction `{direction_name}` is not present in GSFE results')
         return results[direction_name]
 
+
+    @property
+    def pristine_energy(self) -> float | None:
+        """Return the pristine energy from the conventional structure."""
+        if 'conventional_structure' in self.node.inputs:
+            conventional_node = self.node.inputs.conventional_structure
+            return self._get_safe_energy(conventional_node)
+        return None
+
     def get_sfe_energies(self) -> dict[str, dict[int, float | None]]:
         """Return only the SFE values grouped by direction and step."""
-        return {
-            direction: {
-                int(step): entry.get('sfe')
-                for step, entry in entries.items()
-            }
-            for direction, entries in self.get_results().items()
-        }
+        sfe_energies = {}
+        pristine_energy = self.pristine_energy
+        if pristine_energy is None:
+            logging.warning("Pristine energy not found, cannot calculate SFE.")
+            return {}
+
+        for direction, entries in self.get_results().items():
+            sfe_energies[direction] = {}
+            for step, entry in entries.items():
+                total_energy_faulted_geometry = entry.get('energy')
+                if total_energy_faulted_geometry is None:
+                    logging.warning(f"Energy not found for direction {direction}, step {step}.")
+                    sfe_energies[direction][int(step)] = None
+                    continue
+
+                # Assuming 'conventional_multiplier' and 'faulted_multiplier' are available if needed
+                # For now, using the direct SFE calculation from the workchain output if available,
+                # otherwise calculating based on energy difference.
+                sfe = entry.get('sfe')
+                if sfe is None:
+                    # If SFE is not directly in results, calculate it
+                    # This calculation might need more context (e.g., surface area, number of layers)
+                    # For now, a simple energy difference is used as a placeholder if 'sfe' is missing.
+                    # The original code had `energy_difference = total_energy_faulted_geometry - self.pristine_energy`
+                    # which implies SFE is just the energy difference.
+                    sfe = total_energy_faulted_geometry - pristine_energy
+                sfe_energies[direction][int(step)] = sfe
+        return sfe_energies
 
     def get_total_energies(self) -> dict[str, dict[int, float | None]]:
         """Return only the total energies grouped by direction and step."""
@@ -284,9 +316,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", [hex_color, "#ffffff"])
             return [mcolors.to_hex(cmap(i)) for i in numpy.linspace(0, 0.8, num)]
 
-        markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x']
+        markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
         xs_dict = self.serialize_faults()
         sfe_energies = self.get_sfe_energies()
+        
         # Convert sfe_energies to the format expected by the port: direction -> [[value, ...]]
         energies = {
             direction: [[val for _, val in sorted(steps.items())]]
@@ -301,14 +334,12 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         nsteps = gliding_system.general.nsteps
 
         sorted_keys = sorted(energies, key=lambda k: max(energies[k][0]), reverse=True)
-        colors = get_gradient_shades(kwargs.get('color', 'black'), num=len(sorted_keys))
+        colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=len(sorted_keys)))
 
-        import warnings
-        from scipy.optimize import OptimizeWarning
-
-        for slipping_direction, color in zip(sorted_keys, colors):
+        for slipping_direction in sorted_keys:
+            color = next(colors)
             results[slipping_direction] = {}
-            print(f"Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
+            logging.info(f"Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
             for x, y in zip(xs_dict[slipping_direction], energies[slipping_direction]):
                 x = numpy.array(x, dtype=float)
                 y = numpy.array(y, dtype=float)
@@ -320,37 +351,41 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", OptimizeWarning)
-                    if func == gamma_isf:
-                        b = y[nsteps]
-                        order = kwargs.get('order', 1)
-                        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b), x, y, p0=[0.1] * order, maxfev=100000)
-                        y_fit = func(x_plot, popt, b)
-                        x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
-                        results[slipping_direction]['isf'] = b
-                        results[slipping_direction]['usf'] = func(x_max, popt, b)
+                    try:
+                        if func == gamma_isf:
+                            b = y[nsteps]
+                            order = kwargs.get('order', 1)
+                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b), x, y, p0=[0.1] * order, maxfev=100000)
+                            y_fit = func(x_plot, popt, b)
+                            x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
+                            results[slipping_direction]['isf'] = b
+                            results[slipping_direction]['usf'] = func(x_max, popt, b)
 
-                    if func == gamma_esf:
-                        b = y[nsteps]
-                        c = y[2 * nsteps] - y[nsteps]
-                        order = kwargs.get('order', 4)
-                        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=100000)
-                        y_fit = func(x_plot, popt, b, c)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
-                        results[slipping_direction]['isf'] = b
-                        results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
-                        results[slipping_direction]['esf'] = b + c
+                        elif func == gamma_esf:
+                            b = y[nsteps]
+                            c = y[2 * nsteps] - y[nsteps]
+                            order = kwargs.get('order', 4)
+                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=100000)
+                            y_fit = func(x_plot, popt, b, c)
+                            results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
+                            results[slipping_direction]['isf'] = b
+                            results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
+                            results[slipping_direction]['esf'] = b + c
 
-                    if func == gamma_usf:
-                        order = kwargs.get('order', 4)
-                        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=[0.1] * order, maxfev=100000)
-                        y_fit = func(x_plot, popt)
-                        results[slipping_direction]['usf'] = numpy.sum(popt)
+                        elif func == gamma_usf:
+                            order = kwargs.get('order', 4)
+                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=[0.1] * order, maxfev=100000)
+                            y_fit = func(x_plot, popt)
+                            results[slipping_direction]['usf'] = numpy.sum(popt)
 
-                    if func == gamma_usf2:
-                        (e_usf1, e_usf2), pcov = curve_fit(func, x, y, maxfev=100000)
-                        y_fit = func(x_plot, e_usf1, e_usf2)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit)
-                        results[slipping_direction]['s'] = e_usf2
+                        elif func == gamma_usf2:
+                            (e_usf1, e_usf2), pcov = curve_fit(func, x, y, maxfev=100000)
+                            y_fit = func(x_plot, e_usf1, e_usf2)
+                            results[slipping_direction]['usf'] = numpy.max(y_fit)
+                            results[slipping_direction]['s'] = e_usf2
+                    except Exception as e:
+                        logging.warning(f"Fitting failed for {slipping_direction}: {e}")
+                        continue
 
                 if plot:
                     if axis is None:
@@ -361,7 +396,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         color=color,
                         s=50,
                         zorder=5,
-                        marker=markers.pop(0))
+                        marker=next(markers))
 
                     axis.plot(
                         x_plot,
@@ -445,6 +480,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                     structuretype = get_strukturbericht(structure.get_ase())
                     formula = structure.get_formula()
 
+                    logging.info(f"Processing node<{node.pk}> for {formula}")
                     if 'n_repeats' in node.inputs:
                         n_repeats = node.inputs.n_repeats.value
                     elif 'faulted_structure_data' in node.inputs:
@@ -492,14 +528,6 @@ class GSFEGroupDataLatest(BaseGroupData):
         return flattened_list
 
     def fit(self, destpath=None, axs=None, **kwargs):
-        import matplotlib.colors as mcolors
-        import matplotlib.pyplot as plt
-
-        base_colors = [
-            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-        ]
-
         # Use a list of structures to maintain order
         structures = sorted([s for s in self._data.keys() if s is not None], key=lambda x: str(x))
         all_planes = set()
@@ -523,7 +551,13 @@ class GSFEGroupDataLatest(BaseGroupData):
             results[struct] = {}
             for j, plane in enumerate(planes):
                 results[struct][plane] = {}
-                _base_colors = deepcopy(base_colors)
+                
+                base_colors = itertools.cycle([
+                    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+                ])
+                markers = itertools.cycle(['o', 's', 'v', '^', '<', '>', '8', 'p', '*', 'h', 'H', 'D', 'd', 'P', 'X'])
+
                 ax = axs[i, j]
 
                 mat_dict = self._data[struct]
@@ -531,16 +565,18 @@ class GSFEGroupDataLatest(BaseGroupData):
                 for formula, planes_dict in mat_dict.items():
                     if plane in planes_dict:
                         process_dict = planes_dict[plane]
-                        color = _base_colors.pop(0) if _base_colors else None
+                        color = next(base_colors)
+                        marker = next(markers)
                         if 'GSFEWorkChain' in process_dict:
                             for layers, k_dist_dict in process_dict['GSFEWorkChain'].items():
                                 for k_dist, node in k_dist_dict.items():
                                     if node and node.is_finished_ok:
-                                        print(node.pk, formula, plane)
+                                        # print(node.pk, formula, plane)
+                                        logging.info(f"Fitting node<{node.pk}> for {formula} {plane}")
                                         analyser = GSFEWorkChainAnalyserLatest(node)
                                         results[struct][plane][formula] = analyser.fit_curve(
-                                            plot=True,
                                             axis=ax,
+                                            plot=True,
                                             label=formula_to_latex(formula),
                                             color=color,
                                             linestyle='-',
