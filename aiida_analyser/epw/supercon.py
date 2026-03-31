@@ -739,10 +739,16 @@ class SuperConData:
         plt.tight_layout()
         return fig, axs
 
-    def dump(self, dest:Path):
+    def dump(self, dest:Path, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
         for material, degauss_dict in self._data.items():
+            if degauss_list:
+                degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}
             for degauss, k_dist_dict in degauss_dict.items():
+                if k_dist_list:
+                    k_dist_dict = {k: v for k, v in k_dist_dict.items() if k in k_dist_list}
                 for k_dist, q_dist_data in k_dist_dict.items():
+                    if q_dist_list:
+                        q_dist_data = {k: v for k, v in q_dist_data.items() if k in q_dist_list}
                     for q_dist, epw_node in q_dist_data.items():
                         if epw_node:
                             analyser = SuperConWorkChainAnalyser(epw_node)
