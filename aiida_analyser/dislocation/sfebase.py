@@ -102,8 +102,9 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         
         return faulted_stacking_fault_energies
 
-    def clean_workchain(self, exempted_states=[], dry_run=True):
+    def clean_workchain(self, exempted_states=None, dry_run=True):
         """Clean the workchain."""
+        exempted_states = [] if exempted_states is None else exempted_states
         path, process_state, exit_code = self.get_state()
         message = f'Process<{self.node.pk}> is now {process_state} at {path} with exit code {exit_code}. Please check if you really want to clean this workchain.\n'
         if process_state in exempted_states:
@@ -112,4 +113,3 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
         message, success = super().clean_workchain(dry_run=dry_run)
         return message, True
-

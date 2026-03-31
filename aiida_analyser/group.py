@@ -142,8 +142,8 @@ def get_sourced_nodes(group_label, profile=None):
             source_id = node.base.extras.all['source_id']
             source = f"{source_db}-{source_id}"
             sourced_nodes[source] = node
-        except:
-            pass
+        except KeyError:
+            continue
     return sourced_nodes
 
 def get_sourced_nodes_all_groups(profile):

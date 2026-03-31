@@ -155,10 +155,9 @@ class PwBandsGroupData(BaseGroupData):
 
         n_cols = len(structures)
 
+        created_axes = axs is None
         if axs is None:
             fig, axs = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4), squeeze=False)
-
-        print(axs)
 
         for i, struct in enumerate(structures):
                 
@@ -195,7 +194,7 @@ class PwBandsGroupData(BaseGroupData):
             ax.set_ylabel('')
 
 
-        if destpath  and axs is None:
+        if destpath and created_axes:
             plt.tight_layout()
             plt.savefig(destpath)
         return axs

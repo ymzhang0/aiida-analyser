@@ -27,6 +27,15 @@ def calculate_lambda_omega(frequency: ArrayLike, spectrum: ArrayLike) -> tuple:
 
     :returns: Tuple of the calculated lambda and omega_log values.
     """
+    frequency = numpy.asarray(frequency)
+    spectrum = numpy.asarray(spectrum)
+    positive_mask = frequency > 0
+    if not numpy.any(positive_mask):
+        raise ValueError('Frequency array must contain positive values.')
+
+    frequency = frequency[positive_mask]
+    spectrum = spectrum[positive_mask]
+
     lambda_ = 2 * scipy.integrate.trapezoid(spectrum / frequency, frequency)  # unitless
     omega_log = numpy.exp(2 / lambda_ * scipy.integrate.trapezoid(spectrum / frequency * numpy.log(frequency), frequency))  # eV
     omega_log = omega_log * meV_to_Kelvin
@@ -35,10 +44,19 @@ def calculate_lambda_omega(frequency: ArrayLike, spectrum: ArrayLike) -> tuple:
 
 @calcfunction
 def calculate_Allen_Dynes_tc(a2f: ArrayData, mustar = 0.13) -> Float:
-    w        = a2f.get_array('frequency')
-    # Here we preassume that there are 10 smearing values for a2f calculation
-    spectral = a2f.get_array('a2f')[:, 9]
+    w = a2f.get_array('frequency')
+    spectral_data = a2f.get_array('a2f')
+    if spectral_data.ndim == 1:
+        spectral = spectral_data
+    else:
+        spectral = spectral_data[:, min(9, spectral_data.shape[1] - 1)]
     mev2K    = 11.604525006157
+
+    positive_mask = w > 0
+    if not numpy.any(positive_mask):
+        raise ValueError('Frequency array must contain positive values.')
+    w = w[positive_mask]
+    spectral = spectral[positive_mask]
 
     _lambda  = 2*numpy.trapz(numpy.divide(spectral, w), x=w)
 
@@ -91,4 +109,3 @@ def _calculate_iso_tc(max_eigenvalue, allow_extrapolation=False):
 @calcfunction
 def calculate_iso_tc(max_eigenvalue: XyData) -> Float:
     return Float(_calculate_iso_tc(max_eigenvalue.get_array('max_eigenvalue')))
-

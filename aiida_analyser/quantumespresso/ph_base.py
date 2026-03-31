@@ -1,5 +1,6 @@
 from collections import defaultdict
 from itertools import chain
+import warnings
 
 from aiida import orm
 
@@ -197,7 +198,7 @@ class SPDFPTData:
         extras = node.base.extras.all
         for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss', ]:
             if key not in extras:
-                raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+                warnings.warn(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
 
     def get_data(self):
         for grpname in self._groups:

@@ -4,6 +4,7 @@ from aiida import orm
 from collections import deque
 from io import StringIO
 import re
+import warnings
 
 from aiida import orm
 from aiida.common.links import LinkType
@@ -83,6 +84,8 @@ def parse_raw_out(
         raise ValueError('Only EpwWorkChain amd PhBaseWorkChain are accepted.')
 
     iterations = find_iterations(wc_ph)
+    if not iterations:
+        return (999, 'NO_ITERATIONS_FOUND')
 
     max_iteration = max(iterations, key=lambda x: int(x.split('_')[1]))
 
@@ -132,9 +135,9 @@ def get_qpoints_and_frequencies(
     else:
         wc_ph = wc.base.links.get_outgoing(link_label_filter='ph_base').first().node
         if wc_ph is not None:
-            raise Warning(
+            warnings.warn(
                 'This workchain is unknown, but it called a PhBaseWorkChain'
-                )
+            )
         else:
             raise ValueError('Invalid input workchain')
 
@@ -143,6 +146,8 @@ def get_qpoints_and_frequencies(
 
 
     iterations = find_iterations(wc_ph)
+    if not iterations:
+        raise ValueError(f'No `iteration_*` subprocesses found in PhBaseWorkChain<{wc_ph.pk}>')
 
     max_iteration = max(iterations, key=lambda x: int(x.split('_')[1]))
 
@@ -257,7 +262,7 @@ def clean_workdir(node, dry_run=False):
         if isinstance(called_descendant, orm.CalcJobNode):
             try:
                 if not dry_run:
-                    if 'remote_folder' in node.outputs:
+                    if 'remote_folder' in called_descendant.outputs:
                         called_descendant.outputs.remote_folder._clean()  # pylint: disable=protected-access
                 cleaned_calcs.append(called_descendant.pk)
             except (IOError, OSError, KeyError):

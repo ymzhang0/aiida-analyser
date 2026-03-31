@@ -287,6 +287,17 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
     _eVA22Jm2 = 1.602176634E-19 * 1E+20
 
+    @staticmethod
+    def split_source(source: str | tuple[str, str] | None) -> tuple[str, str] | None:
+        """Normalize supported source representations to a ``(db, id)`` tuple."""
+        if source is None:
+            return None
+        if isinstance(source, tuple):
+            return source
+        if '-' not in source:
+            raise ValueError(f'Invalid source format: {source!r}')
+        return tuple(source.split('-', 1))
+
     def _get_node_from_tree(self, label: str) -> orm.Node:
         """
         Helper method to get a node from the process tree by its label.
@@ -433,22 +444,24 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         This method requires get_state() to be implemented in subclasses.
         """
         try:
-            path, exit_status, message = self.get_state()
+            path, process_state, exit_code = self.get_state()
         except AttributeError:
             print(f"WorkChain<{self.node.pk}>: get_state() method not implemented.")
             return -1
-        
-        if exit_status == 0:
+
+        normalized_exit_code = getattr(exit_code, 'status', exit_code)
+
+        if process_state == 'finished_ok' and normalized_exit_code == 0:
             print(f"WorkChain<{self.node.pk}> is finished OK.")
             return 0
-        
+
         print(
-            f"WorkChain<{self.node.pk}> exit with {exit_status} at {path}.\n"
-            f"    Message: {message}"
+            f"WorkChain<{self.node.pk}> is {process_state} at {path}.\n"
+            f"    Exit code: {normalized_exit_code}"
         )
 
-        # If exit_status is an integer and non-zero, try to get detailed output
-        if isinstance(exit_status, int) and exit_status != 0:
+        # If exit_code is an integer and non-zero, try to get detailed output
+        if isinstance(normalized_exit_code, int) and normalized_exit_code != 0:
             result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
             if result:
                 path, node = result
@@ -473,9 +486,12 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                             print(node.node.get_scheduler_stderr())
                     except (AttributeError, KeyError):
                         print('_scheduler-stderr.txt not found in retrieved')
-                return exit_status
-        
-        return exit_status if isinstance(exit_status, int) else -1
+                return normalized_exit_code
+
+        if process_state == 'finished_ok':
+            return 0
+
+        return normalized_exit_code if isinstance(normalized_exit_code, int) else -1
     
     def get_source(self):
         """Get the source of the workchain."""

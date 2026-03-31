@@ -29,8 +29,12 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         if not result:
             print(f"Can't check the state of ThermoPwBaseWorkChain<{self.node.pk}>.")
             return
-        path, process_state = result
-        print(f"ThermoPwBaseWorkChain<{self.node.pk}> is now {process_state} at {path}.")
+        path, process_state, exit_code = result
+        normalized_exit_code = getattr(exit_code, 'status', exit_code)
+        print(
+            f"ThermoPwBaseWorkChain<{self.node.pk}> is {process_state} at {path} "
+            f"(exit code: {normalized_exit_code})."
+        )
     
     def get_moduli(self, modulus_type: str):
         """Get the moduli of the workchain."""

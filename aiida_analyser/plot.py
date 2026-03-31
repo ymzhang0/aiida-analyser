@@ -121,6 +121,12 @@ def plot_a2f(
     ):
     w        = a2f_arraydata.get_array('frequency')
     spectral = a2f_arraydata.get_array('a2f')
+    if spectral.ndim == 1:
+        a2f_curve = spectral
+        integrated_curve = None
+    else:
+        a2f_curve = spectral[:, min(9, spectral.shape[1] - 1)]
+        integrated_curve = spectral[:, min(19, spectral.shape[1] - 1)] if spectral.shape[1] > 1 else None
 
     if axis is None:
         from matplotlib import pyplot as plt
@@ -130,14 +136,14 @@ def plot_a2f(
 
 
     ax.plot(
-        spectral[:, 9],
+        a2f_curve,
         w,
         color=kwargs.get('color', 'r'),
         linestyle=kwargs.get('linestyle', '-'),
         label=kwargs.get('label1', r"$\alpha^2F$"))
-    if integrated_a2f:
+    if integrated_a2f and integrated_curve is not None:
         ax.plot(
-            spectral[:, 19],
+            integrated_curve,
             w,
             color=kwargs.get('color', 'k'),
             linestyle=kwargs.get('linestyle', '--'),
@@ -154,7 +160,10 @@ def plot_a2f(
     #     [0, round(numpy.max(w) * 1.05, 1)],
     #     fontsize=kwargs.get('ticklabel_fontsize', 16),
     #     )
-    ax.set_xlim(0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1))
+    max_curve = numpy.max(a2f_curve)
+    if integrated_curve is not None:
+        max_curve = max(max_curve, numpy.max(integrated_curve))
+    ax.set_xlim(0, round(max_curve * 1.05, 1))
     ax.set_ylim(0, round(numpy.max(w) * 1.0, 1))
     # ax.set_ylabel(r"$\alpha^2F$")
     ax.set_ylabel(r"$\omega$ [meV]", fontsize=kwargs.get('label_fontsize', 16))
@@ -813,7 +822,7 @@ def plot_aniso_gap_function(
                 rprint(f'[bold green]Fit successfully[/bold green]')
             else:
                 rprint('[bold red]Curve fit failed with p_cov[/bold red]')
-        except:
+        except (RuntimeError, TypeError, ValueError, IndexError, numpy.linalg.LinAlgError):
             rprint('[bold red]Curve fit failed with exception[/bold red]')
 
 
@@ -883,4 +892,3 @@ def plot_aniso_gap_function(
             'rhos': rhos,
             'well_fit': False,
             }
-

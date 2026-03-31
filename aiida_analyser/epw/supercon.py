@@ -1,14 +1,13 @@
 from pathlib import Path
 
 from aiida import orm
-from aiida.common.links import LinkType
-from aiida.engine import ProcessState
 import numpy
 from collections import defaultdict
-from ..workchains import clean_workdir
+import warnings
 from ..base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 from ..calculators import _calculate_iso_tc, check_convergence
+from ..quantumespresso.ph import check_stability_epw_bands
 from ..plot import (
     plot_a2f,
     plot_eldos,
@@ -16,6 +15,27 @@ from ..plot import (
     plot_phdos,
     plot_iso_gap_function
 )
+
+
+def _iter_calcjob_trees(process_tree):
+    """Yield all calcjob leaves in a ``ProcessTree`` subtree."""
+    if process_tree is None:
+        return
+    if not process_tree.children and isinstance(process_tree.node, orm.CalcJobNode):
+        yield process_tree
+        return
+    for child in process_tree.children.values():
+        yield from _iter_calcjob_trees(child)
+
+
+def _get_a2f_arraydata(workchain: orm.WorkChainNode):
+    """Return whichever A2F output is available on an EPW workchain."""
+    if 'a2f_data' in workchain.outputs:
+        return workchain.outputs.a2f_data
+    if 'a2f' in workchain.outputs:
+        return workchain.outputs.a2f
+    return None
+
 
 class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -50,6 +70,28 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     def aniso(self):
         return getattr(self.process_tree, 'epw_final_aniso', None)
 
+    @staticmethod
+    def _qfpoints_distance(node: orm.WorkChainNode):
+        try:
+            return node.inputs.qfpoints_distance.value
+        except AttributeError:
+            return None
+
+    def _finished_conv_items(self):
+        return [
+            (name, tree)
+            for name, tree in sorted(self.conv.items())
+            if tree.node.is_finished_ok
+        ]
+
+    def _latest_a2f_workchain(self):
+        if self.a2f and self.a2f.node.is_finished_ok:
+            return self.a2f.node
+        finished_conv_items = self._finished_conv_items()
+        if finished_conv_items:
+            return finished_conv_items[-1][1].node
+        return None
+
     @property
     def outputs_parameters(self):
         from ase.spacegroup import get_spacegroup
@@ -61,16 +103,12 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         sg = get_spacegroup(structure.get_ase(), symprec=1e-6)
         outputs_parameters['Space group'] = f"[{sg.no}] {sg.symbol}"
 
-        if self.a2f:
-            a2f_output_parameters = self.a2f.node.outputs.output_parameters
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is not None:
+            a2f_output_parameters = a2f_workchain.outputs.output_parameters
             outputs_parameters['w log'] = a2f_output_parameters.get('w_log')
             outputs_parameters['lambda'] = a2f_output_parameters.get('lambda')
             outputs_parameters['Allen_Dynes_Tc'] = a2f_output_parameters.get('Allen_Dynes_Tc')
-        elif self.conv != {}:
-            a2f_conv_output_parameters = self.conv[list(self.conv.keys())[-1]].node.outputs.output_parameters
-            outputs_parameters['w log'] = a2f_conv_output_parameters.get('w_log')
-            outputs_parameters['lambda'] = a2f_conv_output_parameters.get('lambda')
-            outputs_parameters['Allen_Dynes_Tc'] = a2f_conv_output_parameters.get('Allen_Dynes_Tc')
         if self.iso:
             outputs_parameters['w log'] = self.iso.node.outputs.output_parameters.get('w_log')
             outputs_parameters['lambda'] = self.iso.node.outputs.output_parameters.get('lambda')
@@ -92,24 +130,24 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-        return self._get_state_from_subprocesses([
-            ('conv', EpwBaseWorkChainAnalyser),
+        subprocesses = [
+            *( (name, EpwBaseWorkChainAnalyser) for name, _ in sorted(self.conv.items()) ),
             ('epw_final_iso', EpwBaseWorkChainAnalyser),
             ('epw_final_aniso', EpwBaseWorkChainAnalyser),
-        ])
+        ]
+        return self._get_state_from_subprocesses(subprocesses)
 
     @property
     def a2f_results(self):
         """Get the results of the a2f workchain."""
-        if 'a2f' in self.process_tree:
-            return self.process_tree.a2f.node.node.outputs.output_parameters
-        else:
-            conv_results = {}
-            for _, node in self.conv.items():
-                if node.node.is_finished_ok:
-                    qfpoints_distance = node.node.inputs.qfpoints_distance.value
-                    conv_results[qfpoints_distance] = node.node.outputs.output_parameters
-            return conv_results
+        if self.a2f and self.a2f.node.is_finished_ok:
+            return {'a2f': self.a2f.node.outputs.output_parameters}
+
+        conv_results = {}
+        for name, tree in self._finished_conv_items():
+            qfpoints_distance = self._qfpoints_distance(tree.node)
+            conv_results[qfpoints_distance if qfpoints_distance is not None else name] = tree.node.outputs.output_parameters
+        return conv_results
 
     @property
     def converged_allen_dynes_Tc(self, threshold=0.1):
@@ -132,9 +170,14 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         """Get the results of the iso workchain."""
         from aiida_epw.parsers.epw import EpwParser
         results = {}
-        for iteration, folderdata in self.retrieved['iso']['iso'].items():
-            parsed_stdout, _ = EpwParser.parse_stdout(folderdata.get_object_content('aiida.out'), None)
-            results[iteration] = parsed_stdout
+        if not self.iso:
+            return results
+        for calcjob_tree in _iter_calcjob_trees(self.iso):
+            retrieved = getattr(calcjob_tree.node.outputs, 'retrieved', None)
+            if retrieved is None or 'aiida.out' not in retrieved.list_object_names():
+                continue
+            parsed_stdout, _ = EpwParser.parse_stdout(retrieved.get_object_content('aiida.out'), None)
+            results[calcjob_tree.name] = parsed_stdout
         
         return results
 
@@ -157,37 +200,42 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_aniso_remote_path(self):
         """Get the remote directory of the aniso workchain."""
-        return self.processes_dict['aniso']['aniso']
+        if not self.aniso:
+            raise ValueError('No anisotropic EPW workchain found.')
+        paths = self._get_calcjob_paths(self.aniso)
+        if not paths:
+            raise ValueError('No calcjob remote paths found under `epw_final_aniso`.')
+        return list(paths.values())[-1]
 
     @property
     def processes_dict(self):
         """Get the processes dictionary."""
-        return EpwSuperConWorkChainAnalyser.get_processes_dict(self.node)
+        return self.get_calcjob_paths()
 
     @property
     def retrieved(self):
         """Get the retrieved dictionary."""
-        return EpwSuperConWorkChainAnalyser.get_retrieved(self.node)
+        return self.get_retrieved(self.node)
 
     @property
     def source(self):
         """Get the source of the workchain."""
-        try:
-            source_db, source_id = self.get_source()
-            return f'{source_db}-{source_id}'
-        except (ValueError, KeyError):
-            return None
+        return self.get_source()
 
     def set_source(self):
         """Set the source of the workchain."""
         if all(key in self.node.base.extras for key in ['source_db', 'source_id']):
-            raise Warning('Source is already set')
-        else:
-            source_db, source_id = self.get_source()
-            self.node.base.extras.set_many({
-                'source_db': source_db,
-                'source_id': source_id
-            })
+            warnings.warn('Source is already set', stacklevel=2)
+            return
+
+        source = self.split_source(self.get_source())
+        if source is None:
+            raise ValueError('Source is not set')
+        source_db, source_id = source
+        self.node.base.extras.set_many({
+            'source_db': source_db,
+            'source_id': source_id
+        })
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
@@ -201,49 +249,41 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         convergence_threshold: float
         ) -> tuple[bool, str]:
         """Check if the convergence is reached."""
+        finished_conv_items = self._finished_conv_items()
+        tcs = [
+            tree.node.outputs.output_parameters.get('Allen_Dynes_Tc')
+            for _, tree in finished_conv_items
+        ]
+        tcs = [tc for tc in tcs if tc is not None]
 
-        a2f_conv_workchains = self.a2f_conv
-
-        try:
-            prev_allen_dynes = a2f_conv_workchains[-2].outputs.output_parameters['Allen_Dynes_Tc']
-            new_allen_dynes = a2f_conv_workchains[-1].outputs.output_parameters['Allen_Dynes_Tc']
-            is_converged = (
-                abs(prev_allen_dynes - new_allen_dynes) / new_allen_dynes
-                < convergence_threshold
-            )
-            return (
-                is_converged,
-                f'Checking convergence: old {prev_allen_dynes}; new {new_allen_dynes} -> Converged = {is_converged}')
-        except (AttributeError, IndexError, KeyError):
+        if len(tcs) < 2:
             return (False, 'Not enough data to check convergence.')
+
+        is_converged, converged_value = check_convergence(tcs, convergence_threshold)
+        return (
+            is_converged,
+            f'Checking convergence from {tcs[-2]} to {tcs[-1]} -> {converged_value}',
+        )
 
     def check_stability_epw_bands(
         self,
         min_freq: float # meV ~ 8.1 cm-1
         ) -> tuple[bool, str]:
         """Check if the epw.x interpolated phonon band structure is stable."""
-        if self.epw_bands is None:
-            raise ValueError('No epw bands found.')
-        ph_bands = self.epw_bands[-1].outputs.ph_band_structure.get_bands()
-        min_freq = numpy.min(ph_bands)
-        max_freq = numpy.max(ph_bands)
-
-        if min_freq < min_freq:
-            return (False, max_freq)
-        else:
-            return (True, max_freq)
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is None:
+            raise ValueError('No A2F/EPW workchain found.')
+        return check_stability_epw_bands(a2f_workchain, tolerance=min_freq)
 
     def dump_inputs(self, destpath: Path):
-        super()._dump_inputs(
-            self.processes_dict,
-            destpath=destpath,
-            repository_files=['aiida.in', 'aiida.win'],
-            retrieved_files=['aiida.out', 'aiida.fc', 'phonon_frequencies.dat', 'phonon_displacements.dat'],
-        )
+        self.copy_tree(destpath)
 
     def show_pw_bands(self):
         """Show the qe bands."""
-        bands = self.pw_bands[0].outputs.band_structure
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is None or 'band_structure' not in a2f_workchain.outputs:
+            raise ValueError('No PW bands available on the selected workchain.')
+        bands = a2f_workchain.outputs.band_structure
         bands.show_mpl()
 
     def show_eldos(
@@ -251,11 +291,8 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         axis = None,
         **kwargs,
         ):
-        if self.a2f:
-            a2f_workchain = self.a2f.node
-        elif self.conv != {}:
-            a2f_workchain = self.conv[list(self.conv.keys())[-1]].node
-        else:
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
         plot_eldos(
             dos_xydata = a2f_workchain.outputs.dos,
@@ -268,12 +305,8 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         axis = None,
         **kwargs,
         ):
-
-        if self.a2f:
-            a2f_workchain = self.a2f.node
-        elif self.conv != {}:
-            a2f_workchain = self.conv[list(self.conv.keys())[-1]].node
-        else:
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
         plot_phdos(
             phdos_xydata = a2f_workchain.outputs.phdos,
@@ -282,14 +315,11 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         )
 
     def show_a2f(self, axis=None, **kwargs):
-        if self.a2f:
-            a2f_workchain = self.a2f.node
-        elif self.conv != {}:
-            a2f_workchain = self.conv[list(self.conv.keys())[-1]].node
-        else:
+        a2f_workchain = self._latest_a2f_workchain()
+        if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
         plot_a2f(
-            a2f_arraydata = a2f_workchain.outputs.a2f,
+            a2f_arraydata = _get_a2f_arraydata(a2f_workchain),
             output_parameters = a2f_workchain.outputs.output_parameters,
             axis = axis,
             **kwargs,
@@ -301,16 +331,23 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         
         colors = ['r', 'g', 'b', 'c', 'm', 'y', 'k']
         integrated_a2f = kwargs.pop('integrated_a2f', False)
-        for key, value in self.conv.items():
+        for key, value in sorted(self.conv.items()):
             a2f_workchain = value.node
-            fine_grid = value.iteration_01.node.inputs.qfpoints.get_kpoints_mesh()[0]
+            if not a2f_workchain.is_finished_ok:
+                continue
+            fine_grid = None
+            try:
+                fine_grid = value.iteration_01.node.inputs.qfpoints.get_kpoints_mesh()[0]
+            except AttributeError:
+                pass
+            label_suffix = "x".join(map(str, fine_grid)) if fine_grid is not None else str(self._qfpoints_distance(a2f_workchain) or key)
             plot_a2f(
-                a2f_arraydata = a2f_workchain.outputs.a2f,
+                a2f_arraydata = _get_a2f_arraydata(a2f_workchain),
                 output_parameters = a2f_workchain.outputs.output_parameters,
                 axis = axis,
                 integrated_a2f = integrated_a2f,
-                label1 = kwargs.get('label', '') + "x".join(map(str, fine_grid)),
-                label2 = kwargs.get('label', '') + "x".join(map(str, fine_grid)),
+                label1 = kwargs.get('label', '') + label_suffix,
+                label2 = kwargs.get('label', '') + label_suffix,
                 color = colors.pop(),
                 **kwargs,
             )
@@ -407,8 +444,8 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
 class SuperConData:
 
-    def __init__(self, groups = []):
-        self._groups = groups
+    def __init__(self, groups=None):
+        self._groups = [] if groups is None else groups
         # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
         self._data = defaultdict(
             lambda: defaultdict(
@@ -435,10 +472,13 @@ class SuperConData:
         if node.process_label == 'SuperConWorkChain':
             for key in ['formula', 'source_db', 'source_id', 'degauss', 'qpoints_distance']:
                 if key not in extras:
-                    raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+                    warnings.warn(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
             
             if not any([key in extras for key in ['kpoints_distance_scf', 'kpoints_distance']]):
-                raise Warning(f'Extra kpoints_distance_scf or kpoints_distance is not found in node<{node.pk}>')
+                warnings.warn(
+                    f'Extra kpoints_distance_scf or kpoints_distance is not found in node<{node.pk}>',
+                    stacklevel=2,
+                )
         return True
 
     def get_data(self):
@@ -636,47 +676,50 @@ class SuperConData:
                     k_dist_dict = degauss_dict[degauss]
                     
                     if k_dist in k_dist_dict:
-                        content = k_dist_dict[k_dist]
-                        q_dist_dict = content['q_dist']
+                        q_dist_dict = k_dist_dict[k_dist]
                         
-                        for q_dist, types in q_dist_dict.items():
-                            node = types.get('epwprep')
+                        for q_dist, node in q_dist_dict.items():
                             
                             if node is None or not node.is_finished_ok:
                                 continue
                             
                             try:
-                                analyser = EpwPrepWorkChainAnalyser(node)
-                                epw_node = analyser.epw_bands
-                                if 'a2f_data' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f_data
-                                elif 'a2f' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f
-                                else:
-                                    continue
-                                    
-                                w = a2f_data.get_array('frequency')
-                                spectral = a2f_data.get_array('a2f') 
+                                analyser = SuperConWorkChainAnalyser(node)
+                                workchains = [(None, analyser._latest_a2f_workchain())]
+                                if analyser.conv:
+                                    workchains = [
+                                        (analyser._qfpoints_distance(tree.node), tree.node)
+                                        for _, tree in analyser._finished_conv_items()
+                                    ]
 
-                                label = f"D={degauss}"
-                                if len(q_dist_dict) > 1:
-                                    label += f", Q={q_dist}"
+                                for qf_dist, workchain in workchains:
+                                    if workchain is None:
+                                        continue
+                                    a2f_data = _get_a2f_arraydata(workchain)
+                                    if a2f_data is None:
+                                        continue
 
-                                if kwargs.get('do_a2f', True):
-                                    y_val = spectral
-                                    if len(spectral.shape) > 1:
-                                        if spectral.shape[1] > 9:
-                                            y_val = spectral[:, 9]
-                                        else:
-                                            y_val = spectral[:, 0]
-                                    
-                                    ax.plot(
-                                        y_val,
-                                        w,
-                                        color=colors[d_idx],
-                                        label=label
-                                    )
-                                found_data = True
+                                    w = a2f_data.get_array('frequency')
+                                    spectral = a2f_data.get_array('a2f')
+                                    label = f"D={degauss}, Q={q_dist}"
+                                    if qf_dist is not None:
+                                        label += f", Qf={qf_dist}"
+
+                                    if kwargs.get('do_a2f', True):
+                                        y_val = spectral
+                                        if len(spectral.shape) > 1:
+                                            if spectral.shape[1] > 9:
+                                                y_val = spectral[:, 9]
+                                            else:
+                                                y_val = spectral[:, 0]
+
+                                        ax.plot(
+                                            y_val,
+                                            w,
+                                            color=colors[d_idx],
+                                            label=label,
+                                        )
+                                    found_data = True
                                 
                             except Exception as e:
                                 print(f"Error extracting/plotting for node {node.pk}: {e}")

@@ -1,6 +1,7 @@
 from aiida_analyser.plot import plot_bands, plot_epw_interpolated_bands
 import numpy
 from collections import defaultdict
+import warnings
 from aiida import orm
 from ..quantumespresso.ph import check_stability_matdyn_base
 from ..base import BaseWorkChainAnalyser
@@ -8,6 +9,15 @@ from ..wannier.wannier90 import Wannier90WorkChainAnalyser
 from ..quantumespresso.ph_base import PhBaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 from pathlib import Path
+
+
+def _get_a2f_arraydata(workchain: orm.WorkChainNode):
+    """Return whichever A2F output is available on an EPW workchain."""
+    if 'a2f_data' in workchain.outputs:
+        return workchain.outputs.a2f_data
+    if 'a2f' in workchain.outputs:
+        return workchain.outputs.a2f
+    return None
 
 class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -74,8 +84,9 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
         return check_stability_matdyn_base(matdyn_base)
 
-    def clean_workchain(self, exempted_states=[], dry_run=True):
+    def clean_workchain(self, exempted_states=None, dry_run=True):
         """Clean the workchain."""
+        exempted_states = [] if exempted_states is None else exempted_states
         path, process_state, exit_code = self.get_state()
         message = f'Process<{self.node.pk}> is now {process_state} at {path} with exit code {exit_code}. Please check if you really want to clean this workchain.\n'
         if process_state in exempted_states:
@@ -88,8 +99,8 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
 class EpwPrepConvergenceData:
 
-    def __init__(self, groups = []):
-        self._groups = groups
+    def __init__(self, groups=None):
+        self._groups = [] if groups is None else groups
         # Data structure: Material -> Degauss -> K_Dist -> {'PwRelaxWorkChain': node, 'q_dist': {Q_Dist -> {'EpwPrepWorkChain': node, 'supercon': node}}}
         self._data = defaultdict(
             lambda: defaultdict(
@@ -121,11 +132,11 @@ class EpwPrepConvergenceData:
         if node.process_label in ['PwRelaxWorkChain']:
             for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss', ]:
                 if key not in extras:
-                    raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+                    warnings.warn(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
         else:
             for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss', 'qpoints_distance']:
                 if key not in extras:
-                    raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+                    warnings.warn(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
                 
         return True
 
@@ -304,7 +315,7 @@ class EpwPrepConvergenceData:
             axs[0, i].set_title(material)
 
         # Cleanup unused axes
-        for j in range(i + 1, len(axs)):
+        for j in range(i + 1, num_materials):
             axs[:, j].axis('off')
 
         fig.tight_layout()
@@ -365,19 +376,15 @@ class EpwPrepConvergenceData:
                         q_dist_dict = content['q_dist']
                         
                         for q_dist, types in q_dist_dict.items():
-                            node = types.get('epwprep')
+                            node = types.get('EpwPrepWorkChain')
                             
                             if node is None or not node.is_finished_ok:
                                 continue
                             
                             try:
                                 analyser = EpwPrepWorkChainAnalyser(node)
-                                epw_node = analyser.epw_bands
-                                if 'a2f_data' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f_data
-                                elif 'a2f' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f
-                                else:
+                                a2f_data = _get_a2f_arraydata(analyser.epw_bands)
+                                if a2f_data is None:
                                     continue
                                     
                                 w = a2f_data.get_array('frequency')
@@ -428,7 +435,8 @@ class EpwPrepConvergenceData:
             for degauss, k_dist_dict in degauss_dict.items():
                 if k_dist_list:
                     k_dist_dict = {k: v for k, v in k_dist_dict.items() if k in k_dist_list}
-                for k_dist, q_dist_data in k_dist_dict.get('q_dist', {}).items():
+                for k_dist, content in k_dist_dict.items():
+                    q_dist_data = content['q_dist']
                     if q_dist_list:
                         q_dist_data = {k: v for k, v in q_dist_data.items() if k in q_dist_list}
                     for q_dist, epw_dict in q_dist_data.items():
@@ -441,8 +449,8 @@ class EpwPrepConvergenceData:
 
 class EpwPrepData:
 
-    def __init__(self, groups = []):
-        self._groups = groups
+    def __init__(self, groups=None):
+        self._groups = [] if groups is None else groups
         # Data structure: Material -> Degauss -> K_Dist -> {'PwRelaxWorkChain': node, 'q_dist': {Q_Dist -> {'EpwPrepWorkChain': node, 'supercon': node}}}
         self._data = defaultdict(
             lambda: defaultdict(
@@ -469,7 +477,7 @@ class EpwPrepData:
         if node.process_label in ['EpwPrepWorkChain']:
             for key in ['formula', 'source_db', 'source_id', 'kpoints_distance_scf', 'degauss', 'qpoints_distance']:
                 if key not in extras:
-                    raise Warning(f'Extra {key} is not found in node<{node.pk}>')
+                    warnings.warn(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
                 
         return True
 
@@ -602,14 +610,9 @@ class EpwPrepData:
             reds = cmap(numpy.linspace(0.3, 1.0, 5)).tolist()
             
             for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, content in k_dist_dict.items():
-                    # Check q_dist for EpwPrep nodes
-                    q_dist_dict = content['q_dist']
-                    
-                    for q_dist, types in q_dist_dict.items():
-                        node = types.get('EpwPrepWorkChain')
+                for k_dist, q_dist_dict in k_dist_dict.items():
+                    for q_dist, node in q_dist_dict.items():
                         if node and node.is_finished_ok:
-                             # Use Analyser to get bands
                             try:
                                 analyser = EpwPrepWorkChainAnalyser(node)
 
@@ -622,12 +625,11 @@ class EpwPrepData:
                                     )
                             except Exception as e:
                                 print(f"Failed to plot {material} {degauss} {k_dist} {q_dist}: {e}")
-                                continue # Skip if failing
+                                continue
 
             axs[0, i].set_title(material)
 
-        # Cleanup unused axes
-        for j in range(i + 1, len(axs)):
+        for j in range(i + 1, num_materials):
             axs[:, j].axis('off')
 
         fig.tight_layout()
@@ -684,23 +686,17 @@ class EpwPrepData:
                     k_dist_dict = degauss_dict[degauss]
                     
                     if k_dist in k_dist_dict:
-                        content = k_dist_dict[k_dist]
-                        q_dist_dict = content['q_dist']
+                        q_dist_dict = k_dist_dict[k_dist]
                         
-                        for q_dist, types in q_dist_dict.items():
-                            node = types.get('epwprep')
+                        for q_dist, node in q_dist_dict.items():
                             
                             if node is None or not node.is_finished_ok:
                                 continue
                             
                             try:
                                 analyser = EpwPrepWorkChainAnalyser(node)
-                                epw_node = analyser.epw_bands
-                                if 'a2f_data' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f_data
-                                elif 'a2f' in epw_node.outputs:
-                                    a2f_data = epw_node.outputs.a2f
-                                else:
+                                a2f_data = _get_a2f_arraydata(analyser.epw_bands)
+                                if a2f_data is None:
                                     continue
                                     
                                 w = a2f_data.get_array('frequency')
