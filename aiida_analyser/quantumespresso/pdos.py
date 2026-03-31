@@ -1,17 +1,16 @@
 from aiida import orm
+from pathlib import Path
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
 from collections import defaultdict
 import logging
-from ..plot import plot_bands
 import itertools
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
+class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the PwBandsWorkChain.
+    Analyser for the PdosWorkChain.
     """
 
     def get_source(self):
@@ -30,49 +29,59 @@ class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
         """Get the state of the workchain."""
         return self._get_state_from_tree()
 
-    def plot_bands(
-        self,
-        axis=None,
-        seekpath_params=None,
-        ylabel='Energy (eV)',
-    **kwargs,
+    def plot_pdos(self,
+        axis = None,
+        **kwargs,
     ):
-        """
-        Plot the band structure.
-        """
-        bands = self.node.outputs.band_structure
-        fermi_energy = self.node.outputs.scf_parameters.get('fermi_energy')
-        plot_bands(
-            bands,
-            axis=axis,
-            reference_energy=fermi_energy,
-            seekpath_params=seekpath_params,
-            ylabel=ylabel,
-            **kwargs,
-        )
+        """Plot the pdos."""
+        import numpy
+        color = kwargs.pop('color', 'r')
+        linestyle = kwargs.pop('linestyle', '-')
+        label = kwargs.pop('label', r"phdos")
 
-    def show_mpl(self, y_min_lim=-2, y_max_lim=2):
-        """Show the bands in matplotlib."""
-        bands = self.node.outputs.band_structure
-        fermi_energy = self.node.outputs.scf_parameters.get('fermi_energy')
-        bands.show_mpl(y_origin = fermi_energy, y_min_lim=y_min_lim, y_max_lim=y_max_lim)
+        ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
+        label_fontsize = kwargs.pop('label_fontsize', 16)
+        scf = self.node.base.links.get_outgoing(link_label_filter='scf').first().node
+        fermi_energy = scf.outputs.output_parameters.get('fermi_energy')
+        dos_xydata = self.node.outputs.dos.output_dos
+        E        = dos_xydata.get_array('x_array') - fermi_energy
+        dos = dos_xydata.get_array('y_array_1')
 
-    def export(self, path, y_min_lim=-2, y_max_lim=2, overwrite=True):
-        """Export the bands in matplotlib."""
-        bands = self.node.outputs.band_structure
-        fermi_energy = self.node.outputs.scf_parameters.get('fermi_energy')
-        bands.export(
-            path, 
-            fileformat='mpl_pdf', 
-            y_origin = fermi_energy, 
-            y_min_lim=y_min_lim, 
-            y_max_lim=y_max_lim,
-            plot_zero_axis=True,
-            overwrite=overwrite
-        )
+        if axis is None:
+            from matplotlib import pyplot as plt
+            fig, ax = plt.subplots()
+        else:
+            ax = axis
+
+        ax.axhline(0, color='k', linestyle='--', linewidth=0.5)
+        ax.plot(
+            dos,
+            E,
+            color=color,
+            linestyle=linestyle,
+            label=label)
+
+        ax.set_xticks(
+            [0, round(numpy.max(dos) * 1.05, 1)],
+            [0, round(numpy.max(dos) * 1.05, 1)],
+            fontsize=ticklabel_fontsize,
+            )
+        ax.set_yticks([], [])
+
+        _, old_x_max = ax.get_xlim()
+        ax.set_xlim(0, max(old_x_max, round(numpy.max(dos) * 1.05, 1)))
+        # ax.set_xlim(0, round(numpy.max(dos) * 1.05, 1))
+        ax.set_ylim(-2, 2)  
+        ax.set_yticks([-2, 0, 2])
+        ax.set_yticklabels([-2, 0, 2], fontsize=ticklabel_fontsize)
+        ax.set_ylabel(r"Energy (eV)", fontsize=label_fontsize)
 
 
-class PwBandsGroupData(BaseGroupData):
+        if axis is None:
+            return plt
+
+
+class PdosGroupData(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -113,7 +122,7 @@ class PwBandsGroupData(BaseGroupData):
 
 
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
-                    if process_label in ['PwBandsWorkChain']:
+                    if process_label in ['PdosWorkChain']:
                         if self._data.get(formula, {}).get(degauss, {}).get(kpoints_distance) is None:
                             self._data[formula][degauss][kpoints_distance] = [(node, with_soc)]
                         else:
@@ -141,7 +150,8 @@ class PwBandsGroupData(BaseGroupData):
                         })
         return flattened_list
 
-    def plot_bands(self, axs=None, formula=None, kpoints_distances=None, degausses=None, with_soc=None, destpath=None, **kwargs):
+
+    def plot_pdos(self, axs=None, formula=None, kpoints_distances=None, degausses=None, with_soc=None, destpath=None, **kwargs):
         """Plot GSFE curves for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -156,7 +166,7 @@ class PwBandsGroupData(BaseGroupData):
         n_cols = len(structures)
 
         if axs is None:
-            fig, axs = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4), squeeze=False)
+            fig, axs = plt.subplots(1, n_cols, figsize=(2 * n_cols, 4), squeeze=False)
 
         print(axs)
 
@@ -178,8 +188,8 @@ class PwBandsGroupData(BaseGroupData):
                         if node and node.is_finished_ok:
                             color = next(base_colors)
                             logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc}")
-                            analyser = PwBandsWorkChainAnalyser(node)
-                            analyser.plot_bands(
+                            analyser = PdosWorkChainAnalyser(node)
+                            analyser.plot_pdos(
                                 axis=ax,
                                 label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, with SOC: {with_soc}',
                                 color=color,
@@ -198,15 +208,15 @@ class PwBandsGroupData(BaseGroupData):
         if destpath  and axs is None:
             plt.tight_layout()
             plt.savefig(destpath)
-        return axs
+        return axs    
 
     def dump(self, destpath: Path):
-        """Dump the bands to a folder."""
+        """Dump the pdos to a folder."""
         for struct, mat_dict in self.data.items():
             for degauss, k_dist_dict in mat_dict.items():
                 for k_dist, node_list in k_dist_dict.items():
                     for node, with_soc in node_list:
                         if node and node.is_finished_ok:
                             logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc}")
-                            analyser = PwBandsWorkChainAnalyser(node)
+                            analyser = PdosWorkChainAnalyser(node)
                             analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / str(with_soc).replace(' ', '_'))

@@ -262,7 +262,7 @@ def plot_bands(
     axis=None,
     reference_energy=0,
     seekpath_params=None,
-    label='Energy (eV)',
+    ylabel='Energy (eV)',
     **kwargs,
     ):
     """Plot a band structure from a ``BandsData`` node."""
@@ -288,7 +288,7 @@ def plot_bands(
             xtick_labels = []
 
     if len(xticks) > 0:
-        ax.set_xticks(xticks, xtick_labels)
+        ax.set_xticks(xticks, xtick_labels, fontsize=ticklabel_fontsize)
     
     xlim = kwargs.pop('xlim', [xticks[0], xticks[-1]])
     ax.set_xlim(xlim)
@@ -296,14 +296,16 @@ def plot_bands(
     for tick in xticks:
         ax.axvline(tick, color='k')
 
-    for band in bands.get_bands().transpose():
+    label = kwargs.pop('label', None)
+    for i, band in enumerate(bands.get_bands().transpose()):
         ax.plot(band - reference_energy, color=color, **kwargs)
 
+    ax.plot([], [], label=label)
     ax.axhline(0, color='k', linestyle='--')
     ax.set_ylim([-2, 2])
     ax.set_yticks([-2, 0, 2])
     ax.set_yticklabels([-2, '$E_F$', 2], fontsize=ticklabel_fontsize)
-    ax.set_ylabel(label, fontsize=label_fontsize)
+    ax.set_ylabel(ylabel, fontsize=label_fontsize)
     if axis is None:
         return plt
 

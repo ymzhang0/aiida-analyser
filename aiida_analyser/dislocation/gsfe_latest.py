@@ -332,7 +332,6 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             cmap = mcolors.LinearSegmentedColormap.from_list("custom", [hex_color, "#ffffff"])
             return [mcolors.to_hex(cmap(i)) for i in numpy.linspace(0, 0.8, num)]
 
-        markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
         xs_dict = self.serialize_faults()
         sfe_energies = self.get_sfe_energies()
         
@@ -358,7 +357,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         sorted_keys = sorted(energies, key=lambda k: max(energies[k][0]), reverse=True)
         num_to_plot = len(sorted_keys)
         colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=max(1, num_to_plot)))
-
+        markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
         for slipping_direction in sorted_keys:
             color = next(colors)
             results[slipping_direction] = {}
@@ -620,7 +619,7 @@ class GSFEGroupDataLatest(BaseGroupData):
             plt.savefig(destpath)
         return results
 
-    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, directions=None, **kwargs):
+    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, kpoints_distances=None, directions=None, **kwargs):
         """Plot GSFE curves for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -645,12 +644,18 @@ class GSFEGroupDataLatest(BaseGroupData):
             print(f"No data found for n_repeats={n_repeats}")
             return ax
 
-        sorted_k_dists = sorted(k_dist_dict.keys(), reverse=True)
+        if kpoints_distances is not None:
+            filtered_k_dists = {k: v for k, v in k_dist_dict.items() if k in kpoints_distances}
+        else:
+            filtered_k_dists = k_dist_dict
+
+        sorted_k_dists = sorted(filtered_k_dists.keys(), reverse=True)
         cmap = plt.get_cmap('viridis')
         norm = mcolors.Normalize(vmin=0, vmax=max(1, len(sorted_k_dists) - 1))
 
+
         for i, k_dist in enumerate(sorted_k_dists):
-            node = k_dist_dict[k_dist]
+            node = filtered_k_dists[k_dist]
             if node and node.is_finished_ok:
                 analyser = GSFEWorkChainAnalyserLatest(node)
                 color = cmap(norm(i))
@@ -675,6 +680,72 @@ class GSFEGroupDataLatest(BaseGroupData):
                     )
 
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
+        ax.set_ylabel(r'$\gamma [J/m^2]$')
+        ax.set_xlabel(r'Displacement')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        return ax
+
+
+    def plot_supercell_convergence(self, structure_type, formula, gliding_plane, kpoints_distances, n_repeats=None, ax=None, directions=None, **kwargs):
+        """Plot GSFE curves for different k-points on a single axis."""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 6))
+
+        struct_data = self._data.get(structure_type, {})
+        formula_data = struct_data.get(formula, {})
+        plane_data = formula_data.get(gliding_plane, {})
+        process_data = plane_data.get('GSFEWorkChain', {})
+
+        if not process_data:
+            print(f"No GSFEWorkChain data found for {formula} {gliding_plane}")
+            return ax
+
+        if n_repeats is not None:
+            filtered_n_repeats_dict = {n: v for n, v in process_data.items() if n in n_repeats}
+        else:
+            filtered_n_repeats_dict = process_data
+
+        sorted_n_repeats_dict = sorted(filtered_n_repeats_dict.keys(), reverse=True)
+        cmap = plt.get_cmap('viridis')
+        norm = mcolors.Normalize(vmin=0, vmax=max(1, len(sorted_n_repeats_dict) - 1))
+
+
+        for i, n_repeats_dist in enumerate(sorted_n_repeats_dict):
+            kpoints_distances_dict = filtered_n_repeats_dict[n_repeats_dist]
+            if kpoints_distances is None:
+                k_dist = sorted(kpoints_distances_dict.keys())[0]
+                node = kpoints_distances_dict[k_dist]
+            else:
+                node = kpoints_distances_dict[kpoints_distances]
+            if node and node.is_finished_ok:
+                analyser = GSFEWorkChainAnalyserLatest(node)
+                color = cmap(norm(i))
+
+                if kwargs.get('fit', True):
+                    analyser.fit_curve(
+                        plot=True,
+                        axis=ax,
+                        label=f"{n_repeats_dist}",
+                        color=color,
+                        directions=directions,
+                        **kwargs
+                    )
+                else:
+                    analyser.plot(
+                        ax=ax,
+                        label_prefix=f"{k_dist} ",
+                        color=color,
+                        zero_reference=kwargs.get('zero_reference', True),
+                        directions=directions,
+                        **kwargs
+                    )
+
+        ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
         ax.set_ylabel(r'$\gamma [J/m^2]$')
         ax.set_xlabel(r'Displacement')
         ax.legend()

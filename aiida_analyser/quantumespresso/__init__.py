@@ -6,6 +6,7 @@ from .pw2wannier90_base import Pw2Wannier90BaseWorkChainAnalyser
 from .ph_base import PhBaseWorkChainAnalyser
 from .q2r_base import Q2rBaseWorkChainAnalyser
 from .matdyn_base import MatdynBaseWorkChainAnalyser
+from .pdos import PdosWorkChainAnalyser, PdosGroupData
 
 __all__ = [
     'PwBaseWorkChainAnalyser',
@@ -16,4 +17,6 @@ __all__ = [
     'PhBaseWorkChainAnalyser',
     'Q2rBaseWorkChainAnalyser',
     'MatdynBaseWorkChainAnalyser',
+    'PdosWorkChainAnalyser',
+    'PdosGroupData',
 ]

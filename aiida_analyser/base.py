@@ -241,7 +241,10 @@ class ProcessTree:
             
         # 3. Recursively process the child nodes
         for child_node in node.children.values():
-            ProcessTree._copy_tree(child_node, node_dir)
+            try:
+                ProcessTree._copy_tree(child_node, node_dir)
+            except Exception as e:
+                print(f"Error copying tree for node {child_node.name}: {e}")
 
     def copy_tree(self, destpath: Path) -> Path:
         """

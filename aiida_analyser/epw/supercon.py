@@ -695,3 +695,14 @@ class SuperConData:
 
         plt.tight_layout()
         return fig, axs
+
+    def dump(self, dest:Path):
+        for material, degauss_dict in self._data.items():
+            for degauss, k_dist_dict in degauss_dict.items():
+                for k_dist, q_dist_data in k_dist_dict.items():
+                    for q_dist, epw_node in q_dist_data.items():
+                        if epw_node:
+                            analyser = SuperConWorkChainAnalyser(epw_node)
+                            analyser.copy_tree(
+                                dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
+                            )
