@@ -2,7 +2,9 @@ from aiida import orm
 from pathlib import Path
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
+from .dos_calculation import DosCalculationAnalyser
 from .pw_base import PwBaseWorkChainAnalyser
+from .projwfc_calculation import ProjwfcCalculationAnalyser
 from collections import defaultdict
 import logging
 import itertools
@@ -16,9 +18,20 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def copy_tree(self, destpath):
         """Copy the tree by delegating direct PwBase children and copying direct calcjobs locally."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'DosCalculation':
+                return DosCalculationAnalyser
+            if process_label == 'ProjwfcCalculation':
+                return ProjwfcCalculationAnalyser
+            return None
+
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+            _resolve,
         )
 
     def get_source(self):

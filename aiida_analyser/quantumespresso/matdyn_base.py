@@ -1,10 +1,18 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
+from .matdyn_calculation import MatdynCalculationAnalyser
 
 class MatdynBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the MatdynBaseWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct MatdynCalculation child."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: MatdynCalculationAnalyser if child.node.process_label == 'MatdynCalculation' else None,
+        )
 
     def get_source(self):
         """Get the source of the workchain."""
@@ -25,4 +33,3 @@ class MatdynBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
-

@@ -1,10 +1,18 @@
 from ..base import BaseWorkChainAnalyser
+from .projwfc_calculation import ProjwfcCalculationAnalyser
 
 class ProjwfcBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the ProjwfcBaseWorkChain.
     This analyser handles a single Projwfc base workchain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct ProjwfcCalculation child."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: ProjwfcCalculationAnalyser if child.node.process_label == 'ProjwfcCalculation' else None,
+        )
 
     def get_source(self):
         """Get the source of the workchain."""
@@ -36,4 +44,3 @@ class ProjwfcBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
-

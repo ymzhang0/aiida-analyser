@@ -17,6 +17,23 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
     - Wannier90BaseWorkChainAnalyser for wannier90_pp, wannier90
     """
 
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct child to its own analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'ProjwfcBaseWorkChain':
+                return ProjwfcBaseWorkChainAnalyser
+            if process_label == 'Pw2Wannier90BaseWorkChain':
+                return Pw2Wannier90BaseWorkChainAnalyser
+            if process_label == 'Wannier90BaseWorkChain':
+                return Wannier90BaseWorkChainAnalyser
+            return None
+
+        return self._copy_tree_for_direct_children(destpath, _resolve)
+
     @property
     def scf(self):
         try:
