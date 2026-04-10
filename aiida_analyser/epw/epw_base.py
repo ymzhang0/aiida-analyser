@@ -1,10 +1,18 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
+from .epw_calculation import EpwCalculationAnalyser
 
 class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwBaseWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct EpwCalculation child."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: EpwCalculationAnalyser if child.node.process_label == 'EpwCalculation' else None,
+        )
 
     def get_source(self):
         """Get the source of the workchain."""

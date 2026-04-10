@@ -5,11 +5,19 @@ import warnings
 from aiida import orm
 
 from ..base import BaseWorkChainAnalyser
+from .ph_calculation import PhCalculationAnalyser
 
 class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct PhCalculation child."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: PhCalculationAnalyser if child.node.process_label == 'PhCalculation' else None,
+        )
 
     def merge_output_parameters(self):
         """Merge the output parameters of the workchain."""

@@ -1,5 +1,6 @@
 from .pw_base import PwBaseWorkChainAnalyser
 from .pw_calculation import PwCalculationAnalyser
+from .ph_calculation import PhCalculationAnalyser
 from .pw_relax import PwRelaxWorkChainAnalyser
 from .pw_bands import PwBandsWorkChainAnalyser
 from .projwfc_base import ProjwfcBaseWorkChainAnalyser
@@ -12,6 +13,7 @@ from .pdos import PdosWorkChainAnalyser, PdosGroupData
 __all__ = [
     'PwBaseWorkChainAnalyser',
     'PwCalculationAnalyser',
+    'PhCalculationAnalyser',
     'PwRelaxWorkChainAnalyser',
     'PwBandsWorkChainAnalyser',
     'ProjwfcBaseWorkChainAnalyser',

@@ -7,6 +7,7 @@ from ..quantumespresso.ph import check_stability_matdyn_base
 from ..base import BaseWorkChainAnalyser
 from ..wannier.wannier90 import Wannier90WorkChainAnalyser
 from ..quantumespresso.ph_base import PhBaseWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 from pathlib import Path
 
@@ -23,6 +24,23 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwPrepWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct child to its own analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'PhBaseWorkChain':
+                return PhBaseWorkChainAnalyser
+            if process_label == 'EpwBaseWorkChain':
+                return EpwBaseWorkChainAnalyser
+            if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
+                return Wannier90WorkChainAnalyser
+            return None
+
+        return self._copy_tree_for_direct_children(destpath, _resolve)
 
     @property
     def w90_intp(self):
