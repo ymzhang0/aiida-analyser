@@ -8,6 +8,21 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the SFEBaseWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct QE child to its own analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwRelaxWorkChain':
+                return PwRelaxWorkChainAnalyser
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'RigidLayerRelaxWorkChain':
+                return LayerRelaxWorkChainAnalyser
+            return None
+
+        return self._copy_tree_for_direct_children(destpath, _resolve)
     
     @property
     def relax(self):

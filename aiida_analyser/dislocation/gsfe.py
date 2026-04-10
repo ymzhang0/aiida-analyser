@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from aiida import orm
 from aiida_analyser.dislocation.gsfe_latest import GSFEWorkChainAnalyserLatest
+from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
@@ -118,6 +119,21 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the GsfeWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct QE child to its own analyser."""
+        def _resolve(child_name, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwRelaxWorkChain':
+                return PwRelaxWorkChainAnalyser
+            if process_label == 'PwBaseWorkChain' and (
+                child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+            ):
+                return PwBaseWorkChainAnalyser
+            return None
+
+        return self._copy_tree_for_direct_children(destpath, _resolve)
     
     @property
     def strukturbericht(self):
@@ -125,7 +141,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
     @property
     def relax(self):
-        return self.get_node_from_tree('relax')
+        return self._get_node_from_tree('relax')
 
     @property
     def scf(self):
@@ -137,13 +153,21 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     
     def get_state(self):
         """Get the state of the workchain."""
+        subprocesses = []
 
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
+        for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
+            subprocesses.append((label, PwRelaxWorkChainAnalyser))
+
+        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+
+        for label in self._get_child_labels(
+            prefixes=('structure_', 'sfe_'),
+            process_label='PwBaseWorkChain',
+        ):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+
+        return self._get_state_from_subprocesses(subprocesses)
 
     @property
     def scf_energy(self):

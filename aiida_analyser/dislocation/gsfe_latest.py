@@ -129,6 +129,21 @@ fit_function_map = {
 class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
     """Analyser for the current `GSFEWorkChain` output contract."""
 
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct QE child to its own analyser."""
+        def _resolve(child_name, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwRelaxWorkChain':
+                return PwRelaxWorkChainAnalyser
+            if process_label == 'PwBaseWorkChain' and (
+                child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+            ):
+                return PwBaseWorkChainAnalyser
+            return None
+
+        return self._copy_tree_for_direct_children(destpath, _resolve)
+
     @staticmethod
     def _shift_series_to_first_value(values: list[float | None]) -> list[float | None]:
         """Shift a numeric series so the first point becomes the zero reference."""
@@ -189,10 +204,20 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
     def get_state(self) -> tuple[str, str, int]:
         """Get the state of the workchain."""
-        subprocesses: tuple[tuple[str, type[BaseWorkChainAnalyser]], ...] = (
-            ('relax', PwRelaxWorkChainAnalyser),
-            ('scf', PwBaseWorkChainAnalyser),
-        )
+        subprocesses = []
+
+        for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
+            subprocesses.append((label, PwRelaxWorkChainAnalyser))
+
+        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+
+        for label in self._get_child_labels(
+            prefixes=('structure_', 'sfe_'),
+            process_label='PwBaseWorkChain',
+        ):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+
         return self._get_state_from_subprocesses(subprocesses)
 
     def get_results(self) -> dict[str, dict[str, dict[str, ty.Any]]]:

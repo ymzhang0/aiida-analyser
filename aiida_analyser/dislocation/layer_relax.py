@@ -6,15 +6,23 @@ class LayerRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
     Analyser for the LayerRelaxWorkChain.
     """
 
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct PwRelaxWorkChain child."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: PwRelaxWorkChainAnalyser if child.node.process_label == 'PwRelaxWorkChain' else None,
+        )
+
     def get_state(self):
         """Get the state of the workchain."""
-
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
+        subprocesses = [
+            (label, PwRelaxWorkChainAnalyser)
+            for label in self._get_child_labels(
+                prefixes=('relax_',),
+                process_label='PwRelaxWorkChain',
+            )
+        ]
+        return self._get_state_from_subprocesses(subprocesses)
 
     def get_energies(self):
         """Get the energies of the workchain."""
