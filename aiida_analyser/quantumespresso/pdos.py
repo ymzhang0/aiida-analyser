@@ -2,6 +2,7 @@ from aiida import orm
 from pathlib import Path
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
+from .pw_base import PwBaseWorkChainAnalyser
 from collections import defaultdict
 import logging
 import itertools
@@ -12,6 +13,13 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PdosWorkChain.
     """
+
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating direct PwBase children and copying direct calcjobs locally."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+        )
 
     def get_source(self):
         """Get the source of the workchain."""

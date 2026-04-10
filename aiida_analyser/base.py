@@ -279,6 +279,26 @@ class WorkChainAnalyser(ABC):
         """Clean the workchain."""
         pass
 
+
+class BaseCalculationAnalyser:
+    """Base analyser for a CalcJob node."""
+
+    def __init__(self, calculation: orm.CalcJobNode):
+        self.node = calculation
+
+    def copy_tree(self, destpath: Path) -> Path:
+        """Copy the input repository and retrieved outputs of a calculation."""
+        destpath.mkdir(parents=True, exist_ok=True)
+        self.node.base.repository.copy_tree(destpath)
+
+        try:
+            self.node.outputs.retrieved.copy_tree(destpath)
+        except (AttributeError, KeyError):
+            pass
+
+        return destpath
+
+
 class BaseWorkChainAnalyser(WorkChainAnalyser):
     """
     BaseAnalyser for the WorkChain.
@@ -416,6 +436,32 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         ):
         """Copy the tree of the workchain to the destination directory."""
         self.process_tree.copy_tree(destpath)
+
+    def _copy_tree_for_direct_children(
+        self,
+        destpath: Path,
+        analyser_resolver: Callable[[str, ProcessTree], Any],
+    ) -> Path:
+        """
+        Copy the tree by delegating each direct child to its own analyser.
+
+        If ``analyser_resolver`` returns ``None`` for a child, fall back to the
+        legacy tree copy for that direct subtree.
+        """
+        print(f"Starting extraction to directory: {destpath.resolve()}")
+
+        for child_name, child_tree in self.process_tree.children.items():
+            analyser_class = analyser_resolver(child_name, child_tree)
+
+            if analyser_class is None:
+                ProcessTree._copy_tree(child_tree, destpath)
+                continue
+
+            analyser = analyser_class(child_tree.node)
+            analyser.copy_tree(destpath / child_name)
+
+        print("Extraction complete.")
+        return destpath
     
     def _get_state_from_tree(self):
         """

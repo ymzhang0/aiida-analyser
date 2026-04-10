@@ -22,6 +22,7 @@ _EXPORTS = {
     'ProcessTree': ('base', 'ProcessTree', None),
     'BaseWorkChainAnalyser': ('base', 'BaseWorkChainAnalyser', None),
     'PwBaseWorkChainAnalyser': ('quantumespresso.pw_base', 'PwBaseWorkChainAnalyser', None),
+    'PwCalculationAnalyser': ('quantumespresso.pw_calculation', 'PwCalculationAnalyser', None),
     'PwRelaxWorkChainAnalyser': ('quantumespresso.pw_relax', 'PwRelaxWorkChainAnalyser', None),
     'PwBandsWorkChainAnalyser': ('quantumespresso.pw_bands', 'PwBandsWorkChainAnalyser', None),
     'PwBandsGroupData': ('quantumespresso.pw_bands', 'PwBandsGroupData', None),
