@@ -57,7 +57,7 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
                 source_db, source_id = self.node.inputs.structure.base.extras.get_many(('source_db', 'source_id'))
                 source = f"{source_db}-{source_id}"
             except Exception:
-                print('Source is not set')
+                self._log_source_missing()
                 return None
         return source
 

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from itertools import chain
+import logging
 import warnings
 
 from aiida import orm
@@ -106,7 +107,7 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
         nqs, q_points, frequencies = self.get_qpoints_and_frequencies(output_parameters)
         if not len(q_points):
-            print('No q-points found')
+            logging.getLogger('aiida_analyser').warning(f'{self.node_ref} no q-points found.')
             return (False, 0, nqs)
         else:
             is_stable, message = self._is_stable(
@@ -115,7 +116,11 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
                 message = header + f"From the calculated {len(q_points)} q-points out of {nqs} we find:\n"
                 )
         if not mute_print:
-            print(message)
+            package_logger = logging.getLogger('aiida_analyser')
+            if is_stable:
+                package_logger.info(message)
+            else:
+                package_logger.warning(message)
         return (is_stable, len(q_points), nqs)
 
     def get_source(self):

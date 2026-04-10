@@ -1,3 +1,5 @@
+import logging
+
 from ..base import BaseWorkChainAnalyser
 from .projwfc_calculation import ProjwfcCalculationAnalyser
 
@@ -35,7 +37,11 @@ class ProjwfcBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         try:
             path, exit_status, message = self._get_state_from_tree()
         except (AttributeError, ValueError) as e:
-            print(f'ProjwfcBaseWorkChain<{self.node.pk}> has unknown exit status: {e}')
+            logging.getLogger('aiida_analyser').warning(
+                '%s has unknown exit status: %s',
+                self.node_ref,
+                e,
+            )
             return 'ROOT', -1, 'Unknown status'
 
         # Handle specific error codes for Projwfc calculations if needed

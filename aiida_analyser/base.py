@@ -2,6 +2,8 @@ from aiida import orm
 from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cached_property
 from pathlib import Path
 from .workchains import clean_workdir
@@ -9,8 +11,66 @@ from aiida.tools import delete_nodes
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Callable
 from collections import deque
-import logging
 import itertools
+
+from .logging_utils import get_console, get_logger
+
+
+logger = get_logger(__name__)
+console = get_console()
+_COPY_TREE_DEPTH: ContextVar[int] = ContextVar('aiida_analyser_copy_tree_depth', default=0)
+
+
+def _format_node_ref(node: orm.Node) -> str:
+    """Return a compact process reference for log messages."""
+    process_label = getattr(node, 'process_label', node.__class__.__name__)
+    node_pk = getattr(node, 'pk', 'N/A')
+    return f'{process_label}<{node_pk}>'
+
+
+def _summarize_child_labels(labels: list[str], max_items: int = 6) -> str:
+    """Return a compact summary of child labels for log messages."""
+    if not labels:
+        return 'no direct children'
+
+    if len(labels) <= max_items:
+        return ', '.join(labels)
+
+    head = ', '.join(labels[:max_items])
+    return f'{head}, ... (+{len(labels) - max_items} more)'
+
+
+@contextmanager
+def _copy_tree_logging_scope(
+    node: orm.Node,
+    destpath: Path,
+    child_labels: list[str] | None = None,
+):
+    """Emit a compact top-level extraction log while suppressing nested noise."""
+    depth = _COPY_TREE_DEPTH.get()
+    token = _COPY_TREE_DEPTH.set(depth + 1)
+    resolved_destpath = destpath.resolve()
+    node_ref = _format_node_ref(node)
+
+    if child_labels is None:
+        detail = None
+    else:
+        detail = f'{len(child_labels)} direct children: {_summarize_child_labels(child_labels)}'
+
+    try:
+        if depth == 0:
+            message = f'[bold cyan]extract[/] {node_ref} -> [blue]{resolved_destpath}[/]'
+            if detail:
+                message += f' [dim]({detail})[/]'
+            logger.info(message)
+        yield
+        if depth == 0:
+            logger.info(f'[green]complete[/] {node_ref}')
+    except Exception:
+        logger.exception(f'[red]failed[/] extracting {node_ref} -> {resolved_destpath}')
+        raise
+    finally:
+        _COPY_TREE_DEPTH.reset(token)
 
 
 @dataclass
@@ -120,7 +180,7 @@ class ProcessTree:
         """
         Print the process tree.
         """
-        print(self.name)
+        console.print(self.name)
         for child in self.children.values():
             child.print()
 
@@ -138,7 +198,7 @@ class ProcessTree:
         label = f"{self.name} ({node_type} PK: {node_id})"
         
         # Print the current node
-        print(prefix + connector + label)
+        console.print(prefix + connector + label)
         
         # Determine the indentation of the next layer
         # If the current node is not the last child node, the next layer needs to continue using the vertical line '│ '
@@ -177,9 +237,9 @@ class ProcessTree:
         if target_node_type == node_type:
             # If matched, use the provided extractor function to extract the information
             info = extractor(self.node)
-            print(prefix + connector + label + ": " + info)
+            console.print(prefix + connector + label + ": " + info)
         else:
-            print(prefix + connector + label)
+            console.print(prefix + connector + label)
         # 2. Recursively traverse the child nodes
         children_list = list(self.children.values())
         for i, child in enumerate(children_list):
@@ -244,7 +304,12 @@ class ProcessTree:
             try:
                 ProcessTree._copy_tree(child_node, node_dir)
             except Exception as e:
-                print(f"Error copying tree for node {child_node.name}: {e}")
+                logger.warning(
+                    'Failed to copy child subtree %s under %s: %s',
+                    child_node.name,
+                    node.name,
+                    e,
+                )
 
     def copy_tree(self, destpath: Path) -> Path:
         """
@@ -254,13 +319,9 @@ class ProcessTree:
         :return: The Path object of the created root directory in the local file system.
         """
         
-        print(f"Starting extraction to directory: {destpath.resolve()}")
-        
-        # Start the recursion. From the child nodes of the root node, and use root_path as the parent directory for these child nodes.
-        for child_node in self.children.values():
-            self._copy_tree(child_node, destpath)
-            
-        print("Extraction complete.")
+        with _copy_tree_logging_scope(self.node, destpath, list(self.children.keys())):
+            for child_node in self.children.values():
+                self._copy_tree(child_node, destpath)
         return destpath
 
 class WorkChainAnalyser(ABC):
@@ -286,6 +347,11 @@ class BaseCalculationAnalyser:
     def __init__(self, calculation: orm.CalcJobNode):
         self.node = calculation
 
+    @property
+    def node_ref(self) -> str:
+        """Return a compact process reference for the current node."""
+        return _format_node_ref(self.node)
+
     def get_state(self):
         """Return the state of the calculation node."""
         if self.node.is_finished_ok:
@@ -299,13 +365,14 @@ class BaseCalculationAnalyser:
 
     def copy_tree(self, destpath: Path) -> Path:
         """Copy the input repository and retrieved outputs of a calculation."""
-        destpath.mkdir(parents=True, exist_ok=True)
-        self.node.base.repository.copy_tree(destpath)
+        with _copy_tree_logging_scope(self.node, destpath):
+            destpath.mkdir(parents=True, exist_ok=True)
+            self.node.base.repository.copy_tree(destpath)
 
-        try:
-            self.node.outputs.retrieved.copy_tree(destpath)
-        except (AttributeError, KeyError):
-            pass
+            try:
+                self.node.outputs.retrieved.copy_tree(destpath)
+            except (AttributeError, KeyError):
+                pass
 
         return destpath
 
@@ -329,6 +396,43 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     _RY2eV    = 13.605693122990
     _RYA22Jm2 = 4.3597447222071E-18/2 * 1E+20
     _eVA22Jm2 = 1.602176634E-19 * 1E+20
+
+    @property
+    def node_ref(self) -> str:
+        """Return a compact process reference for the current workchain."""
+        return _format_node_ref(self.node)
+
+    @staticmethod
+    def _format_status_markup(process_state: str, exit_code: Any) -> str:
+        """Return a Rich-marked process state string."""
+        normalized_exit_code = getattr(exit_code, 'status', exit_code)
+        if process_state == 'finished_ok' and normalized_exit_code == 0:
+            return f'[green]{process_state}[/]'
+        if normalized_exit_code not in (None, 0):
+            return f'[red]{process_state}[/]'
+        return f'[yellow]{process_state}[/]'
+
+    def _log_source_missing(self) -> None:
+        """Emit a uniform warning when source metadata is missing."""
+        logger.warning(f'[yellow]missing source[/] {self.node_ref}')
+
+    def _log_state_summary(self, path: str, process_state: str, exit_code: Any) -> None:
+        """Emit a compact state summary for the current workchain."""
+        normalized_exit_code = getattr(exit_code, 'status', exit_code)
+        status_markup = self._format_status_markup(process_state, normalized_exit_code)
+        message = (
+            f'{self.node_ref} status={status_markup} '
+            f'path=[magenta]{path}[/] exit_code=[bold]{normalized_exit_code}[/]'
+        )
+        if process_state == 'finished_ok' and normalized_exit_code == 0:
+            logger.info(message)
+        else:
+            logger.warning(message)
+
+    def _print_text_block(self, title: str, body: str) -> None:
+        """Print a titled multiline text block using the shared console."""
+        console.rule(f'[bold]{title}[/]')
+        console.print(body)
 
     @staticmethod
     def split_source(source: str | tuple[str, str] | None) -> tuple[str, str] | None:
@@ -510,20 +614,18 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         If ``analyser_resolver`` returns ``None`` for a child, fall back to the
         legacy tree copy for that direct subtree.
         """
-        destpath.mkdir(parents=True, exist_ok=True)
-        print(f"Starting extraction to directory: {destpath.resolve()}")
+        with _copy_tree_logging_scope(self.node, destpath, list(self.process_tree.children.keys())):
+            destpath.mkdir(parents=True, exist_ok=True)
 
-        for child_name, child_tree in self.process_tree.children.items():
-            analyser_class = analyser_resolver(child_name, child_tree)
+            for child_name, child_tree in self.process_tree.children.items():
+                analyser_class = analyser_resolver(child_name, child_tree)
 
-            if analyser_class is None:
-                ProcessTree._copy_tree(child_tree, destpath)
-                continue
+                if analyser_class is None:
+                    ProcessTree._copy_tree(child_tree, destpath)
+                    continue
 
-            analyser = analyser_class(child_tree.node)
-            analyser.copy_tree(destpath / child_name)
-
-        print("Extraction complete.")
+                analyser = analyser_class(child_tree.node)
+                analyser.copy_tree(destpath / child_name)
         return destpath
 
     def _get_calcjob_paths_for_direct_children(
@@ -581,19 +683,12 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         try:
             path, process_state, exit_code = self.get_state()
         except AttributeError:
-            print(f"WorkChain<{self.node.pk}>: get_state() method not implemented.")
+            logger.warning(f'{self.node_ref} get_state() is not implemented.')
             return -1
 
         normalized_exit_code = getattr(exit_code, 'status', exit_code)
 
-        if process_state == 'finished_ok' and normalized_exit_code == 0:
-            print(f"WorkChain<{self.node.pk}> is finished OK.")
-            return 0
-
-        print(
-            f"WorkChain<{self.node.pk}> is {process_state} at {path}.\n"
-            f"    Exit code: {normalized_exit_code}"
-        )
+        self._log_state_summary(path, process_state, normalized_exit_code)
 
         # If exit_code is an integer and non-zero, try to get detailed output
         if isinstance(normalized_exit_code, int) and normalized_exit_code != 0:
@@ -603,24 +698,30 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                 if print_output:
                     try:
                         if 'aiida.out' in node.node.get_retrieve_list():
-                            print('Found in standard output:')
-                            print(node.node.get_retrieved_node().get_object_content('aiida.out'))
+                            self._print_text_block(
+                                'Standard Output',
+                                node.node.get_retrieved_node().get_object_content('aiida.out'),
+                            )
                     except (AttributeError, KeyError):
-                        print('aiida.out not found in retrieved')
+                        logger.warning(f'{self.node_ref} aiida.out not found in retrieved.')
                 if print_stdout:
                     try:
                         if '_scheduler-stdout.txt' in node.node.get_retrieve_list():
-                            print('Found in scheduler standard output:')
-                            print(node.node.get_scheduler_stdout())
+                            self._print_text_block(
+                                'Scheduler Stdout',
+                                node.node.get_scheduler_stdout(),
+                            )
                     except (AttributeError, KeyError):
-                        print('_scheduler-stdout.txt not found in retrieved')
+                        logger.warning(f'{self.node_ref} scheduler stdout not found in retrieved.')
                 if print_stderr:
                     try:
                         if '_scheduler-stderr.txt' in node.node.get_retrieve_list():
-                            print('Found in scheduler standard error:')
-                            print(node.node.get_scheduler_stderr())
+                            self._print_text_block(
+                                'Scheduler Stderr',
+                                node.node.get_scheduler_stderr(),
+                            )
                     except (AttributeError, KeyError):
-                        print('_scheduler-stderr.txt not found in retrieved')
+                        logger.warning(f'{self.node_ref} scheduler stderr not found in retrieved.')
                 return normalized_exit_code
 
         if process_state == 'finished_ok':
