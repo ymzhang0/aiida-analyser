@@ -14,6 +14,12 @@ class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
             lambda _, child: PwCalculationAnalyser if child.node.process_label == 'PwCalculation' else None,
         )
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct calcjob to its analyser."""
+        return self._get_calcjob_paths_for_direct_children(
+            lambda _, child: PwCalculationAnalyser if child.node.process_label == 'PwCalculation' else None,
+        )
+
     def get_source(self):
         """Get the source of the workchain."""
         if all(key in self.node.base.extras for key in ['source_db', 'source_id']):

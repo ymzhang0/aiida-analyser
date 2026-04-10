@@ -42,6 +42,23 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct child to its analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'PhBaseWorkChain':
+                return PhBaseWorkChainAnalyser
+            if process_label == 'EpwBaseWorkChain':
+                return EpwBaseWorkChainAnalyser
+            if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
+                return Wannier90WorkChainAnalyser
+            return None
+
+        return self._get_calcjob_paths_for_direct_children(_resolve)
+
     @property
     def w90_intp(self):
         labels = self._get_child_labels(labels=('w90_bands', 'w90_intp'))

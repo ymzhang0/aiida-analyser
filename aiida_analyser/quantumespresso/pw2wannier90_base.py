@@ -14,6 +14,12 @@ class Pw2Wannier90BaseWorkChainAnalyser(BaseWorkChainAnalyser):
             lambda _, child: Pw2Wannier90CalculationAnalyser if child.node.process_label == 'Pw2wannier90Calculation' else None,
         )
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct Pw2wannier90Calculation child."""
+        return self._get_calcjob_paths_for_direct_children(
+            lambda _, child: Pw2Wannier90CalculationAnalyser if child.node.process_label == 'Pw2wannier90Calculation' else None,
+        )
+
     def get_source(self):
         """Get the source of the workchain."""
         if all(key in self.node.base.extras for key in ['source_db', 'source_id']):

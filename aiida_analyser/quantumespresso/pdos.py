@@ -34,6 +34,21 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
             _resolve,
         )
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct child to its analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'DosCalculation':
+                return DosCalculationAnalyser
+            if process_label == 'ProjwfcCalculation':
+                return ProjwfcCalculationAnalyser
+            return None
+
+        return self._get_calcjob_paths_for_direct_children(_resolve)
+
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()

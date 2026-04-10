@@ -22,6 +22,12 @@ class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
             lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
         )
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct PwBaseWorkChain child."""
+        return self._get_calcjob_paths_for_direct_children(
+            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+        )
+
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()

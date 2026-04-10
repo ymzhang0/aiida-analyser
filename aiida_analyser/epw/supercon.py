@@ -49,6 +49,12 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             lambda _, child: EpwBaseWorkChainAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
         )
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct EpwBaseWorkChain child."""
+        return self._get_calcjob_paths_for_direct_children(
+            lambda _, child: EpwBaseWorkChainAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
+        )
+
 
     @property
     def structure(self):
@@ -209,7 +215,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         """Get the remote directory of the aniso workchain."""
         if not self.aniso:
             raise ValueError('No anisotropic EPW workchain found.')
-        paths = self._get_calcjob_paths(self.aniso)
+        paths = EpwBaseWorkChainAnalyser(self.aniso.node).get_calcjob_paths()
         if not paths:
             raise ValueError('No calcjob remote paths found under `epw_final_aniso`.')
         return list(paths.values())[-1]

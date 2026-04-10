@@ -144,6 +144,21 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct QE child to its analyser."""
+        def _resolve(child_name, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwRelaxWorkChain':
+                return PwRelaxWorkChainAnalyser
+            if process_label == 'PwBaseWorkChain' and (
+                child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+            ):
+                return PwBaseWorkChainAnalyser
+            return None
+
+        return self._get_calcjob_paths_for_direct_children(_resolve)
+
     @staticmethod
     def _shift_series_to_first_value(values: list[float | None]) -> list[float | None]:
         """Shift a numeric series so the first point becomes the zero reference."""

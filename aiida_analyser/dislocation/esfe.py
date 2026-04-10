@@ -11,6 +11,14 @@ class ESFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
     def esfe(self):
         return self._get_node_from_tree('esfe')
 
+    def copy_tree(self, destpath):
+        """Copy the tree using the layered SFEBase child delegation."""
+        return super().copy_tree(destpath)
+
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths using the layered SFEBase child delegation."""
+        return super().get_calcjob_paths()
+
     def get_state(self):
         """Get the state of the workchain."""
         return self._get_state_from_subprocesses([

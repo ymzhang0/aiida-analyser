@@ -309,6 +309,18 @@ class BaseCalculationAnalyser:
 
         return destpath
 
+    def get_calcjob_paths(self) -> dict[str, str]:
+        """Return the remote path of this calculation using a root-relative key."""
+        if not self.node.is_finished_ok:
+            return {}
+
+        try:
+            remote_path = self.node.outputs.remote_folder.get_remote_path()
+        except (AttributeError, KeyError):
+            return {}
+
+        return {'ROOT': remote_path}
+
 
 class BaseWorkChainAnalyser(WorkChainAnalyser):
     """
@@ -412,6 +424,13 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """Get the remote paths of the all CalcJobNodes in the process tree."""
         return self._get_calcjob_paths(self.process_tree)
 
+    @staticmethod
+    def _join_relative_path(child_name: str, relative_path: str) -> str:
+        """Join a direct child label with a child analyser's relative path."""
+        if relative_path in ('', 'ROOT'):
+            return child_name
+        return f'{child_name}/{relative_path}'
+
     @cached_property
     def process_tree(self):
         """Get the ProcessTree of the workchain."""
@@ -506,6 +525,32 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
 
         print("Extraction complete.")
         return destpath
+
+    def _get_calcjob_paths_for_direct_children(
+        self,
+        analyser_resolver: Callable[[str, ProcessTree], Any],
+    ) -> dict[str, str]:
+        """
+        Collect calcjob remote paths by delegating each direct child to its own analyser.
+
+        If ``analyser_resolver`` returns ``None`` for a child, fall back to the
+        legacy recursive ProcessTree traversal for that subtree.
+        """
+        flat_paths = {}
+
+        for child_name, child_tree in self.process_tree.children.items():
+            analyser_class = analyser_resolver(child_name, child_tree)
+
+            if analyser_class is None:
+                child_paths = self._get_calcjob_paths(child_tree)
+            else:
+                child_paths = analyser_class(child_tree.node).get_calcjob_paths()
+
+            for relative_path, remote_path in child_paths.items():
+                full_label = self._join_relative_path(child_name, relative_path)
+                flat_paths[full_label] = remote_path
+
+        return flat_paths
     
     def _get_state_from_tree(self):
         """

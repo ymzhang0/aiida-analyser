@@ -34,6 +34,23 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
 
+    def get_calcjob_paths(self):
+        """Get calcjob remote paths by delegating each direct child to its analyser."""
+        def _resolve(_, child):
+            process_label = child.node.process_label
+
+            if process_label == 'PwBaseWorkChain':
+                return PwBaseWorkChainAnalyser
+            if process_label == 'ProjwfcBaseWorkChain':
+                return ProjwfcBaseWorkChainAnalyser
+            if process_label == 'Pw2Wannier90BaseWorkChain':
+                return Pw2Wannier90BaseWorkChainAnalyser
+            if process_label == 'Wannier90BaseWorkChain':
+                return Wannier90BaseWorkChainAnalyser
+            return None
+
+        return self._get_calcjob_paths_for_direct_children(_resolve)
+
     def _get_wannier90_pp_labels(self):
         return self._get_child_labels(
             labels=('wannier90_pp',),
