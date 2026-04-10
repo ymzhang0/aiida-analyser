@@ -740,7 +740,12 @@ class EpwPrepData:
         plt.tight_layout()
         return fig, axs
 
-    def dump(self, dest:Path, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
+    def dump(self, dest:Path|str, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
+        if type(dest) == str:
+            dest = Path(dest)
+        
+        if not dest.exists():
+            dest.mkdir(parents=True)
         for material, degauss_dict in self._data.items():
             if degauss_list:
                 degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}

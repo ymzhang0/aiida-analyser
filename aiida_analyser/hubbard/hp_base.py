@@ -1,27 +1,10 @@
-from platform import node
-
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
-from pathlib import Path
-import re
-class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
-    """
-    Analyser for the PwBaseWorkChain.
-    """
 
-    def copy_tree(
-        self,
-        destpath: Path,
-        ):
-        """Copy the tree of the workchain to the destination directory."""
-        super().copy_tree(destpath)
-        for child_node in self.process_tree.children.values():
-            if child_node.node.process_label == 'PwCalculation':
-                pseudo_dir = destpath / "pseudo"
-                pseudo_dir.mkdir(exist_ok=True)
-                for pseudo in child_node.node.inputs.pseudos.values():
-                    with (pseudo_dir / pseudo.filename).open("w") as handle:
-                        handle.write(pseudo.get_content())        
+class HPBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+    """
+    Analyser for the HPBaseWorkChain.
+    """
 
     def get_source(self):
         """Get the source of the workchain."""
@@ -34,8 +17,6 @@ class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-        # Start with the base implementation
-
         return self._get_state_from_tree()
 
     def clean_workchain(self, dry_run=True):
@@ -44,4 +25,3 @@ class PwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
-

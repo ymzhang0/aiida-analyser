@@ -117,16 +117,19 @@ class PdosGroupData(BaseGroupData):
                         with_soc = "with SOC" if extras.get('with_soc') else "without SOC"
                     except KeyError:
                         with_soc = 'SOC unknown'
-
+                    try:
+                        with_hubbard_u = "with Hubbard U" if extras.get('with_hubbard_u') else "without Hubbard U"
+                    except KeyError:
+                        with_hubbard_u = 'Hubbard U unknown'
                     logging.info(f"Processing node<{node.pk}> for {formula}")
 
 
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
                     if process_label in ['PdosWorkChain']:
                         if self._data.get(formula, {}).get(degauss, {}).get(kpoints_distance) is None:
-                            self._data[formula][degauss][kpoints_distance] = [(node, with_soc)]
+                            self._data[formula][degauss][kpoints_distance] = [(node, with_soc, with_hubbard_u)]
                         else:
-                            self._data[formula][degauss][kpoints_distance].append((node, with_soc))
+                            self._data[formula][degauss][kpoints_distance].append((node, with_soc, with_hubbard_u))
 
                 except Exception as e:
                     logging.warning(f'Node<{node.pk}> processing failed: {e}')
@@ -140,12 +143,13 @@ class PdosGroupData(BaseGroupData):
         for formula, degausses in self._data.items():
             for degauss, k_dists in degausses.items():
                 for k_dist, nodes in k_dists.items():
-                    for node, with_soc in nodes:
+                    for node, with_soc, with_hubbard_u in nodes:
                         flattened_list.append({
                             'Material': formula,
                             'Degauss': degauss,
                             'K_Dist': k_dist,
                             'With SOC': with_soc,
+                            'With Hubbard U': with_hubbard_u,
                             'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                         })
         return flattened_list
@@ -158,6 +162,7 @@ class PdosGroupData(BaseGroupData):
 
         legend_fontsize = kwargs.pop('legend_fontsize', 12)
         title_fontsize = kwargs.pop('title_fontsize', 16)
+        legend_bbox_to_anchor = kwargs.pop('legend_bbox_to_anchor', (1.0, 1.0, 0.6, 0.2))
         structures = sorted([s for s in self.data.keys() if s is not None], key=lambda x: str(x))
 
         if not structures:
@@ -183,14 +188,14 @@ class PdosGroupData(BaseGroupData):
 
             for degauss, k_dist_dict in mat_dict.items():
                 for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc in node_list:
+                    for node, with_soc, with_hubbard_u in node_list:
                         if node and node.is_finished_ok:
                             color = next(base_colors)
-                            logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc}")
+                            logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc} {with_hubbard_u}")
                             analyser = PdosWorkChainAnalyser(node)
                             analyser.plot_pdos(
                                 axis=ax,
-                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, with SOC: {with_soc}',
+                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {with_soc}, {with_hubbard_u}',
                                 color=color,
                                 # marker=marker,
                                 linestyle='-',
@@ -198,8 +203,18 @@ class PdosGroupData(BaseGroupData):
                                 **kwargs
                         )
             ax.set_title(f"${struct}$", fontsize=title_fontsize)
-            ax.legend(loc='upper left', fontsize=legend_fontsize)
-            
+        
+        # axs[0, 0].legend(loc='upper left', fontsize=legend_fontsize)
+        axs[0, 0].legend(loc='upper right', 
+                facecolor='white', 
+                fontsize=legend_fontsize,
+                bbox_to_anchor=legend_bbox_to_anchor, # (x, y, width, height)
+                # mode="expand",                 
+                borderaxespad=0, 
+                ncol=1,
+                framealpha=1.0, 
+                frameon=True)
+
         for ax in axs[0, 1:]:
             ax.set_ylabel('')
 

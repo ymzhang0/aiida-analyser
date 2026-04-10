@@ -9,6 +9,7 @@ _EXTRA_MODULES = {
     'thermo': {'matplotlib', 'numpy'},
     'dislocation': {'aiida_dislocation', 'ase', 'matplotlib', 'numpy', 'pandas', 'scipy'},
     'epw': {'aiida_epw', 'ase', 'matplotlib', 'numpy', 'pandas', 'scipy'},
+    'hubbard': {'aiida_hubbard', 'ase', 'matplotlib', 'numpy', 'pandas', 'scipy'},
 }
 
 _EXPORTS = {
@@ -44,6 +45,8 @@ _EXPORTS = {
     'GSFEGroupData': ('dislocation.gsfe', 'GSFEGroupData', 'dislocation'),
     'SurfaceWorkChainAnalyser': ('dislocation.surface', 'SurfaceWorkChainAnalyser', 'dislocation'),
     'SurfaceEnergyData': ('dislocation.surface', 'SurfaceEnergyData', 'dislocation'),
+    'ScHubbardWorkChainAnalyser': ('hubbard.sc_hubbard', 'ScHubbardWorkChainAnalyser', 'hubbard'),
+    'ScHubbardGroup': ('hubbard.sc_hubbard', 'ScHubbardGroup', 'hubbard'),
     'EpwBaseWorkChainAnalyser': ('epw.epw_base', 'EpwBaseWorkChainAnalyser', None),
     'EpwPrepWorkChainAnalyser': ('epw.epw_prep', 'EpwPrepWorkChainAnalyser', 'epw'),
     'EpwPrepConvergenceData': ('epw.epw_prep', 'EpwPrepConvergenceData', 'epw'),

@@ -32,6 +32,7 @@ from aiida_dislocation.tools import (
     calculate_surface_area
 )
 
+from pathlib import Path
 
 def formula_to_latex(formula):
     latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
@@ -653,6 +654,7 @@ class GSFEGroupDataLatest(BaseGroupData):
         cmap = plt.get_cmap('viridis')
         norm = mcolors.Normalize(vmin=0, vmax=max(1, len(sorted_k_dists) - 1))
 
+        kpoints_convergence_results = {}
 
         for i, k_dist in enumerate(sorted_k_dists):
             node = filtered_k_dists[k_dist]
@@ -661,7 +663,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                 color = cmap(norm(i))
 
                 if kwargs.get('fit', True):
-                    analyser.fit_curve(
+                    results = analyser.fit_curve(
                         plot=True,
                         axis=ax,
                         label=f"{k_dist}",
@@ -669,6 +671,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                         directions=directions,
                         **kwargs
                     )
+                    kpoints_convergence_results[k_dist] = results
                 else:
                     analyser.plot(
                         ax=ax,
@@ -685,7 +688,7 @@ class GSFEGroupDataLatest(BaseGroupData):
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        return ax
+        return (ax, kpoints_convergence_results)
 
 
     def plot_supercell_convergence(self, structure_type, formula, gliding_plane, kpoints_distances, n_repeats=None, ax=None, directions=None, **kwargs):
@@ -752,3 +755,29 @@ class GSFEGroupDataLatest(BaseGroupData):
         ax.grid(True, alpha=0.3)
 
         return ax
+
+    def dump(self, dest:Path|str, struct_type_list:list = None, formula_list:list = None, planes_list:list = None, process_label_list:list = None, layers_list:list = None, k_dist_list:list = None,):
+        if type(dest) == str:
+            dest = Path(dest)
+        if not dest.exists():
+            dest.mkdir(parents=True)
+
+        for struct_type, formulas in self._data.items():
+            if struct_type_list and struct_type not in struct_type_list:
+                continue
+            for formula, planes in formulas.items():
+                if formula_list and formula not in formula_list:
+                    continue
+                for plane, processes in planes.items():
+                    if planes_list and plane not in planes_list:
+                        continue
+                    for process_label, layers_dict in processes.items():
+                        if process_label_list and process_label not in process_label_list:
+                            continue
+                        for layers, k_dists in layers_dict.items():
+                            for k_dist, node in k_dists.items():
+                                if node:
+                                    analyser = GSFEWorkChainAnalyserLatest(node)
+                                    analyser.copy_tree(
+                                        dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{node.pk}"
+                                        )

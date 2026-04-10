@@ -4,7 +4,7 @@ from aiida.orm import StructureData
 lattice_constants = {
     # FCC
     'Al': {'fcc': 4.0144}, # https://mc3d.materialscloud.org/#/details/mc3d-29639/pbesol-v1
-    'Pb': {'fcc': 3.4784},
+    'Pb': {'fcc': 4.9191}, # https://mc3d.materialscloud.org/details/mc3d-48868/pbesol-v2
     'Cu': {'fcc': 3.5623}, # https://mc3d.materialscloud.org/#/details/mc3d-24185/pbesol-v1
     'Au': {'fcc': 4.0712}, # https://mc3d.materialscloud.org/#/details/mc3d-66164/pbesol-v1
     'Ag': {'fcc': 4.0496}, # https://mc3d.materialscloud.org/#/details/mc3d-75785/pbesol-v1

@@ -142,7 +142,7 @@ class PwBandsGroupData(BaseGroupData):
         return flattened_list
 
     def plot_bands(self, axs=None, formula=None, kpoints_distances=None, degausses=None, with_soc=None, destpath=None, **kwargs):
-        """Plot GSFE curves for different k-points on a single axis."""
+        """Plot bands for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
 
@@ -180,7 +180,7 @@ class PwBandsGroupData(BaseGroupData):
                             analyser = PwBandsWorkChainAnalyser(node)
                             analyser.plot_bands(
                                 axis=ax,
-                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, with SOC: {with_soc}',
+                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {with_soc}',
                                 color=color,
                                 # marker=marker,
                                 linestyle='-',

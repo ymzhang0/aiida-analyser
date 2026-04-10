@@ -1,5 +1,6 @@
 from collections import defaultdict, deque
 from aiida import orm
+from aiida_analyser.dislocation.gsfe_latest import GSFEWorkChainAnalyserLatest
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
@@ -21,6 +22,9 @@ from aiida_dislocation.tools.structure_utils import (
 
 import re
 from copy import deepcopy
+import itertools
+
+from pathlib import Path
 
 def formula_to_latex(formula):
     latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
@@ -359,7 +363,8 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
                     y_fit = func(x_plot, e_usf1, e_usf2)
 
-                    results[slipping_direction]['usf'] = func(numpy.pi/4, e_usf1, e_usf2)
+                    # results[slipping_direction]['usf'] = func(numpy.pi/4, e_usf1, e_usf2)
+                    results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                     results[slipping_direction]['s'] = func(numpy.pi/2, e_usf1, e_usf2)
                                         
                 if plot:
@@ -622,3 +627,29 @@ class GSFEGroupData(BaseGroupData):
             plt.tight_layout()
             plt.savefig(destpath)
         return results
+    
+    def dump(self, dest:Path|str, struct_type_list:list = None, formula_list:list = None, planes_list:list = None, process_label_list:list = None, layers_list:list = None, k_dist_list:list = None,):
+        if type(dest) == str:
+            dest = Path(dest)
+        
+        if not dest.exists():
+            dest.mkdir(parents=True)
+        for struct_type, formulas in self._data.items():
+            if struct_type_list and struct_type not in struct_type_list:
+                continue
+            for formula, planes in formulas.items():
+                if formula_list and formula not in formula_list:
+                    continue
+                for plane, processes in planes.items():
+                    if planes_list and plane not in planes_list:
+                        continue
+                    for process_label, layers_dict in processes.items():
+                        if process_label_list and process_label not in process_label_list:
+                            continue
+                        for layers, k_dists in layers_dict.items():
+                            for k_dist, node in k_dists.items():
+                                if node:
+                                    analyser = GSFEWorkChainAnalyser(node)
+                                    analyser.copy_tree(
+                                        dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{node.pk}"
+                                        )

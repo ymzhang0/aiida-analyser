@@ -238,7 +238,7 @@ class ProcessTree:
             calcjob_node = node.node
             calcjob_node.base.repository.copy_tree(node_dir)
             calcjob_node.outputs.retrieved.copy_tree(node_dir)
-            
+
         # 3. Recursively process the child nodes
         for child_node in node.children.values():
             try:
