@@ -10,7 +10,7 @@ class PwCalculationAnalyser(BaseCalculationAnalyser):
         """Copy the calcjob files and export the pseudos used by the calculation."""
         super().copy_tree(destpath)
 
-        pseudo_dir = destpath.parent / 'pseudo'
+        pseudo_dir = destpath / 'pseudo'
         pseudo_dir.mkdir(parents=True, exist_ok=True)
 
         for pseudo in self.node.inputs.pseudos.values():
