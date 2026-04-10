@@ -286,6 +286,17 @@ class BaseCalculationAnalyser:
     def __init__(self, calculation: orm.CalcJobNode):
         self.node = calculation
 
+    def get_state(self):
+        """Return the state of the calculation node."""
+        if self.node.is_finished_ok:
+            return 'ROOT', 'finished_ok', 0
+
+        return (
+            'ROOT',
+            self.node.process_state.value,
+            self.node.exit_code if self.node.is_finished else None,
+        )
+
     def copy_tree(self, destpath: Path) -> Path:
         """Copy the input repository and retrieved outputs of a calculation."""
         destpath.mkdir(parents=True, exist_ok=True)
@@ -326,6 +337,38 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         if label not in self.process_tree:
             raise AttributeError(f"'{label}' is not found in the process tree of WorkChain<{self.node.pk}>")
         return self.process_tree[label].node
+
+    def _get_child_labels(
+        self,
+        labels: tuple[str, ...] = (),
+        prefixes: tuple[str, ...] = (),
+        process_label: str | None = None,
+    ) -> list[str]:
+        """Return direct child labels filtered by exact names, prefixes, and process label."""
+        matches = []
+        seen = set()
+
+        for label in labels:
+            if label not in self.process_tree:
+                continue
+            child_tree = self.process_tree[label]
+            if process_label and child_tree.node.process_label != process_label:
+                continue
+            matches.append(label)
+            seen.add(label)
+
+        for child_name, child_tree in self.process_tree.children.items():
+            if child_name in seen:
+                continue
+            if prefixes and not any(child_name.startswith(prefix) for prefix in prefixes):
+                continue
+            if process_label and child_tree.node.process_label != process_label:
+                continue
+            if labels or prefixes or process_label:
+                matches.append(child_name)
+                seen.add(child_name)
+
+        return matches
 
     @staticmethod
     def _get_safe_energy(node: orm.Node) -> float | None:
@@ -448,6 +491,7 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         If ``analyser_resolver`` returns ``None`` for a child, fall back to the
         legacy tree copy for that direct subtree.
         """
+        destpath.mkdir(parents=True, exist_ok=True)
         print(f"Starting extraction to directory: {destpath.resolve()}")
 
         for child_name, child_tree in self.process_tree.children.items():

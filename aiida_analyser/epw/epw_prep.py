@@ -44,10 +44,10 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
 
     @property
     def w90_intp(self):
-        if 'w90_intp' not in self.process_tree:
-            raise AttributeError('w90_intp is not found')
-        else:
-            return self.process_tree.w90_intp.node
+        labels = self._get_child_labels(labels=('w90_bands', 'w90_intp'))
+        if not labels:
+            raise AttributeError('w90_bands is not found')
+        return self.process_tree[labels[0]].node
 
     @property
     def ph_base(self):

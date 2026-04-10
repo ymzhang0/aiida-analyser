@@ -34,6 +34,30 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
 
+    def _get_wannier90_pp_labels(self):
+        return self._get_child_labels(
+            labels=('wannier90_pp',),
+            prefixes=('wannier90_pp_',),
+            process_label='Wannier90BaseWorkChain',
+        )
+
+    def _get_pw2wannier90_labels(self):
+        return self._get_child_labels(
+            labels=('pw2wannier90',),
+            prefixes=('pw2wannier90_',),
+            process_label='Pw2Wannier90BaseWorkChain',
+        )
+
+    def _get_wannier90_run_labels(self):
+        return [
+            label for label in self._get_child_labels(
+                labels=('wannier90',),
+                prefixes=('wannier90_',),
+                process_label='Wannier90BaseWorkChain',
+            )
+            if label not in set(self._get_wannier90_pp_labels())
+        ]
+
     @property
     def scf(self):
         try:
@@ -87,61 +111,39 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
 
     def get_state(self):
         """Get the state of the workchain."""
-        if self.node.is_finished_ok:
-            return 'ROOT', 0, 'finished OK'
-        
-        process_tree = self.process_tree
-        
-        # Define subprocesses in execution order
-        # Required subprocesses: scf, nscf, wannier90_pp, pw2wannier90, wannier90
-        # Optional subprocesses: projwfc
-        subprocesses = [
-            ('scf', True),  # (name, required)
-            ('nscf', True),
-            ('projwfc', False),  # optional
-            ('wannier90_pp', True),
-            ('pw2wannier90', True),
-            ('wannier90', True),
-        ]
-        
-        # Check each subprocess in order
-        for subprocess_name, required in subprocesses:
-            if subprocess_name in process_tree:
-                if not process_tree[subprocess_name].node.is_finished_ok:
-                    subprocess_node = process_tree[subprocess_name].node
-                    
-                    # Determine the appropriate analyser based on subprocess type
-                    # scf, nscf are PW base workchains
-                    # projwfc is Projwfc base workchain
-                    # pw2wannier90 is Pw2Wannier90 base workchain
-                    # wannier90_pp, wannier90 are Wannier90 base workchains
-                    if subprocess_name in ['scf', 'nscf']:
-                        analyser = PwBaseWorkChainAnalyser(subprocess_node)
-                        path, exit_code, message = analyser.get_state()
-                    elif subprocess_name == 'projwfc':
-                        analyser = ProjwfcBaseWorkChainAnalyser(subprocess_node)
-                        path, exit_code, message = analyser.get_state()
-                    elif subprocess_name == 'pw2wannier90':
-                        analyser = Pw2Wannier90BaseWorkChainAnalyser(subprocess_node)
-                        path, exit_code, message = analyser.get_state()
-                    elif subprocess_name in ['wannier90_pp', 'wannier90']:
-                        analyser = Wannier90BaseWorkChainAnalyser(subprocess_node)
-                        path, exit_code, message = analyser.get_state()
-                    else:
-                        # Fall back to tree traversal for unknown subprocess types
-                        # This should not happen if subprocesses list is correct
-                        temp_analyser = BaseWorkChainAnalyser(subprocess_node)
-                        path, exit_code, message = temp_analyser._get_state_from_tree()
-                    
-                    # Return the state with subprocess name prefix
-                    return subprocess_name if path == 'ROOT' else f'{subprocess_name}/{path}', exit_code, message
-            elif required:
-                # Required subprocess is missing, fall back to tree traversal
-                return self._get_state_from_tree()
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
+        subprocesses = []
+        required_subprocesses = []
+
+        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            required_subprocesses.append(label)
+
+        for label in self._get_child_labels(labels=('nscf',), process_label='PwBaseWorkChain'):
+            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            required_subprocesses.append(label)
+
+        for label in self._get_child_labels(labels=('projwfc',), process_label='ProjwfcBaseWorkChain'):
+            subprocesses.append((label, ProjwfcBaseWorkChainAnalyser))
+
+        wannier90_pp_labels = self._get_wannier90_pp_labels()
+        for label in wannier90_pp_labels:
+            subprocesses.append((label, Wannier90BaseWorkChainAnalyser))
+            required_subprocesses.append(label)
+
+        pw2wannier90_labels = self._get_pw2wannier90_labels()
+        for label in pw2wannier90_labels:
+            subprocesses.append((label, Pw2Wannier90BaseWorkChainAnalyser))
+            required_subprocesses.append(label)
+
+        wannier90_labels = self._get_wannier90_run_labels()
+        for label in wannier90_labels:
+            subprocesses.append((label, Wannier90BaseWorkChainAnalyser))
+            required_subprocesses.append(label)
+
+        return self._get_state_from_subprocesses(
+            subprocesses,
+            required_subprocesses=tuple(required_subprocesses),
+        )
 
     def print_state(self):
         """Print the state of the workchain."""
@@ -149,8 +151,8 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
         if not result:
             print(f"Can't check the state of Wannier90WorkChain<{self.node.pk}>.")
             return
-        path, process_state = result
-        print(f"Wannier90WorkChain<{self.node.pk}> is {process_state} at {path}.")
+        path, process_state, exit_code = result
+        print(f"Wannier90WorkChain<{self.node.pk}> is {process_state} at {path} with exit code {exit_code}.")
     
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
