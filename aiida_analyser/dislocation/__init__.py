@@ -5,6 +5,7 @@ from .esfe import ESFEWorkChainAnalyser
 from .usfe import USFEWorkChainAnalyser
 from .gsfe import GSFEWorkChainAnalyser, GSFEGroupData
 from .gsfe_latest import GSFEWorkChainAnalyserLatest, GSFEGroupDataLatest
+from .gsfe_relax import GSFERelaxWorkChainAnalyser, GSFERelaxGroupData
 from .surface import SurfaceWorkChainAnalyser, SurfaceEnergyData
 
 __all__ = [
@@ -17,6 +18,8 @@ __all__ = [
     'GSFEGroupData',
     'GSFEWorkChainAnalyserLatest',
     'GSFEGroupDataLatest',
+    'GSFERelaxWorkChainAnalyser',
+    'GSFERelaxGroupData',
     'SurfaceWorkChainAnalyser',
     'SurfaceEnergyData',
 ]

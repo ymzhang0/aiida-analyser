@@ -14,6 +14,7 @@ _EXTRA_MODULES = {
 
 _EXPORTS = {
     'NestedDict': ('dict', 'NestedDict', None),
+    'move_stashed_folder': ('data', 'move_stashed_folder', None),
     'dislocation': ('dislocation', None, 'dislocation'),
     'quantumespresso': ('quantumespresso', None, None),
     'wannier': ('wannier', None, None),
@@ -50,6 +51,8 @@ _EXPORTS = {
     'GSFEWorkChainAnalyserLatest': ('dislocation.gsfe_latest', 'GSFEWorkChainAnalyserLatest', 'dislocation'),
     'GSFEGroupDataLatest': ('dislocation.gsfe_latest', 'GSFEGroupDataLatest', 'dislocation'),
     'GSFEGroupData': ('dislocation.gsfe', 'GSFEGroupData', 'dislocation'),
+    'GSFERelaxWorkChainAnalyser': ('dislocation.gsfe_relax', 'GSFERelaxWorkChainAnalyser', 'dislocation'),
+    'GSFERelaxGroupData': ('dislocation.gsfe_relax', 'GSFERelaxGroupData', 'dislocation'),
     'SurfaceWorkChainAnalyser': ('dislocation.surface', 'SurfaceWorkChainAnalyser', 'dislocation'),
     'SurfaceEnergyData': ('dislocation.surface', 'SurfaceEnergyData', 'dislocation'),
     'ScHubbardWorkChainAnalyser': ('hubbard.sc_hubbard', 'ScHubbardWorkChainAnalyser', 'hubbard'),
@@ -64,6 +67,8 @@ _EXPORTS = {
     'ThermoPwBaseAnalyser': ('thermo_pw', 'ThermoPwBaseAnalyser', 'thermo'),
     'create_structure': ('structure', 'create_structure', 'structure'),
     'deprecated': ('deprecated', None, 'epw'),
+    'read_labelinfo': ('wannier.io', 'read_labelinfo', None),
+    'load_bandsdata': ('wannier.io', 'load_bandsdata', None),
 }
 
 __all__ = list(_EXPORTS)

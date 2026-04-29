@@ -276,11 +276,14 @@ class PdosGroupData(BaseGroupData):
 
     def dump(self, destpath: Path):
         """Dump the pdos to a folder."""
+        if isinstance(destpath, str):
+            destpath = Path(destpath)
+        destpath.mkdir(parents=True, exist_ok=True)
         for struct, mat_dict in self.data.items():
             for degauss, k_dist_dict in mat_dict.items():
                 for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc in node_list:
+                    for node, with_soc, with_hubbard_u in node_list:
                         if node and node.is_finished_ok:
-                            logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc}")
+                            logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc.replace(' ', '-')} {with_hubbard_u.replace(' ', '-')}")
                             analyser = PdosWorkChainAnalyser(node)
-                            analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / str(with_soc).replace(' ', '_'))
+                            analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / with_soc.replace(' ', '-') / with_hubbard_u.replace(' ', '-'))

@@ -42,14 +42,18 @@ class BaseGroupData:
             return pd.DataFrame()
 
         df = pd.DataFrame(flattened_list)
-        index_cols = ['Structure', 'Material', 'Layers', 'K_Dist']
-        available_index = [col for col in index_cols if col in df.columns]
 
-        if 'Plane' in df.columns and 'Status' in df.columns:
+        # 1. Define the columns we know are NOT part of the index
+        # 'Plane' is our pivot column, 'Status' is our value
+        pivot_col = 'Plane'
+        value_col = 'Status'
+
+        if pivot_col in df.columns and value_col in df.columns:
+            index_cols = [col for col in df.columns if col not in [pivot_col, value_col]]
             pivot_df = df.pivot_table(
-                values='Status',
-                index=available_index,
-                columns='Plane',
+                values=value_col,
+                index=index_cols,
+                columns=pivot_col,
                 aggfunc='first',
             )
             pivot_df = pivot_df.fillna('')

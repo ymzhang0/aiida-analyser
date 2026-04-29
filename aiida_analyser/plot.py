@@ -279,6 +279,7 @@ def plot_bands(
     color = kwargs.pop('color', 'black')
     ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
     label_fontsize = kwargs.pop('label_fontsize', 16)
+    ylim = kwargs.pop('ylim', [-2, 2])
 
     if axis is None:
         import matplotlib.pyplot as plt
@@ -296,24 +297,28 @@ def plot_bands(
             xticks = []
             xtick_labels = []
 
-    if len(xticks) > 0:
-        ax.set_xticks(xticks, xtick_labels, fontsize=ticklabel_fontsize)
-    
     xlim = kwargs.pop('xlim', [xticks[0], xticks[-1]])
     ax.set_xlim(xlim)
 
-    for tick in xticks:
-        ax.axvline(tick, color='k')
-
     label = kwargs.pop('label', None)
-    for i, band in enumerate(bands.get_bands().transpose()):
-        ax.plot(band - reference_energy, color=color, **kwargs)
 
+    bands_array = bands.get_bands()
+    nkpt, nbnd = bands_array.shape
+
+    for i, band in enumerate(bands_array.transpose()):
+        ax.plot(numpy.arange(nkpt) / nkpt * xlim[-1], band - reference_energy, color=color, **kwargs)
+    
+    for tick in xticks:
+        ax.axvline(tick/ nkpt * xlim[-1], color='k')
+
+    if len(xticks) > 0:
+        ax.set_xticks([xtick/ nkpt * xlim[-1] for xtick in xticks], xtick_labels, fontsize=ticklabel_fontsize)
+    
     ax.plot([], [], label=label)
     ax.axhline(0, color='k', linestyle='--')
-    ax.set_ylim([-2, 2])
-    ax.set_yticks([-2, 0, 2])
-    ax.set_yticklabels([-2, '$E_F$', 2], fontsize=ticklabel_fontsize)
+    ax.set_ylim(ylim)
+    ax.set_yticks(ylim + [0])
+    ax.set_yticklabels(ylim + ["$E_F$"], fontsize=ticklabel_fontsize)
     ax.set_ylabel(ylabel, fontsize=label_fontsize)
     if axis is None:
         return plt

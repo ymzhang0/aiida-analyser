@@ -3,6 +3,7 @@ from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from ..quantumespresso.projwfc_base import ProjwfcBaseWorkChainAnalyser
 from ..quantumespresso.pw2wannier90_base import Pw2Wannier90BaseWorkChainAnalyser
 from .wannier90_base import Wannier90BaseWorkChainAnalyser
+from ..plot import plot_bands
 
 class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -160,6 +161,27 @@ class Wannier90WorkChainAnalyser(BaseWorkChainAnalyser):
         return self._get_state_from_subprocesses(
             subprocesses,
             required_subprocesses=tuple(required_subprocesses),
+        )
+
+    def plot_bands(
+        self,
+        axis=None,
+        ylabel='Energy (eV)',
+        **kwargs,
+    ):
+        """
+        Plot the band structure.
+        """
+        bands = self.node.outputs.band_structure
+        seekpath_params = self.node.outputs.seekpath_parameters
+        fermi_energy = self.node.outputs.scf.output_parameters.get('fermi_energy')
+        plot_bands(
+            bands,
+            axis=axis,
+            reference_energy=fermi_energy,
+            seekpath_params=seekpath_params,
+            ylabel=ylabel,
+            **kwargs,
         )
 
     def print_state(self):

@@ -20,7 +20,7 @@ import warnings
 from scipy.optimize import curve_fit, OptimizeWarning
 from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
 from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
-
+from ..constants import eVA22Jm2
 from aiida_dislocation.tools import (
     A1GlidingSystem,
     A2GlidingSystem,
@@ -126,18 +126,20 @@ fit_function_map = {
 }
 
 
-class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
-    """Analyser for the current `GSFEWorkChain` output contract."""
+class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
+    """Analyser for the current `GSFERelaxWorkChain` output contract."""
 
     def copy_tree(self, destpath):
         """Copy the tree by delegating each direct QE child to its own analyser."""
         def _resolve(child_name, child):
             process_label = child.node.process_label
 
-            if process_label == 'PwRelaxWorkChain':
+            if process_label == 'PwRelaxWorkChain' and (
+                child_name == 'relax' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+            ):
                 return PwRelaxWorkChainAnalyser
             if process_label == 'PwBaseWorkChain' and (
-                child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+                child_name == 'scf'
             ):
                 return PwBaseWorkChainAnalyser
             return None
@@ -149,10 +151,12 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         def _resolve(child_name, child):
             process_label = child.node.process_label
 
-            if process_label == 'PwRelaxWorkChain':
+            if process_label == 'PwRelaxWorkChain' and (
+                child_name == 'relax' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+            ):
                 return PwRelaxWorkChainAnalyser
             if process_label == 'PwBaseWorkChain' and (
-                child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
+                child_name == 'scf'
             ):
                 return PwBaseWorkChainAnalyser
             return None
@@ -179,11 +183,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
     @property
     def scf(self):
         return self._get_node_from_tree('scf')
-    
-    @property
-    def surface_energy(self):
-        return self._get_node_from_tree('surface_energy')
-    
+
     @property
     def strukturbericht(self) -> str:
         if 'scf' in self.process_tree:
@@ -197,15 +197,15 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         for label in ('results', 'gsfe_results'):
             if label in self.node.outputs:
                 return self.node.outputs[label]
-        raise AttributeError(f'Node<{self.node.pk}>: GSFE results output is not found')
+        raise AttributeError('GSFE results output is not found')
 
     @property
     def surface_area(self) -> float | None:
         return self.results_node.get_dict().get('surface_area_angstrom2')
 
     @property
-    def scf_energy(self) -> float | None:
-        return self._get_safe_energy(self.scf)
+    def conventional_energy(self) -> float | None:
+        return self.results_node.get_dict().get('conventional_energy_ev')
 
     @property
     def gliding_plane(self) -> str:
@@ -214,7 +214,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             return self.node.inputs.gliding_plane.value
         if 'faulted_structure_data' in self.node.inputs:
             return self.node.inputs.faulted_structure_data.gliding_plane
-        raise AttributeError(f"Node<{self.node.pk}>: GSFE gliding plane not found in inputs")
+        raise AttributeError("GSFE gliding plane not found in inputs")
 
     @property
     def gliding_system(self):
@@ -259,6 +259,14 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             raise KeyError(f'direction `{direction_name}` is not present in GSFE results')
         return results[direction_name]
 
+
+    # @property
+    # def pristine_energy(self) -> float | None:
+    #     """Return the pristine energy from the conventional structure."""
+    #     if 'conventional_structure' in self.node.inputs:
+    #         conventional_node = self.node.inputs.conventional_structure
+    #         return self._get_safe_energy(conventional_node)
+    #     return None
     @property
     def pristine_energy(self):
         """Get the pristine energy."""
@@ -270,14 +278,24 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         if sfe_labels:
             return self._get_safe_energy(self.process_tree[sfe_labels[0]].node)
             
-        raise AttributeError(f'Node<{self.node.pk}>: Pristine energy (structure_01 or sfe_*) not found in process tree')
+        raise AttributeError('Pristine energy (structure_01 or sfe_*) not found in process tree')
+    
+    @property
+    def conv_thr(self):
+        """Return the convergence threshold of the calculation."""
+        return self.node.inputs.sfe.base_relax.pw.parameters.get('ELECTRONS', {}).get('conv_thr', 1e-6)
+    
+    @property
+    def conv_error(self):
+        """Return the convergence error of the calculation."""
+        return (self.conv_thr / self.surface_area) * eVA22Jm2
     
     def get_sfe_energies(self) -> dict[str, dict[int, float | None]]:
         """Return only the SFE values grouped by direction and step."""
         sfe_energies = {}
         pristine_energy = self.pristine_energy
         if pristine_energy is None:
-            logging.warning(f"Node<{self.node.pk}>: Pristine energy not found, cannot calculate SFE.")
+            logging.warning("Pristine energy not found, cannot calculate SFE.")
             return {}
 
         for direction, entries in self.get_results().items():
@@ -285,7 +303,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             for step, entry in entries.items():
                 total_energy_faulted_geometry = entry.get('energy')
                 if total_energy_faulted_geometry is None:
-                    logging.warning(f"Node<{self.node.pk}>: Energy not found for direction {direction}, step {step}.")
+                    logging.warning(f"Energy not found for direction {direction}, step {step}.")
                     sfe_energies[direction][int(step)] = None
                     continue
 
@@ -386,11 +404,6 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
         results = {}
 
-        try:
-            formula = self.node.inputs.structure.get_formula()
-        except Exception:
-            formula = "Unknown"
-
         gliding_plane = self.gliding_plane
         gliding_system = self.gliding_system
         func = fit_function_map[self.strukturbericht][gliding_plane]
@@ -400,12 +413,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         num_to_plot = len(sorted_keys)
         colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=max(1, num_to_plot)))
         markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
-        
-        logging.info(f"Node<{self.node.pk}>: Starting GSFE curve fitting for {formula} on plane {gliding_plane}")
         for slipping_direction in sorted_keys:
             color = next(colors)
             results[slipping_direction] = {}
-            logging.info(f"Node<{self.node.pk}>: Fitting slip system <{slipping_direction}> using function: {func.__name__}")
+            logging.info(f"Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
             for x, y in zip(xs_dict[slipping_direction], energies[slipping_direction]):
                 x = numpy.array(x, dtype=float)
                 y = numpy.array(y, dtype=float)
@@ -431,7 +442,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                             b = y[nsteps]
                             c = y[2 * nsteps] - y[nsteps]
                             order = kwargs.get('order', 4)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
+                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=100000)
                             y_fit = func(x_plot, popt, b, c)
                             results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                             results[slipping_direction]['isf'] = b
@@ -449,12 +460,8 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                             y_fit = func(x_plot, e_usf1, e_usf2)
                             results[slipping_direction]['usf'] = numpy.max(y_fit)
                             results[slipping_direction]['s'] = e_usf2
-                        
-                        # Log extracted parameters
-                        params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
-                        logging.info(f"Node<{self.node.pk}>: Extracted parameters for <{slipping_direction}> -> {params_str}")
                     except Exception as e:
-                        logging.warning(f"Node<{self.node.pk}>: Fitting failed for <{slipping_direction}>: {e}")
+                        logging.warning(f"Fitting failed for {slipping_direction}: {e}")
                         continue
 
                 if plot:
@@ -474,7 +481,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         linestyle=kwargs.get('linestyle', '--'),
                         color=color,
                         lw=kwargs.get('lw', 1.0),
-                        label=kwargs.get('label', f'{kwargs.get('label_prefix', '')}'+ f' <{slipping_direction}>'))
+                        label=kwargs.get('label', '') + f' <{slipping_direction}>')
                     axis.grid(True, alpha=0.3)
 
         return results
@@ -511,46 +518,13 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             )
 
         return ax
-    
-    def get_surface_energy(self):
-        """Get the surface energy of the workchain."""
-        from ase.formula import Formula
-        from aiida_dislocation.tools import calculate_surface_area
-        from aiida_dislocation.workflows.gsfe import GSFEWorkChain
 
-        logging.warning(
-            "In the latest version of GSFEWorkChain, the `surface_energy` subprocess is removed and isolated into an independent workchain. "
-            "This function is kept for backward compatibility but for new workchains, please use the independent `SurfaceEnergyWorkChain`."
-        )
 
-        if any(
-            namespace not in self.process_tree for namespace in (GSFEWorkChain._SCF_NAMESPACE, GSFEWorkChain._SURFACE_ENERGY_NAMESPACE)
-        ):
-            logging.warning(f'Node<{self.node.pk}>: {GSFEWorkChain._SCF_NAMESPACE} or {GSFEWorkChain._SURFACE_ENERGY_NAMESPACE} is not found')
-            return None
-        
-        conventional_formula = Formula(self.scf.inputs.pw.structure.get_ase().get_chemical_formula())
-        _, conventional_multiplier = conventional_formula.reduce()
-        
-        surface_formula = Formula(self.surface_energy.inputs.pw.structure.get_ase().get_chemical_formula())
-        _, surface_multiplier = surface_formula.reduce()
-        
-        surface_area = calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
-        
-        total_energy_cleavaged_geometry = self._get_safe_energy(self.surface_energy)
-        if total_energy_cleavaged_geometry is None:
-            logging.warning(f"Node<{self.surface_energy.pk}>: energy not found in output_parameters")
-            return None
-        energy_difference = total_energy_cleavaged_geometry - self.scf_energy * surface_multiplier / conventional_multiplier
-        surface_energy = energy_difference / (2*surface_area) * self._eVA22Jm2
-        
-        return surface_energy
-
-class GSFEGroupDataLatest(BaseGroupData):
+class GSFERelaxGroupData(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
-        # Data structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> Node
+        # Data structure: StructureType -> Material -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> Node
         self._data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
@@ -558,9 +532,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                         lambda: defaultdict(
                             lambda: defaultdict(
                                 lambda: defaultdict(
-                                    lambda: defaultdict(
-                                        lambda: None
-                                    )
+                                    lambda: None
                                 )
                             )
                         )
@@ -579,15 +551,8 @@ class GSFEGroupDataLatest(BaseGroupData):
         return self._data
 
     def get_data(self):
-        nodes_loaded = 0
-        groups_loaded = 0
         for grpname in self._groups:
-            try:
-                group = orm.load_group(grpname)
-                groups_loaded += 1
-            except Exception as e:
-                logging.error(f"Failed to load group {grpname}: {e}")
-                continue
+            group = orm.load_group(grpname)
             for node in group.nodes:
                 try:
                     process_label = node.process_label
@@ -595,6 +560,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                     structuretype = get_strukturbericht(structure.get_ase())
                     formula = structure.get_formula()
 
+                    logging.info(f"Processing node<{node.pk}> for {formula}")
                     if 'n_repeats' in node.inputs:
                         n_repeats = node.inputs.n_repeats.value
                     elif 'faulted_structure_data' in node.inputs:
@@ -610,62 +576,15 @@ class GSFEGroupDataLatest(BaseGroupData):
                         raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
 
                     kpoints_distance = node.inputs.kpoints_distance.value
-                    conv_thr = node.inputs.sfe.pw.parameters.get('ELECTRONS', None).get('conv_thr', 1e-6)
+                    conv_thr = node.inputs.sfe.base_relax.pw.parameters.get('ELECTRONS', None).get('conv_thr', 1e-6)
+
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> Node
-                    if process_label in ['GSFEWorkChain']:
+                    if process_label in ['GSFERelaxWorkChain']:
                         self._data[structuretype][formula][gliding_plane][process_label][n_repeats][kpoints_distance][conv_thr] = node
-                        nodes_loaded += 1
-                        logging.debug(f"Added Node<{node.pk}>: Structure={structuretype}, Formula={formula}, Plane={gliding_plane}, K-point={kpoints_distance}")
 
                 except Exception as e:
                     logging.warning(f'Node<{node.pk}> processing failed: {e}')
                     continue
-        
-        logging.info(f"Finished loading GSFE data: imported {nodes_loaded} total nodes from {groups_loaded} groups.")
-    def get_surface_energies(self):
-        results = {}
-        structures = sorted(self._data.keys(), key=lambda x: str(x))
-        all_planes = set()
-        for struct in structures:
-            for planes_dict in self._data[struct].values(): # val is dict of planes
-                all_planes.update(planes_dict.keys())
-        planes = sorted(list(all_planes), key=lambda x: str(x))
-        
-        for struct in structures:
-            for plane in planes:
-                
-                # Check if we have data for this cell
-                mat_dict = self._data[struct]
-                
-                found_any = False
-                for formula, planes_dict in mat_dict.items():
-                    if plane in planes_dict:
-                        # Found data for this (Struct, Plane) for this Formula
-                        process_dict = planes_dict[plane]
-                        if 'GSFEWorkChain' in process_dict:
-                            layers_dict = process_dict['GSFEWorkChain']
-                            for layers, k_dist_dict in layers_dict.items():
-                                for k_dist, conv_thr_dict in k_dist_dict.items():
-                                    for conv_thr, node in conv_thr_dict.items():
-                                        if node and node.is_finished_ok:
-                                            try:
-                                                analyser = GSFEWorkChainAnalyserLatest(node)
-                                                # fit_curve plots on axis if provided
-                                                # Label with formula, maybe layers/kdist if distinct?
-                                                # For now just formula as typically we compare materials
-                                                label = f'{formula}'
-                                                res = analyser.get_surface_energy()
-                                                
-                                                # Store results
-                                                if struct not in results: results[struct] = {}
-                                                if plane not in results[struct]: results[struct][plane] = {}
-                                                results[struct][plane][formula] = {
-                                                    'surface_energy': res
-                                                    }
-                                                found_any = True
-                                            except Exception as e:
-                                                print(f"Failed to retrieve surface energy from {node.pk}: {e}")
-        return results
 
     def _flatten_data(self):
         flattened_list = []
@@ -679,14 +598,15 @@ class GSFEGroupDataLatest(BaseGroupData):
                         for layers, k_dists in layers_dict.items():
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
+                                    analyser = GSFERelaxWorkChainAnalyser(node)
                                     flattened_list.append({
-                                        'StructureType': struct_type,
-                                        'Formula': formula,
+                                        'Structure': struct_type,
+                                        'Material': formula,
                                         'Plane': plane,
                                         'Process': process_label,
                                         'Layers': layers,
                                         'K_Dist': k_dist,
-                                        'Conv_thr': conv_thr,
+                                        'Conv_thr': rf'{conv_thr:.1e} Ry (+- {analyser.conv_error*1000:.1e} mJ/m^2)',
                                         'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                                     })
         return flattened_list
@@ -731,22 +651,23 @@ class GSFEGroupDataLatest(BaseGroupData):
                         process_dict = planes_dict[plane]
                         color = next(base_colors)
                         marker = next(markers)
-                        if 'GSFEWorkChain' in process_dict:
-                            for layers, k_dist_dict in process_dict['GSFEWorkChain'].items():
+                        if 'GSFERelaxWorkChain' in process_dict:
+                            for layers, k_dist_dict in process_dict['GSFERelaxWorkChain'].items():
                                 for k_dist, conv_thr_dict in k_dist_dict.items():
                                     for conv_thr, node in conv_thr_dict.items():
                                         if node and node.is_finished_ok:
                                             # print(node.pk, formula, plane)
-                                            analyser = GSFEWorkChainAnalyserLatest(node)
+                                            logging.info(f"Fitting node<{node.pk}> for {formula} {plane}")
+                                            analyser = GSFERelaxWorkChainAnalyser(node)
                                             results[struct][plane][formula] = analyser.fit_curve(
                                                 axis=ax,
-                                            plot=True,
-                                            label=formula_to_latex(formula),
-                                            color=color,
-                                            linestyle='-',
-                                            lw=kwargs.get('lw', 1.5),
-                                            **kwargs
-                                        )
+                                                plot=True,
+                                                label=formula_to_latex(formula),
+                                                color=color,
+                                                linestyle='-',
+                                                lw=kwargs.get('lw', 1.5),
+                                                **kwargs
+                                            )
 
                 ax.set_title(f"${struct}$ ({plane})", fontsize=kwargs.get('title_fontsize', 16))
 
@@ -758,17 +679,12 @@ class GSFEGroupDataLatest(BaseGroupData):
         if destpath and axs is None:
             plt.tight_layout()
             plt.savefig(destpath)
-            
-        logging.info(f"GSFE Fit Summary: Successfully processed and fitted data for {len(results)} structure types across {len(planes)} planes.")
         return results
 
     def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, kpoints_distances=None, directions=None, **kwargs):
         """Plot GSFE curves for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
-        
-        legend_ncol = kwargs.pop('legend_ncol', 1)
-        logging.info(f"Plotting k-points convergence for {formula} ({gliding_plane})...")
 
         if ax is None:
             _, ax = plt.subplots(figsize=(8, 6))
@@ -776,10 +692,10 @@ class GSFEGroupDataLatest(BaseGroupData):
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
         plane_data = formula_data.get(gliding_plane, {})
-        process_data = plane_data.get('GSFEWorkChain', {})
+        process_data = plane_data.get('GSFERelaxWorkChain', {})
 
         if not process_data:
-            logging.warning(f"No GSFEWorkChain data found for {formula} {gliding_plane}")
+            print(f"No GSFERelaxWorkChain data found for {formula} {gliding_plane}")
             return ax
 
         if n_repeats is None:
@@ -802,49 +718,44 @@ class GSFEGroupDataLatest(BaseGroupData):
         kpoints_convergence_results = {}
 
         for i, k_dist in enumerate(sorted_k_dists):
-            for conv, node in filtered_k_dists[k_dist].items():
-                if node and node.is_finished_ok:
-                    analyser = GSFEWorkChainAnalyserLatest(node)
-                    color = cmap(norm(i))
+            node = filtered_k_dists[k_dist]
+            if node and node.is_finished_ok:
+                analyser = GSFERelaxWorkChainAnalyser(node)
+                color = cmap(norm(i))
 
-                    if kwargs.get('fit', True):
-                        results = analyser.fit_curve(
-                            plot=True,
-                            axis=ax,
-                            label=f"{k_dist}",
-                            color=color,
-                            directions=directions,
-                            **kwargs
-                        )
-                        kpoints_convergence_results[k_dist] = results
-                    else:
-                        analyser.plot(
-                            ax=ax,
-                            label=f"{k_dist} ",
-                            color=color,
-                            zero_reference=kwargs.get('zero_reference', True),
-                            directions=directions,
-                            **kwargs
-                        )
+                if kwargs.get('fit', True):
+                    results = analyser.fit_curve(
+                        plot=True,
+                        axis=ax,
+                        label=f"{k_dist}",
+                        color=color,
+                        directions=directions,
+                        **kwargs
+                    )
+                    kpoints_convergence_results[k_dist] = results
+                else:
+                    analyser.plot(
+                        ax=ax,
+                        label_prefix=f"{k_dist} ",
+                        color=color,
+                        zero_reference=kwargs.get('zero_reference', True),
+                        directions=directions,
+                        **kwargs
+                    )
 
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
         ax.set_ylabel(r'$\gamma [J/m^2]$')
         ax.set_xlabel(r'Displacement')
-        ax.legend(ncol = legend_ncol)
+        ax.legend()
         ax.grid(True, alpha=0.3)
-        
-        logging.info(f"Successfully plotted k-points convergence with {len(kpoints_convergence_results)} different k-point distances.")
 
         return (ax, kpoints_convergence_results)
 
 
-    def plot_supercell_convergence(self, structure_type, formula, gliding_plane, kpoints_distance, n_repeats=None, ax=None, directions=None, **kwargs):
+    def plot_supercell_convergence(self, structure_type, formula, gliding_plane, kpoints_distances, n_repeats=None, ax=None, directions=None, **kwargs):
         """Plot GSFE curves for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
-
-        legend_ncol = kwargs.pop('legend_ncol', 1)
-        logging.info(f"Plotting supercell convergence for {formula} ({gliding_plane})...")
 
         if ax is None:
             _, ax = plt.subplots(figsize=(8, 6))
@@ -852,10 +763,10 @@ class GSFEGroupDataLatest(BaseGroupData):
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
         plane_data = formula_data.get(gliding_plane, {})
-        process_data = plane_data.get('GSFEWorkChain', {})
+        process_data = plane_data.get('GSFERelaxWorkChain', {})
 
         if not process_data:
-            logging.warning(f"No GSFEWorkChain data found for {formula} {gliding_plane}")
+            print(f"No GSFERelaxWorkChain data found for {formula} {gliding_plane}")
             return ax
 
         if n_repeats is not None:
@@ -870,38 +781,38 @@ class GSFEGroupDataLatest(BaseGroupData):
 
         for i, n_repeats_dist in enumerate(sorted_n_repeats_dict):
             kpoints_distances_dict = filtered_n_repeats_dict[n_repeats_dist]
-            if kpoints_distance is None:
+            if kpoints_distances is None:
                 k_dist = sorted(kpoints_distances_dict.keys())[0]
+                node = kpoints_distances_dict[k_dist]
             else:
-                k_dist = kpoints_distances_dict[kpoints_distance]
-            for conv, node in k_dist.items():
-                if node and node.is_finished_ok:
-                    analyser = GSFEWorkChainAnalyserLatest(node)
-                    color = cmap(norm(i))
+                node = kpoints_distances_dict[kpoints_distances]
+            if node and node.is_finished_ok:
+                analyser = GSFERelaxWorkChainAnalyser(node)
+                color = cmap(norm(i))
 
-                    if kwargs.get('fit', True):
-                        analyser.fit_curve(
-                            plot=True,
-                            axis=ax,
-                            label=f"{n_repeats_dist}",
-                            color=color,
-                            directions=directions,
-                            **kwargs
-                        )
-                    else:
-                        analyser.plot(
-                            ax=ax,
-                            label=f"{k_dist} ",
-                            color=color,
-                            zero_reference=kwargs.get('zero_reference', True),
-                            directions=directions,
-                            **kwargs
-                        )
+                if kwargs.get('fit', True):
+                    analyser.fit_curve(
+                        plot=True,
+                        axis=ax,
+                        label=f"{n_repeats_dist}",
+                        color=color,
+                        directions=directions,
+                        **kwargs
+                    )
+                else:
+                    analyser.plot(
+                        ax=ax,
+                        label_prefix=f"{k_dist} ",
+                        color=color,
+                        zero_reference=kwargs.get('zero_reference', True),
+                        directions=directions,
+                        **kwargs
+                    )
 
         ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
         ax.set_ylabel(r'$\gamma [J/m^2]$')
         ax.set_xlabel(r'Displacement')
-        ax.legend(ncol = legend_ncol)
+        ax.legend()
         ax.grid(True, alpha=0.3)
 
         return ax
@@ -927,7 +838,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                         for layers, k_dists in layers_dict.items():
                             for k_dist, node in k_dists.items():
                                 if node:
-                                    analyser = GSFEWorkChainAnalyserLatest(node)
+                                    analyser = GSFERelaxWorkChainAnalyser(node)
                                     analyser.copy_tree(
                                         dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{node.pk}"
                                         )
