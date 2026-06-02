@@ -41,12 +41,11 @@ def formula_to_latex(formula):
 
 def sine_expansion(x, cGs):
     """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
-    sin_sq = numpy.sin(numpy.pi * x)**2
+    sin_sq = numpy.sin(2*numpy.pi * x)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
         result += cG * (sin_sq**i)
     return result
-
 
 def gamma_isf(x, cGs, g_isf):
     """
@@ -63,18 +62,24 @@ def gamma_esf(x, cGs, b, c):
     """
     val = sine_expansion(x, cGs)
     return numpy.where(
-        x <= 1,
+        x <= 1/2,
         val + b * x,
-        val + c * x + (b - c)
+        val + 1/2*b+(x - 1/2)*c
     )
 
-
-def gamma_usf(x, cGs):
+def gamma_usf(x, e_usf1):
     """
     Calculates the value for the third region: 1 < x <= 2
     Formula: Expansion
     """
-    return sine_expansion(x, cGs)
+    return e_usf1 * numpy.sin(numpy.pi * x)**2
+
+def gamma_usf_symmetric(x, e_usf1):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: e_usf1 * sin^2(pi*x)
+    """
+    return e_usf1 * numpy.sin(numpy.pi * x / 2)**2
 
 
 def gamma_usf2(x, e_usf1, e_usf2):
@@ -82,46 +87,60 @@ def gamma_usf2(x, e_usf1, e_usf2):
     Calculates the value for the third region: 1 < x <= 2
     Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
     """
-    return (e_usf1 * numpy.sin(numpy.pi * x)**2 +
-            e_usf2 * numpy.sin(2 * numpy.pi * x)**2)
+    return (
+        e_usf1 * numpy.sin(numpy.pi * x)**2 +
+        e_usf2 * numpy.sin(2 * numpy.pi * x)**2
+        )
+
+
+def gamma_usf2_symmetric(x, e_usf1, e_usf2, e_usf3):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
+    """
+    return (
+        e_usf1 * numpy.sin(numpy.pi/2 * x)**2 + 
+        e_usf2 * numpy.sin(numpy.pi * x)**2 +
+        e_usf3 * numpy.sin(2 * numpy.pi * x)**2
+        )
 
 
 fit_function_map = {
     'A1': {
         'gliding_system': A1GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'010' : gamma_usf},
+        '111': {'110' : gamma_esf},
     },
     'A2': {
         'gliding_system': A2GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf},
+        '111': {'110' : gamma_esf},
     },
     'B1': {
         'gliding_system': B1GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2},
+        '111': {'110' : gamma_esf},
     },
     'B2': {
         'gliding_system': B2GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_isf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2, '110': gamma_usf2},
+        '111': {'110' : gamma_isf},
     },
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'110' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2, '210': gamma_usf2},
+        '111': {'110' : gamma_esf},
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'110': gamma_usf_symmetric},
+        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf2_symmetric},
+        '111': {'110' : gamma_esf},
     },
 }
 
@@ -371,14 +390,21 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def serialize_faults(self) -> dict[str, list[list[float]]]:
         """Serialize the faults for compatibility, normalized by nsteps."""
+        serialized_faults = {}
         plot_data = self.get_plot_data()  # uses default x_axis='step'
-        nsteps = self.gliding_system.general.nsteps
-        return {
-            direction: [[val / nsteps for val in data['x']]]
-            for direction, data in plot_data.items()
-        }
+        for direction, data in plot_data.items():
+            xs = data['x']
+            if None in xs:
+                logging.warning(f"Direction `{direction}` has `None` in `x` values, skipping")
+                continue
+            nsteps = len(xs) - 1
+            if nsteps == 0:
+                logging.warning(f"Direction `{direction}` has 1 or fewer `x` values, skipping")
+                continue
+            serialized_faults[direction] = [val / nsteps for val in xs]
+        return serialized_faults
 
-    def fit_curve(self, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
+    def fit_curve(self, fit_functions: dict[str, Callable | None] | None = None, plot: bool = False, axis=None, directions: list[str]|None = None, **kwargs):
         """Fit the curve."""
         from matplotlib.legend_handler import HandlerTuple
 
@@ -389,14 +415,12 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
 
         xs_dict = self.serialize_faults()
         sfe_energies = self.get_sfe_energies()
-        
         # Filter energies first
         if directions is not None:
             filtered_energies = {d: v for d, v in sfe_energies.items() if d in directions}
         else:
             filtered_energies = sfe_energies
 
-        # Convert sfe_energies to the format expected by the port: direction -> [[value, ...]]
         energies = {
             direction: [[val for _, val in sorted(steps.items())]]
             for direction, steps in filtered_energies.items()
@@ -406,8 +430,9 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
 
         gliding_plane = self.gliding_plane
         gliding_system = self.gliding_system
-        func = fit_function_map[self.strukturbericht][gliding_plane]
-        nsteps = gliding_system.general.nsteps
+        if fit_functions is None:
+            fit_functions = fit_function_map[self.strukturbericht][gliding_plane]
+
 
         sorted_keys = sorted(energies, key=lambda k: max(energies[k][0]), reverse=True)
         num_to_plot = len(sorted_keys)
@@ -416,6 +441,10 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         for slipping_direction in sorted_keys:
             color = next(colors)
             results[slipping_direction] = {}
+            func = fit_functions.pop(slipping_direction)
+            if func is None:
+                logging.warning(f"No fit function found for direction {slipping_direction}")
+                continue
             logging.info(f"Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
             for x, y in zip(xs_dict[slipping_direction], energies[slipping_direction]):
                 x = numpy.array(x, dtype=float)
@@ -432,26 +461,48 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                         if func == gamma_isf:
                             b = y[nsteps]
                             order = kwargs.get('order', 1)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b), x, y, p0=[0.1] * order, maxfev=100000)
-                            y_fit = func(x_plot, popt, b)
+                            popt, _ = curve_fit(
+                                lambda x, *cGs: func(x, g_isf, cGs), 
+                                x, y, 
+                                p0=[0.1] * order, 
+                                maxfev=100000
+                                )
+                            y_fit = func(x_plot, b, popt)
                             x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
                             results[slipping_direction]['isf'] = b
-                            results[slipping_direction]['usf'] = func(x_max, popt, b)
+                            results[slipping_direction]['usf'] = func(x_max, b, popt)
 
                         elif func == gamma_esf:
-                            b = y[nsteps]
-                            c = y[2 * nsteps] - y[nsteps]
+                            b = 2*y[nsteps]
+                            c = y[2 * nsteps]*2 - b
                             order = kwargs.get('order', 4)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=100000)
+                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
                             y_fit = func(x_plot, popt, b, c)
                             results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                             results[slipping_direction]['isf'] = b
                             results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
-                            results[slipping_direction]['esf'] = b + c
+                            results[slipping_direction]['esf'] = c
+
 
                         elif func == gamma_usf:
                             order = kwargs.get('order', 4)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=[0.1] * order, maxfev=100000)
+                            popt, _ = curve_fit(
+                                lambda x, *cGs: func(x, cGs), 
+                                x, y, 
+                                p0=[0.1] * order, 
+                                maxfev=100000
+                                )
+                            y_fit = func(x_plot, popt)
+                            results[slipping_direction]['usf'] = numpy.sum(popt)
+
+                        elif func == gamma_usf_symmetric:
+                            order = kwargs.get('order', 4)
+                            popt, _ = curve_fit(
+                                func, 
+                                x, y, 
+                                p0=[0.1] * order, 
+                                maxfev=100000
+                                )
                             y_fit = func(x_plot, popt)
                             results[slipping_direction]['usf'] = numpy.sum(popt)
 
@@ -460,6 +511,14 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                             y_fit = func(x_plot, e_usf1, e_usf2)
                             results[slipping_direction]['usf'] = numpy.max(y_fit)
                             results[slipping_direction]['s'] = e_usf2
+
+                        elif func == gamma_usf2_symmetric:
+                            e_usf1 = y[-1]
+                            (e_usf2, e_usf3), pcov = curve_fit(lambda x, *cGs: func(x, e_usf1, cGs), x, y, maxfev=100000)
+                            y_fit = func(x_plot, e_usf1, e_usf2, e_usf3)
+                            results[slipping_direction]['usf'] = numpy.max(y_fit)
+                            results[slipping_direction]['s'] = e_usf2
+                        
                     except Exception as e:
                         logging.warning(f"Fitting failed for {slipping_direction}: {e}")
                         continue
@@ -598,17 +657,29 @@ class GSFERelaxGroupData(BaseGroupData):
                         for layers, k_dists in layers_dict.items():
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
-                                    analyser = GSFERelaxWorkChainAnalyser(node)
-                                    flattened_list.append({
-                                        'Structure': struct_type,
-                                        'Material': formula,
-                                        'Plane': plane,
-                                        'Process': process_label,
-                                        'Layers': layers,
-                                        'K_Dist': k_dist,
-                                        'Conv_thr': rf'{conv_thr:.1e} Ry (+- {analyser.conv_error*1000:.1e} mJ/m^2)',
-                                        'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
-                                    })
+                                    if node.is_finished_ok:
+                                        analyser = GSFERelaxWorkChainAnalyser(node)
+                                        flattened_list.append({
+                                            'Structure': struct_type,
+                                            'Material': formula,
+                                            'Plane': plane,
+                                            'Process': process_label,
+                                            'Layers': layers,
+                                            'K_Dist': k_dist,
+                                            'Conv_thr': rf'{conv_thr:.1e} Ry (+- {analyser.conv_error*1000:.1e} mJ/m^2)',
+                                            'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                        })
+                                    else:
+                                        flattened_list.append({
+                                            'Structure': struct_type,
+                                            'Material': formula,
+                                            'Plane': plane,
+                                            'Process': process_label,
+                                            'Layers': layers,
+                                            'K_Dist': k_dist,
+                                            'Conv_thr': 'N/A',
+                                            'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                                        })
         return flattened_list
 
     def fit(self, destpath=None, axs=None, **kwargs):
@@ -672,7 +743,7 @@ class GSFERelaxGroupData(BaseGroupData):
                 ax.set_title(f"${struct}$ ({plane})", fontsize=kwargs.get('title_fontsize', 16))
 
         for ax in axs[:, 0]:
-            ax.set_ylabel(r'$\gamma [J/m^2]$', fontsize=kwargs.get('ylabel_fontsize', 16))
+            ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)', fontsize=kwargs.get('ylabel_fontsize', 16))
         for ax in axs[-1, :]:
             ax.set_xlabel(r'$\vec{b}$', fontsize=kwargs.get('xlabel_fontsize', 16))
 
@@ -744,7 +815,7 @@ class GSFERelaxGroupData(BaseGroupData):
                     )
 
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma [J/m^2]$')
+        ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)')
         ax.set_xlabel(r'Displacement')
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -810,7 +881,7 @@ class GSFERelaxGroupData(BaseGroupData):
                     )
 
         ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma [J/m^2]$')
+        ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)')
         ax.set_xlabel(r'Displacement')
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -836,9 +907,10 @@ class GSFERelaxGroupData(BaseGroupData):
                         if process_label_list and process_label not in process_label_list:
                             continue
                         for layers, k_dists in layers_dict.items():
-                            for k_dist, node in k_dists.items():
-                                if node:
-                                    analyser = GSFERelaxWorkChainAnalyser(node)
-                                    analyser.copy_tree(
-                                        dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{node.pk}"
-                                        )
+                            for k_dist, conv_thr_dict in k_dists.items():
+                                for conv_thr, node in conv_thr_dict.items():
+                                    if node:
+                                        analyser = GSFERelaxWorkChainAnalyser(node)
+                                        analyser.copy_tree(
+                                            dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
+                                            )

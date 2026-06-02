@@ -41,7 +41,7 @@ def formula_to_latex(formula):
 
 def sine_expansion(x, cGs):
     """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
-    sin_sq = numpy.sin(numpy.pi * x)**2
+    sin_sq = numpy.sin(2*numpy.pi * x)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
         result += cG * (sin_sq**i)
@@ -63,18 +63,17 @@ def gamma_esf(x, cGs, b, c):
     """
     val = sine_expansion(x, cGs)
     return numpy.where(
-        x <= 1,
+        x <= 1/2,
         val + b * x,
-        val + c * x + (b - c)
+        val + 1/2*b+(x - 1/2)*c
     )
 
-
-def gamma_usf(x, cGs):
+def gamma_usf(x, e_usf1):
     """
     Calculates the value for the third region: 1 < x <= 2
     Formula: Expansion
     """
-    return sine_expansion(x, cGs)
+    return e_usf1 * numpy.sin(numpy.pi * x)**2
 
 
 def gamma_usf2(x, e_usf1, e_usf2):
@@ -272,7 +271,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             
         raise AttributeError(f'Node<{self.node.pk}>: Pristine energy (structure_01 or sfe_*) not found in process tree')
     
-    def get_sfe_energies(self) -> dict[str, dict[int, float | None]]:
+    def get_sfe_energies(self, zero_reference: bool = False) -> dict[str, dict[int, float | None]]:
         """Return only the SFE values grouped by direction and step."""
         sfe_energies = {}
         pristine_energy = self.pristine_energy
@@ -301,6 +300,11 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                     # which implies SFE is just the energy difference.
                     sfe = total_energy_faulted_geometry - pristine_energy
                 sfe_energies[direction][int(step)] = sfe
+            if zero_reference:
+                energy_ref = sfe_energies[direction][0]
+                for step in sfe_energies[direction]:
+                    sfe_energies[direction][step] -= energy_ref
+                
         return sfe_energies
 
     def get_total_energies(self) -> dict[str, dict[int, float | None]]:
@@ -353,12 +357,19 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
     def serialize_faults(self) -> dict[str, list[list[float]]]:
         """Serialize the faults for compatibility, normalized by nsteps."""
+        serialized_faults = {}
         plot_data = self.get_plot_data()  # uses default x_axis='step'
-        nsteps = self.gliding_system.general.nsteps
-        return {
-            direction: [[val / nsteps for val in data['x']]]
-            for direction, data in plot_data.items()
-        }
+        for direction, data in plot_data.items():
+            xs = data['x']
+            if None in xs:
+                logging.warning(f"Direction `{direction}` has `None` in `x` values, skipping")
+                continue
+            nsteps = len(xs) - 1
+            if nsteps == 0:
+                logging.warning(f"Direction `{direction}` has 1 or fewer `x` values, skipping")
+                continue
+            serialized_faults[direction] = [[val / nsteps for val in xs]]
+        return serialized_faults
 
     def fit_curve(self, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
         """Fit the curve."""
@@ -370,7 +381,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             return [mcolors.to_hex(cmap(i)) for i in numpy.linspace(0, 0.8, num)]
 
         xs_dict = self.serialize_faults()
-        sfe_energies = self.get_sfe_energies()
+        sfe_energies = self.get_sfe_energies(zero_reference=kwargs.get('zero_reference', True))
         
         # Filter energies first
         if directions is not None:
@@ -410,9 +421,6 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                 x = numpy.array(x, dtype=float)
                 y = numpy.array(y, dtype=float)
 
-                if kwargs.get('zero_reference', True):
-                    y = y - y[0]
-
                 x_plot = numpy.linspace(0, x[-1], 500)
 
                 with warnings.catch_warnings():
@@ -428,19 +436,18 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                             results[slipping_direction]['usf'] = func(x_max, popt, b)
 
                         elif func == gamma_esf:
-                            b = y[nsteps]
-                            c = y[2 * nsteps] - y[nsteps]
+                            b = 2*y[nsteps]
+                            c = y[2 * nsteps]*2 - b
                             order = kwargs.get('order', 4)
                             popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
                             y_fit = func(x_plot, popt, b, c)
                             results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                             results[slipping_direction]['isf'] = b
                             results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
-                            results[slipping_direction]['esf'] = b + c
+                            results[slipping_direction]['esf'] = c
 
                         elif func == gamma_usf:
-                            order = kwargs.get('order', 4)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=[0.1] * order, maxfev=100000)
+                            popt, _ = curve_fit(lambda x, e_usf1: func(x, e_usf1), x, y, p0=[0.1], maxfev=100000)
                             y_fit = func(x_plot, popt)
                             results[slipping_direction]['usf'] = numpy.sum(popt)
 
@@ -474,7 +481,8 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         linestyle=kwargs.get('linestyle', '--'),
                         color=color,
                         lw=kwargs.get('lw', 1.0),
-                        label=kwargs.get('label', f'{kwargs.get('label_prefix', '')}'+ f' <{slipping_direction}>'))
+                        label=kwargs.get('label', f'{kwargs.get("label_prefix", "")}{slipping_direction}')
+                    )
                     axis.grid(True, alpha=0.3)
 
         return results
@@ -751,9 +759,9 @@ class GSFEGroupDataLatest(BaseGroupData):
                 ax.set_title(f"${struct}$ ({plane})", fontsize=kwargs.get('title_fontsize', 16))
 
         for ax in axs[:, 0]:
-            ax.set_ylabel(r'$\gamma [J/m^2]$', fontsize=kwargs.get('ylabel_fontsize', 16))
+            ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)', fontsize=kwargs.get('ylabel_fontsize', 16))
         for ax in axs[-1, :]:
-            ax.set_xlabel(r'$\vec{b}$', fontsize=kwargs.get('xlabel_fontsize', 16))
+            ax.set_xlabel(r'$\mathbf{b}$', fontsize=kwargs.get('xlabel_fontsize', 16))
 
         if destpath and axs is None:
             plt.tight_layout()
@@ -828,8 +836,8 @@ class GSFEGroupDataLatest(BaseGroupData):
                         )
 
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma [J/m^2]$')
-        ax.set_xlabel(r'Displacement')
+        ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)')
+        ax.set_xlabel(r'$\mathbf{b}$')
         ax.legend(ncol = legend_ncol)
         ax.grid(True, alpha=0.3)
         
@@ -867,7 +875,7 @@ class GSFEGroupDataLatest(BaseGroupData):
         cmap = plt.get_cmap('viridis')
         norm = mcolors.Normalize(vmin=0, vmax=max(1, len(sorted_n_repeats_dict) - 1))
 
-
+        supercell_convergence_results = {}
         for i, n_repeats_dist in enumerate(sorted_n_repeats_dict):
             kpoints_distances_dict = filtered_n_repeats_dict[n_repeats_dist]
             if kpoints_distance is None:
@@ -880,7 +888,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                     color = cmap(norm(i))
 
                     if kwargs.get('fit', True):
-                        analyser.fit_curve(
+                        results = analyser.fit_curve(
                             plot=True,
                             axis=ax,
                             label=f"{n_repeats_dist}",
@@ -888,6 +896,7 @@ class GSFEGroupDataLatest(BaseGroupData):
                             directions=directions,
                             **kwargs
                         )
+                        supercell_convergence_results[n_repeats_dist] = results
                     else:
                         analyser.plot(
                             ax=ax,
@@ -899,12 +908,12 @@ class GSFEGroupDataLatest(BaseGroupData):
                         )
 
         ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma [J/m^2]$')
-        ax.set_xlabel(r'Displacement')
+        ax.set_ylabel(r'$\gamma^{GSFE}$ (J/m$^2$)')
+        ax.set_xlabel(r'$\mathbf{b}$')
         ax.legend(ncol = legend_ncol)
         ax.grid(True, alpha=0.3)
 
-        return ax
+        return (ax, supercell_convergence_results)
 
     def dump(self, dest:Path|str, struct_type_list:list = None, formula_list:list = None, planes_list:list = None, process_label_list:list = None, layers_list:list = None, k_dist_list:list = None,):
         if type(dest) == str:
@@ -925,9 +934,10 @@ class GSFEGroupDataLatest(BaseGroupData):
                         if process_label_list and process_label not in process_label_list:
                             continue
                         for layers, k_dists in layers_dict.items():
-                            for k_dist, node in k_dists.items():
-                                if node:
-                                    analyser = GSFEWorkChainAnalyserLatest(node)
-                                    analyser.copy_tree(
-                                        dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{node.pk}"
-                                        )
+                            for k_dist, conv_thr_dict in k_dists.items():
+                                for conv_thr, node in conv_thr_dict.items():
+                                    if node:
+                                        analyser = GSFEWorkChainAnalyserLatest(node)
+                                        analyser.copy_tree(
+                                            dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
+                                            )

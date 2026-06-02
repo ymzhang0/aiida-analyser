@@ -394,7 +394,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
                     y_fit = func(x_plot, a, b, c, d)
 
-                    results[slipping_direction]['usf'] = func(numpy.pi/4, a, b, c, d)
+                    results[slipping_direction]['usf'] = numpy.max(y_fit)
 
                 if func == gamma_usf2:
                     (e_usf1, e_usf2), pcov = curve_fit(

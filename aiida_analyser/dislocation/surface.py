@@ -205,7 +205,9 @@ class SurfaceEnergyData(BaseGroupData):
                 lambda: defaultdict(
                     lambda: defaultdict(
                         lambda: defaultdict(
-                            lambda: None
+                            lambda: defaultdict(
+                                lambda: None
+                            )
                         )
                     )
                 )
@@ -247,7 +249,9 @@ class SurfaceEnergyData(BaseGroupData):
                         else:
                             raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'cleavaged_structure_data' found in inputs")
                         a = SurfaceWorkChainAnalyser(node)
-                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance] = node
+                        energies_dict = a.get_surface_energies()
+                        energies_dict['pk'] = node.pk
+                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance] = energies_dict
                 except Exception as e:
                     logging.warning(f'Node<{node.pk}> processing failed: {e}')
                     continue
@@ -256,41 +260,206 @@ class SurfaceEnergyData(BaseGroupData):
         flattened_list = []
 
         # Iterate over the nested dictionary:
-        # StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
+        # StructureType -> Formula -> Plane -> Layers -> K_Dist -> NodeData
         for struct_type, formulas in self._data.items():
             for formula, planes in formulas.items():
                 for plane, processes in planes.items():
                     for layers, k_dists in processes.items():
-                        for k_dist, node in k_dists.items():
-                            flattened_list.append({
-                                'Structure': struct_type,
-                                'Material': formula,
-                                'Plane': plane,
-                                'Layers': layers,
-                                'K_Dist': k_dist,
-                                'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
-                            })
+                        for k_dist, node_data in k_dists.items():
+                            if node_data:
+                                pk = node_data.pop('pk', 'N/A')
+                                flattened_list.append({
+                                    'Structure': struct_type,
+                                    'Material': formula,
+                                    'Plane': plane,
+                                    'Layers': layers,
+                                    'K_Dist': k_dist,
+                                    'Status': f'✅ {pk}',
+                                })  
         return flattened_list
 
-    def plot(self, axes=None, kpoints_distance=None, n_repeats=None, dest=None):
-        """Plot the surface energies."""
+    def plot(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, kpoints_distance=None, destpath=None, **kwargs):
+        """Plot the surface energies (vacuum ratio convergence) for all structures and planes."""
+        import matplotlib.pyplot as plt
         import numpy
-        if axes is None:
-            import matplotlib.pyplot as plt
-            cmap = plt.get_cmap('tab10')
-            n_strukturbericht = len(self._data.keys())
-            fig, axes = plt.subplots(n_strukturbericht, 1, figsize=(5, 5 * n_strukturbericht))
-        for ax, (strukturbericht, data) in zip(numpy.atleast_1d(axes), self._data.items()):
-            n_formula = len(data.keys())
-            colors = [cmap(i) for i in range(n_formula)]
-            for (formula, node), color in zip(data.items(), colors):
-                a = SurfaceWorkChainAnalyser(node)
-                a.plot(ax=ax, label=formula, color = color)
-            ax.legend()
-            ax.set_title(f'${strukturbericht}$')
-            ax.set_ylabel('Surface Energy (J/m$^2$)')
+        import re
+        
+        def formula_to_latex(formula):
+            latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
+            return rf"${latex_formula}$"
+
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 6))
+
+        struct_data = self._data.get(structure_type, {})
+        formula_data = struct_data.get(formula, {})
+        plane_data = formula_data.get(gliding_plane, {})
+
+        if not plane_data:
+            print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
+            return ax
+
+        if n_repeats is None:
+            n_repeats = sorted(plane_data.keys(), reverse=True)[0]
+
+        k_dist_dict = plane_data.get(n_repeats, {})
+        if not k_dist_dict:
+            print(f"No data found for n_repeats={n_repeats}")
+            return ax
+
+
+        node_data = k_dist_dict.get(kpoints_distance, None)
+        if node_data:
+            energies = {k: v for k, v in node_data.items() if k != 'pk'}
+            if energies:
+                array_2d = numpy.array(sorted(energies.items(), key=lambda item: item[0]))
+                ax.plot(
+                    array_2d[:, 0], array_2d[:, 1],
+                    label=kwargs.pop('label', f'{formula_to_latex(formula)} {gliding_plane}'),
+                    **kwargs
+                )
+                ax.scatter(
+                    array_2d[:, 0], array_2d[:, 1],
+                    label="",
+                    **kwargs
+                )
+
+
+            ax.set_title(f"{formula_to_latex(formula)} ({gliding_plane})")
             ax.grid(True, alpha=0.3)
-        axes[-1].set_xlabel('Relative vacuum')
-        if dest is not None and axes is not None:
-            plt.savefig(dest)
-        return
+            if ax.get_legend_handles_labels()[0]:
+                ax.legend()
+
+        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_xlabel('Vacuum ratio')
+
+        if destpath and ax is None:
+            plt.tight_layout()
+            plt.savefig(destpath)
+        return ax
+
+    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, spacing, n_repeats=None, ax=None, kpoints_distances=None, **kwargs):
+        """Plot surface energies for different k-points on a single axis."""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        import re
+        import numpy
+        
+        def formula_to_latex(formula):
+            latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
+            return rf"${latex_formula}$"
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 6))
+
+        struct_data = self._data.get(structure_type, {})
+        formula_data = struct_data.get(formula, {})
+        plane_data = formula_data.get(gliding_plane, {})
+
+        if not plane_data:
+            print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
+            return ax
+
+        if n_repeats is None:
+            n_repeats = sorted(plane_data.keys(), reverse=True)[0]
+
+        k_dist_dict = plane_data.get(n_repeats, {})
+        if not k_dist_dict:
+            print(f"No data found for n_repeats={n_repeats}")
+            return ax
+
+        if kpoints_distances is not None:
+            filtered_k_dists = {k: v for k, v in k_dist_dict.items() if k in kpoints_distances}
+        else:
+            filtered_k_dists = k_dist_dict
+
+        sorted_k_dists = sorted(filtered_k_dists.keys(), reverse=True)
+        surface_energies = []
+
+        for i, k_dist in enumerate(sorted_k_dists):
+            node_data = filtered_k_dists[k_dist]
+            if node_data and spacing in node_data:
+                surface_energies.append([k_dist, node_data[spacing]])
+        
+        def forward(x):
+            x = numpy.array(x, dtype=float)
+            with numpy.errstate(divide='ignore', invalid='ignore'):
+                return numpy.where(x == 0, numpy.inf, 1.0 / (x ** 3))
+
+        def inverse(x):
+            x = numpy.array(x, dtype=float)
+            with numpy.errstate(divide='ignore', invalid='ignore'):
+                return numpy.where(x == 0, numpy.inf, numpy.sign(x) * (numpy.abs(x) ** (-1.0/3.0)))
+
+        ax.set_xscale('function', functions=(forward, inverse))
+
+        surface_energies = numpy.array(surface_energies)
+        if surface_energies.size > 0:
+            ax.plot(surface_energies[:, 0], surface_energies[:, 1], marker=kwargs.get('marker', 'o'), label=kwargs.get('label', f'{formula}'))
+            
+        ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
+        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_xlabel(r'K-points distance (1/Å) [scaled as $1/d^3$]')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        return (ax, surface_energies)
+
+    def plot_supercell_convergence(self, structure_type, formula, gliding_plane, spacing, kpoints_distance=None, n_repeats=None, ax=None, **kwargs):
+        """Plot surface energies for different supercell sizes (n_repeats) on a single axis."""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        import re
+        import numpy
+        
+        def formula_to_latex(formula):
+            latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
+            return rf"${latex_formula}$"
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 6))
+
+        struct_data = self._data.get(structure_type, {})
+        formula_data = struct_data.get(formula, {})
+        plane_data = formula_data.get(gliding_plane, {})
+
+        if not plane_data:
+            print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
+            return ax
+
+        if n_repeats is not None:
+            filtered_n_repeats_dict = {n: v for n, v in plane_data.items() if n in n_repeats}
+        else:
+            filtered_n_repeats_dict = plane_data
+
+        sorted_n_repeats_dict = sorted(filtered_n_repeats_dict.keys(), reverse=True)
+        surface_energies = []
+
+        for i, n_rep in enumerate(sorted_n_repeats_dict):
+            kpoints_distances_dict = filtered_n_repeats_dict[n_rep]
+            if kpoints_distance is None:
+                if not kpoints_distances_dict:
+                    continue
+                k_dist = sorted(kpoints_distances_dict.keys())[0]
+                node_data = kpoints_distances_dict[k_dist]
+            else:
+                node_data = kpoints_distances_dict.get(kpoints_distance)
+            
+            if node_data and spacing in node_data:
+                surface_energies.append([n_rep, node_data[spacing]])
+
+        if surface_energies:
+            surface_energies = numpy.array(surface_energies)
+            # Sort by n_rep
+            idx = numpy.argsort(surface_energies[:, 0])
+            surface_energies = surface_energies[idx]
+            ax.plot(surface_energies[:, 0], surface_energies[:, 1], marker=kwargs.get('marker', 'o'), label=kwargs.get('label', f'{formula}'))
+
+        ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
+        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_xlabel('Number of conventional cells')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        return ax
