@@ -39,9 +39,9 @@ def formula_to_latex(formula):
     return rf"${latex_formula}$"
 
 
-def sine_expansion(x, cGs):
+def sine_expansion(x, cGs, period=1/2):
     """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
-    sin_sq = numpy.sin(2*numpy.pi * x)**2
+    sin_sq = numpy.sin(numpy.pi * x / period)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
         result += cG * (sin_sq**i)
@@ -75,12 +75,12 @@ def gamma_usf(x, e_usf1):
     """
     return e_usf1 * numpy.sin(numpy.pi * x)**2
 
-def gamma_usf_symmetric(x, e_usf1):
+def gamma_usf_symmetric(x, cGs):
     """
     Calculates the value for the third region: 1 < x <= 2
     Formula: e_usf1 * sin^2(pi*x)
     """
-    return e_usf1 * numpy.sin(numpy.pi * x / 2)**2
+    return sine_expansion(x, cGs, period=2)
 
 
 def gamma_usf2(x, e_usf1, e_usf2):
@@ -485,15 +485,15 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         results[slipping_direction]['usf'] = numpy.sum(popt)
 
                     elif func == gamma_usf_symmetric:
+                        order = kwargs.get('order', 2)
                         popt, _ = curve_fit(
-                            lambda x, e_usf1: func(x, e_usf1), 
+                            func, 
                             x, y, 
-                            p0=[0.1], 
+                            p0=[0.1] * order,
                             maxfev=100000
                             )
-                        y_fit = func(x_plot, popt[0])
-                        y_fit_orig = func(x, popt[0])
-                        results[slipping_direction]['usf'] = popt[0]
+                        y_fit = func(x_plot, popt)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)
 
                     elif func == gamma_usf2:
                         (e_usf1, e_usf2), pcov = curve_fit(func, x, y, p0=[0.1, 0.1], maxfev=100000)
