@@ -216,7 +216,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         for label in ('results', 'gsfe_results'):
             if label in self.node.outputs:
                 return self.node.outputs[label]
-        raise AttributeError('GSFE results output is not found')
+        raise AttributeError(f'Node<{self.node.pk}>: GSFE results output is not found')
 
     @property
     def surface_area(self) -> float | None:
@@ -233,7 +233,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             return self.node.inputs.gliding_plane.value
         if 'faulted_structure_data' in self.node.inputs:
             return self.node.inputs.faulted_structure_data.gliding_plane
-        raise AttributeError("GSFE gliding plane not found in inputs")
+        raise AttributeError(f"Node<{self.node.pk}>: GSFE gliding plane not found in inputs")
 
     @property
     def gliding_system(self):
@@ -275,7 +275,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         """Return all step results for a specific slip direction."""
         results = self.get_results()
         if direction_name not in results:
-            raise KeyError(f'direction `{direction_name}` is not present in GSFE results')
+            raise KeyError(f'Node<{self.node.pk}>: direction `{direction_name}` is not present in GSFE results')
         return results[direction_name]
 
 
@@ -297,7 +297,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         if sfe_labels:
             return self._get_safe_energy(self.process_tree[sfe_labels[0]].node)
             
-        raise AttributeError('Pristine energy (structure_01 or sfe_*) not found in process tree')
+        raise AttributeError(f'Node<{self.node.pk}>: Pristine energy (structure_01 or sfe_*) not found in process tree')
     
     @property
     def conv_thr(self):
@@ -314,7 +314,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         sfe_energies = {}
         pristine_energy = self.pristine_energy
         if pristine_energy is None:
-            logging.warning("Pristine energy not found, cannot calculate SFE.")
+            logging.warning(f"Node<{self.node.pk}>: Pristine energy not found, cannot calculate SFE.")
             return {}
 
         for direction, entries in self.get_results().items():
@@ -322,7 +322,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             for step, entry in entries.items():
                 total_energy_faulted_geometry = entry.get('energy')
                 if total_energy_faulted_geometry is None:
-                    logging.warning(f"Energy not found for direction {direction}, step {step}.")
+                    logging.warning(f"Node<{self.node.pk}>: Energy not found for direction {direction}, step {step}.")
                     sfe_energies[direction][int(step)] = None
                     continue
 
@@ -395,11 +395,11 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         for direction, data in plot_data.items():
             xs = data['x']
             if None in xs:
-                logging.warning(f"Direction `{direction}` has `None` in `x` values, skipping")
+                logging.warning(f"Node<{self.node.pk}>: Direction `{direction}` has `None` in `x` values, skipping")
                 continue
             nsteps = len(xs) - 1
             if nsteps == 0:
-                logging.warning(f"Direction `{direction}` has 1 or fewer `x` values, skipping")
+                logging.warning(f"Node<{self.node.pk}>: Direction `{direction}` has 1 or fewer `x` values, skipping")
                 continue
             serialized_faults[direction] = [val / nsteps for val in xs]
         return serialized_faults
@@ -444,12 +444,12 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             results[slipping_direction] = {}
             func = fit_functions.get(slipping_direction)
             if func is None:
-                logging.warning(f"No fit function found for direction {slipping_direction}")
+                logging.warning(f"Node<{self.node.pk}>: No fit function found for direction {slipping_direction}")
                 continue
-            logging.info(f"Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
+            logging.info(f"Node<{self.node.pk}>: Fitting slip system ({gliding_plane})<{slipping_direction}> using function: {func.__name__}")
             
             if slipping_direction not in xs_dict:
-                logging.warning(f"No x-axis data found for direction {slipping_direction}")
+                logging.warning(f"Node<{self.node.pk}>: No x-axis data found for direction {slipping_direction}")
                 continue
 
             x = numpy.array(xs_dict[slipping_direction], dtype=float)
@@ -542,12 +542,12 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                     # Log extracted parameters and fit quality
                     params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
                     logging.info(
-                        f"Fitting slip system ({gliding_plane})<{slipping_direction}> completed. "
+                        f"Node<{self.node.pk}>: Fitting slip system ({gliding_plane})<{slipping_direction}> completed. "
                         f"Extracted parameters: {params_str} | Fit quality: R²={r_squared:.6f}, RMSE={rmse:.6f} J/m²"
                     )
                     
                 except Exception as e:
-                    logging.warning(f"Fitting failed for {slipping_direction}: {e}")
+                    logging.warning(f"Node<{self.node.pk}>: Fitting failed for {slipping_direction}: {e}")
                     continue
 
             if plot:
