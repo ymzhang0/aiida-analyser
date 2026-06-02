@@ -139,7 +139,7 @@ fit_function_map = {
     'L2_1': {
         'gliding_system': L21GlidingSystem,
         '100': {'110': gamma_usf_symmetric},
-        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf2_symmetric},
+        '011': {'100': gamma_usf_symmetric, '010': gamma_usf2_symmetric, '210': gamma_usf2_symmetric},
         '111': {'110' : gamma_esf},
     },
 }
