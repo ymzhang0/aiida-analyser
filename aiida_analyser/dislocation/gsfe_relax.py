@@ -67,19 +67,19 @@ def gamma_esf(x, cGs, b, c):
         val + 1/2*b+(x - 1/2)*c
     )
 
-def gamma_usf(x, e_usf1):
+def gamma_usf(x, cGs):
     """
     Calculates the value for the third region: 1 < x <= 2
-    Formula: Expansion
+    Formula: sine expansion with period=1
     """
-    return e_usf1 * numpy.sin(numpy.pi * x)**2
+    return sine_expansion(x, cGs, period=1)
 
-def gamma_usf_symmetric(x, e_usf1):
+def gamma_usf_symmetric(x, cGs):
     """
     Calculates the value for the third region: 1 < x <= 2
-    Formula: e_usf1 * sin^2(pi*x)
+    Formula: sine expansion with period=2
     """
-    return e_usf1 * numpy.sin(numpy.pi * x / 2)**2
+    return sine_expansion(x, cGs, period=2)
 
 
 def gamma_usf2(x, e_usf1, e_usf2):
@@ -491,26 +491,28 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                         results[slipping_direction]['esf'] = c
 
                     elif func == gamma_usf:
+                        order = kwargs.get('order', 4)
                         popt, _ = curve_fit(
-                            lambda x, e_usf1: func(x, e_usf1), 
+                            lambda x, *cGs: func(x, cGs), 
                             x, y, 
-                            p0=[0.1], 
+                            p0=[0.1] * order, 
                             maxfev=100000
                             )
-                        y_fit = func(x_plot, popt[0])
-                        y_fit_orig = func(x, popt[0])
-                        results[slipping_direction]['usf'] = popt[0]
+                        y_fit = func(x_plot, popt)
+                        y_fit_orig = func(x, popt)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)
 
                     elif func == gamma_usf_symmetric:
+                        order = kwargs.get('order', 2)
                         popt, _ = curve_fit(
-                            lambda x, e_usf1: func(x, e_usf1), 
+                            lambda x, *cGs: func(x, cGs), 
                             x, y, 
-                            p0=[0.1], 
+                            p0=[0.1] * order,
                             maxfev=100000
                             )
-                        y_fit = func(x_plot, popt[0])
-                        y_fit_orig = func(x, popt[0])
-                        results[slipping_direction]['usf'] = popt[0]
+                        y_fit = func(x_plot, popt)
+                        y_fit_orig = func(x, popt)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)
 
                     elif func == gamma_usf2:
                         (e_usf1, e_usf2), pcov = curve_fit(func, x, y, p0=[0.1, 0.1], maxfev=100000)
