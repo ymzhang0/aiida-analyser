@@ -75,52 +75,73 @@ def gamma_usf(x, e_usf1):
     """
     return e_usf1 * numpy.sin(numpy.pi * x)**2
 
+def gamma_usf_symmetric(x, e_usf1):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: e_usf1 * sin^2(pi*x)
+    """
+    return e_usf1 * numpy.sin(numpy.pi * x / 2)**2
+
 
 def gamma_usf2(x, e_usf1, e_usf2):
     """
     Calculates the value for the third region: 1 < x <= 2
     Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
     """
-    return (e_usf1 * numpy.sin(numpy.pi * x)**2 +
-            e_usf2 * numpy.sin(2 * numpy.pi * x)**2)
+    return (
+        e_usf1 * numpy.sin(numpy.pi * x)**2 +
+        e_usf2 * numpy.sin(2 * numpy.pi * x)**2
+        )
+
+
+def gamma_usf2_symmetric(x, e_usf1, e_usf2, e_usf3):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
+    """
+    return (
+        e_usf1 * numpy.sin(numpy.pi/2 * x)**2 + 
+        e_usf2 * numpy.sin(numpy.pi * x)**2 +
+        e_usf3 * numpy.sin(2 * numpy.pi * x)**2
+        )
 
 
 fit_function_map = {
     'A1': {
         'gliding_system': A1GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'010' : gamma_usf},
+        '111': {'110' : gamma_esf},
     },
     'A2': {
         'gliding_system': A2GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf},
+        '111': {'110' : gamma_esf},
     },
     'B1': {
         'gliding_system': B1GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2},
+        '111': {'110' : gamma_esf},
     },
     'B2': {
         'gliding_system': B2GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_isf,
+        '100': {'100' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2, '110': gamma_usf2},
+        '111': {'110' : gamma_isf},
     },
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'110' : gamma_usf},
+        '011': {'100' : gamma_usf2, '010': gamma_usf2, '210': gamma_usf2},
+        '111': {'110' : gamma_esf},
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
-        '100': gamma_usf,
-        '011': gamma_usf2,
-        '111': gamma_esf,
+        '100': {'110': gamma_usf_symmetric},
+        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf2_symmetric},
+        '111': {'110' : gamma_esf},
     },
 }
 
@@ -371,7 +392,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             serialized_faults[direction] = [val / nsteps for val in xs]
         return serialized_faults
 
-    def fit_curve(self, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
+    def fit_curve(self, fit_functions: dict[str, Callable | None] | None = None, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
         """Fit the curve."""
         from matplotlib.legend_handler import HandlerTuple
 
@@ -404,8 +425,9 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
         gliding_plane = self.gliding_plane
         gliding_system = self.gliding_system
-        func = fit_function_map[self.strukturbericht][gliding_plane]
         nsteps = gliding_system.general.nsteps
+        if fit_functions is None:
+            fit_functions = deepcopy(fit_function_map[self.strukturbericht][gliding_plane])
 
         sorted_keys = sorted(energies, key=lambda k: max(energies[k]), reverse=True)
         num_to_plot = len(sorted_keys)
@@ -416,6 +438,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         for slipping_direction in sorted_keys:
             color = next(colors)
             results[slipping_direction] = {}
+            func = fit_functions.get(slipping_direction)
+            if func is None:
+                logging.warning(f"Node<{self.node.pk}>: No fit function found for direction {slipping_direction}")
+                continue
             logging.info(f"Node<{self.node.pk}>: Fitting slip system <{slipping_direction}> using function: {func.__name__}")
             
             if slipping_direction not in xs_dict:
@@ -458,10 +484,34 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         y_fit_orig = func(x, popt)
                         results[slipping_direction]['usf'] = numpy.sum(popt)
 
+                    elif func == gamma_usf_symmetric:
+                        popt, _ = curve_fit(
+                            lambda x, e_usf1: func(x, e_usf1), 
+                            x, y, 
+                            p0=[0.1], 
+                            maxfev=100000
+                            )
+                        y_fit = func(x_plot, popt[0])
+                        y_fit_orig = func(x, popt[0])
+                        results[slipping_direction]['usf'] = popt[0]
+
                     elif func == gamma_usf2:
-                        (e_usf1, e_usf2), pcov = curve_fit(func, x, y, maxfev=100000)
+                        (e_usf1, e_usf2), pcov = curve_fit(func, x, y, p0=[0.1, 0.1], maxfev=100000)
                         y_fit = func(x_plot, e_usf1, e_usf2)
                         y_fit_orig = func(x, e_usf1, e_usf2)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)
+                        results[slipping_direction]['s'] = e_usf2
+
+                    elif func == gamma_usf2_symmetric:
+                        e_usf1 = y[-1]
+                        (e_usf2, e_usf3), pcov = curve_fit(
+                            lambda x, e_usf2, e_usf3: func(x, e_usf1, e_usf2, e_usf3), 
+                            x, y, 
+                            p0=[0.1, 0.1], 
+                            maxfev=100000
+                            )
+                        y_fit = func(x_plot, e_usf1, e_usf2, e_usf3)
+                        y_fit_orig = func(x, e_usf1, e_usf2, e_usf3)
                         results[slipping_direction]['usf'] = numpy.max(y_fit)
                         results[slipping_direction]['s'] = e_usf2
                     
