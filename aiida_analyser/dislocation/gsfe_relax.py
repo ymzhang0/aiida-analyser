@@ -473,6 +473,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                             maxfev=100000
                             )
                         y_fit = func(x_plot, popt, b)
+                        y_fit_orig = func(x, popt, b)
                         x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
                         results[slipping_direction]['isf'] = b
                         results[slipping_direction]['usf'] = func(x_max, popt, b)
@@ -483,11 +484,11 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                         order = kwargs.get('order', 4)
                         popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
                         y_fit = func(x_plot, popt, b, c)
+                        y_fit_orig = func(x, popt, b, c)
                         results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
                         results[slipping_direction]['isf'] = b
                         results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
                         results[slipping_direction]['esf'] = c
-
 
                     elif func == gamma_usf:
                         popt, _ = curve_fit(
@@ -497,6 +498,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                             maxfev=100000
                             )
                         y_fit = func(x_plot, popt[0])
+                        y_fit_orig = func(x, popt[0])
                         results[slipping_direction]['usf'] = popt[0]
 
                     elif func == gamma_usf_symmetric:
@@ -507,11 +509,13 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                             maxfev=100000
                             )
                         y_fit = func(x_plot, popt[0])
+                        y_fit_orig = func(x, popt[0])
                         results[slipping_direction]['usf'] = popt[0]
 
                     elif func == gamma_usf2:
                         (e_usf1, e_usf2), pcov = curve_fit(func, x, y, p0=[0.1, 0.1], maxfev=100000)
                         y_fit = func(x_plot, e_usf1, e_usf2)
+                        y_fit_orig = func(x, e_usf1, e_usf2)
                         results[slipping_direction]['usf'] = numpy.max(y_fit)
                         results[slipping_direction]['s'] = e_usf2
 
@@ -524,8 +528,23 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                             maxfev=100000
                             )
                         y_fit = func(x_plot, e_usf1, e_usf2, e_usf3)
+                        y_fit_orig = func(x, e_usf1, e_usf2, e_usf3)
                         results[slipping_direction]['usf'] = numpy.max(y_fit)
                         results[slipping_direction]['s'] = e_usf2
+
+                    # Calculate fit quality metrics
+                    residuals = y - y_fit_orig
+                    ss_res = numpy.sum(residuals**2)
+                    ss_tot = numpy.sum((y - numpy.mean(y))**2)
+                    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
+                    rmse = numpy.sqrt(numpy.mean(residuals**2))
+
+                    # Log extracted parameters and fit quality
+                    params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
+                    logging.info(
+                        f"Fitting slip system ({gliding_plane})<{slipping_direction}> completed. "
+                        f"Extracted parameters: {params_str} | Fit quality: R²={r_squared:.6f}, RMSE={rmse:.6f} J/m²"
+                    )
                     
                 except Exception as e:
                     logging.warning(f"Fitting failed for {slipping_direction}: {e}")
