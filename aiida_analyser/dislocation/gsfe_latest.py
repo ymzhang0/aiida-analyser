@@ -355,20 +355,20 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
 
         return plot_data
 
-    def serialize_faults(self) -> dict[str, list[list[float]]]:
+    def serialize_faults(self) -> dict[str, list[float]]:
         """Serialize the faults for compatibility, normalized by nsteps."""
         serialized_faults = {}
         plot_data = self.get_plot_data()  # uses default x_axis='step'
         for direction, data in plot_data.items():
             xs = data['x']
             if None in xs:
-                logging.warning(f"Direction `{direction}` has `None` in `x` values, skipping")
+                logging.warning(f"Node<{self.node.pk}>: Direction `{direction}` has `None` in `x` values, skipping")
                 continue
             nsteps = len(xs) - 1
             if nsteps == 0:
-                logging.warning(f"Direction `{direction}` has 1 or fewer `x` values, skipping")
+                logging.warning(f"Node<{self.node.pk}>: Direction `{direction}` has 1 or fewer `x` values, skipping")
                 continue
-            serialized_faults[direction] = [[val / nsteps for val in xs]]
+            serialized_faults[direction] = [val / nsteps for val in xs]
         return serialized_faults
 
     def fit_curve(self, plot=False, axis=None, directions: list[str]|None = None, **kwargs):
@@ -389,9 +389,9 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         else:
             filtered_energies = sfe_energies
 
-        # Convert sfe_energies to the format expected by the port: direction -> [[value, ...]]
+        # Convert sfe_energies to the format expected by the port: direction -> [value, ...]
         energies = {
-            direction: [[val for _, val in sorted(steps.items())]]
+            direction: [val for _, val in sorted(steps.items())]
             for direction, steps in filtered_energies.items()
         }
 
@@ -407,7 +407,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
         func = fit_function_map[self.strukturbericht][gliding_plane]
         nsteps = gliding_system.general.nsteps
 
-        sorted_keys = sorted(energies, key=lambda k: max(energies[k][0]), reverse=True)
+        sorted_keys = sorted(energies, key=lambda k: max(energies[k]), reverse=True)
         num_to_plot = len(sorted_keys)
         colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=max(1, num_to_plot)))
         markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
@@ -417,73 +417,91 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
             color = next(colors)
             results[slipping_direction] = {}
             logging.info(f"Node<{self.node.pk}>: Fitting slip system <{slipping_direction}> using function: {func.__name__}")
-            for x, y in zip(xs_dict[slipping_direction], energies[slipping_direction]):
-                x = numpy.array(x, dtype=float)
-                y = numpy.array(y, dtype=float)
+            
+            if slipping_direction not in xs_dict:
+                logging.warning(f"Node<{self.node.pk}>: No x-axis data found for direction {slipping_direction}")
+                continue
 
-                x_plot = numpy.linspace(0, x[-1], 500)
+            x = numpy.array(xs_dict[slipping_direction], dtype=float)
+            y = numpy.array(energies[slipping_direction], dtype=float)
 
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", OptimizeWarning)
-                    try:
-                        if func == gamma_isf:
-                            b = y[nsteps]
-                            order = kwargs.get('order', 1)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b), x, y, p0=[0.1] * order, maxfev=100000)
-                            y_fit = func(x_plot, popt, b)
-                            x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
-                            results[slipping_direction]['isf'] = b
-                            results[slipping_direction]['usf'] = func(x_max, popt, b)
+            x_plot = numpy.linspace(0, x[-1], 500)
 
-                        elif func == gamma_esf:
-                            b = 2*y[nsteps]
-                            c = y[2 * nsteps]*2 - b
-                            order = kwargs.get('order', 4)
-                            popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
-                            y_fit = func(x_plot, popt, b, c)
-                            results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
-                            results[slipping_direction]['isf'] = b
-                            results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
-                            results[slipping_direction]['esf'] = c
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", OptimizeWarning)
+                try:
+                    if func == gamma_isf:
+                        b = y[nsteps]
+                        order = kwargs.get('order', 1)
+                        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b), x, y, p0=[0.1] * order, maxfev=100000)
+                        y_fit = func(x_plot, popt, b)
+                        y_fit_orig = func(x, popt, b)
+                        x_max = numpy.arcsin(-b / numpy.pi / popt[0]) / 2 * numpy.pi if popt[0] != 0 else 0.5
+                        results[slipping_direction]['isf'] = b
+                        results[slipping_direction]['usf'] = func(x_max, popt, b)
 
-                        elif func == gamma_usf:
-                            popt, _ = curve_fit(lambda x, e_usf1: func(x, e_usf1), x, y, p0=[0.1], maxfev=100000)
-                            y_fit = func(x_plot, popt)
-                            results[slipping_direction]['usf'] = numpy.sum(popt)
+                    elif func == gamma_esf:
+                        b = 2*y[nsteps]
+                        c = y[2 * nsteps]*2 - b
+                        order = kwargs.get('order', 4)
+                        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
+                        y_fit = func(x_plot, popt, b, c)
+                        y_fit_orig = func(x, popt, b, c)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
+                        results[slipping_direction]['isf'] = b
+                        results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
+                        results[slipping_direction]['esf'] = c
 
-                        elif func == gamma_usf2:
-                            (e_usf1, e_usf2), pcov = curve_fit(func, x, y, maxfev=100000)
-                            y_fit = func(x_plot, e_usf1, e_usf2)
-                            results[slipping_direction]['usf'] = numpy.max(y_fit)
-                            results[slipping_direction]['s'] = e_usf2
-                        
-                        # Log extracted parameters
-                        params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
-                        logging.info(f"Node<{self.node.pk}>: Extracted parameters for <{slipping_direction}> -> {params_str}")
-                    except Exception as e:
-                        logging.warning(f"Node<{self.node.pk}>: Fitting failed for <{slipping_direction}>: {e}")
-                        continue
+                    elif func == gamma_usf:
+                        popt, _ = curve_fit(lambda x, e_usf1: func(x, e_usf1), x, y, p0=[0.1], maxfev=100000)
+                        y_fit = func(x_plot, popt)
+                        y_fit_orig = func(x, popt)
+                        results[slipping_direction]['usf'] = numpy.sum(popt)
 
-                if plot:
-                    if axis is None:
-                        import matplotlib.pyplot as plt
-                        fig, axis = plt.subplots(figsize=(10, 6))
-                    axis.scatter(
-                        x, y,
-                        color=color,
-                        s=50,
-                        zorder=5,
-                        marker=next(markers))
+                    elif func == gamma_usf2:
+                        (e_usf1, e_usf2), pcov = curve_fit(func, x, y, maxfev=100000)
+                        y_fit = func(x_plot, e_usf1, e_usf2)
+                        y_fit_orig = func(x, e_usf1, e_usf2)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)
+                        results[slipping_direction]['s'] = e_usf2
+                    
+                    # Calculate fit quality metrics
+                    residuals = y - y_fit_orig
+                    ss_res = numpy.sum(residuals**2)
+                    ss_tot = numpy.sum((y - numpy.mean(y))**2)
+                    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
+                    rmse = numpy.sqrt(numpy.mean(residuals**2))
 
-                    axis.plot(
-                        x_plot,
-                        y_fit,
-                        linestyle=kwargs.get('linestyle', '--'),
-                        color=color,
-                        lw=kwargs.get('lw', 1.0),
-                        label=kwargs.get('label', f'{kwargs.get("label_prefix", "")}{slipping_direction}')
+                    # Log extracted parameters and fit quality
+                    params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
+                    logging.info(
+                        f"Node<{self.node.pk}>: Fitting slip system <{slipping_direction}> completed. "
+                        f"Extracted parameters: {params_str} | Fit quality: R²={r_squared:.6f}, RMSE={rmse:.6f} J/m²"
                     )
-                    axis.grid(True, alpha=0.3)
+                except Exception as e:
+                    logging.warning(f"Node<{self.node.pk}>: Fitting failed for <{slipping_direction}>: {e}")
+                    continue
+
+            if plot:
+                if axis is None:
+                    import matplotlib.pyplot as plt
+                    fig, axis = plt.subplots(figsize=(10, 6))
+                axis.scatter(
+                    x, y,
+                    color=color,
+                    s=50,
+                    zorder=5,
+                    marker=next(markers))
+
+                axis.plot(
+                    x_plot,
+                    y_fit,
+                    linestyle=kwargs.get('linestyle', '--'),
+                    color=color,
+                    lw=kwargs.get('lw', 1.0),
+                    label=kwargs.get('label', f'{kwargs.get("label_prefix", "")}{slipping_direction}')
+                )
+                axis.grid(True, alpha=0.3)
 
         return results
 
