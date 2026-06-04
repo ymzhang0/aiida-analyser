@@ -36,7 +36,11 @@ from .fit_functions import (
     fit_function_map,
     fit_gsfe,
 )
+import re
+from copy import deepcopy
+import itertools
 
+from pathlib import Path
 
 class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
     """Analyser for the current `GSFEWorkChain` output contract."""

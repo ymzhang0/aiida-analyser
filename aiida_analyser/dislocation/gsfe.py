@@ -24,6 +24,11 @@ from .fit_functions import (
     fit_gsfe,
 )
 
+import re
+from copy import deepcopy
+import itertools
+
+from pathlib import Path
 
 class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
     """

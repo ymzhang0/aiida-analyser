@@ -17,8 +17,22 @@ def formula_to_latex(formula):
     latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
     return rf"${latex_formula}$"
 
+def segmented_linear_function(x, point1, point2, point3):
+    """
+    分段线性背景函数：
+    在 x1   <= x <= x2 时，从 y1 线性爬升到 y2
+    在 x2   <= x <= x3 时，从 y2 线性爬升到 y3
+    """
+    x1, y1 = point1
+    x2, y2 = point2
+    x3, y3 = point3
+    return numpy.where(
+        x <= x2,
+        y1 + ((y2 - y1) / (x2 - x1)) * (x - x1),
+        y2 + ((y3 - y2) / (x3 - x2)) * (x - x2)
+    )
 
-def sine_expansion(x, cGs, period=1/2):
+def sine_power_expansion(x, cGs, period=1/2):
     """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
     sin_sq = numpy.sin(numpy.pi * x / period)**2
     result = numpy.zeros_like(x, dtype=float)
@@ -26,6 +40,57 @@ def sine_expansion(x, cGs, period=1/2):
         result += cG * (sin_sq**i)
     return result
 
+def cosine_power_expansion(x, cGs, period=1/2):
+    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x)**(2*i)."""
+    cos_sq = numpy.cos(numpy.pi * x / period)**2
+    result = numpy.zeros_like(x, dtype=float)
+    for i, cG in enumerate(cGs, 1):
+        result += cG * (cos_sq**i)
+    return result
+
+def sine_expansion(x, cGs, period=1/2):
+    """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x/period * i)."""
+    result = numpy.zeros_like(x, dtype=float)
+    for i, cG in enumerate(cGs, 1):
+        result += cG *  numpy.sin(numpy.pi * x / period * i)
+    return result
+
+def cosine_expansion(x, cGs, period=1/2):
+    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x)**(2*i)."""
+    result = numpy.zeros_like(x, dtype=float)
+    for i, cG in enumerate(cGs, 1):
+        result += cG *  numpy.cos(numpy.pi * x / period * i)
+    return result
+    
+def fourier_expansion(x, cGs, period=1/2):
+    """
+    sum_{i=1}^N cG_i * sin(pi*x/period * i) + sum_{i=1}^N cG_i * cos(pi*x/period * i)
+    """
+    result = numpy.zeros_like(x, dtype=float)
+    result += sine_expansion(x, cGs, period)
+    result += cosine_expansion(x, cGs, period)
+    return result
+
+def gamma_esf1(x, cGs, g_isf, g_esf):
+    """
+    模型一：分段线性背景 + 高次正弦幂次展开（周期为 1/2）。
+    由于 period=1/2，高次项在 0, 0.5, 1.0 处天然为 0，
+    因此三大控制点处的数值完全由分段线性背景接管。
+    """
+    bg = segmented_linear_function(x, (0.0, 0.0), (0.5, g_isf), (1.0, g_esf))
+    val = sine_power_expansion(x, cGs, period=1/2)
+    return bg + val
+
+def gamma_esf2(x, cGs, g_isf, g_esf):
+    """
+    模型二：分段线性背景 + 传统傅里叶展开（非平方）。
+    利用 sin^2(2*pi*x) 作为全域归零调制锁，确保余弦项在 0, 0.5, 1.0 处完全归零，
+    将控制权完美留给分段线性背景。
+    """
+    bg = segmented_linear_function(x, (0.0, 0.0), (0.5, g_isf), (1.0, g_esf))
+    expansion = fourier_expansion(x, cGs, period=1/2)
+    
+    return bg + expansion
 
 def gamma_isf(x, cGs, g_isf):
     """
@@ -47,6 +112,24 @@ def gamma_esf(x, cGs, b, c):
         val + 1/2*b+(x - 1/2)*c
     )
 
+def gamma_esf(x, cGs, g_isf, g_esf):
+    """
+    模型一：正弦幂次级数展开。
+    通过 sin^2(2*pi*x) 调制，使其在 x=0, 0.5, 1.0 处天然归零，
+    完美保护 g_isf 和 g_esf 的物理边界。
+    """
+    # 基础物理背景
+    bg = _get_esf_background(x, g_isf, g_esf)
+    
+    # 构建归零基底：sin^2(2*pi*x) 在 0, 0.5, 1.0 处恒为 0
+    sin_sq_base = numpy.sin(2.0 * numpy.pi * x)**2
+    
+    # 幂次级数扩展
+    expansion = numpy.zeros_like(x, dtype=float)
+    for i, cG in enumerate(cGs, 1):
+        expansion += cG * (sin_sq_base ** i)
+        
+    return bg + expansion
 
 def gamma_usf(x, cGs):
     """
@@ -139,13 +222,13 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         results['isf'] = b * factor
         results['usf'] = func(x_max, popt, b) * factor
 
-    elif func == gamma_esf:
-        b = 2 * y[nsteps]
-        c = y[2 * nsteps] * 2 - b
+    elif func in [gamma_esf1, gamma_esf2]:
+        g_isf = y[nsteps]
+        g_esf = y[2 * nsteps]
         order = kwargs.get('order', 4)
-        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
-        y_fit = func(x_plot, popt, b, c)
-        y_fit_orig = func(x, popt, b, c)
+        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, g_isf, g_esf), x, y, p0=[0.1] * order, maxfev=1000000)
+        y_fit = func(x_plot, popt, g_isf, g_esf)
+        y_fit_orig = func(x, popt, g_isf, g_esf)
         results['usf'] = numpy.max(y_fit[:250]) * 1000.0
         results['isf'] = b * 1000.0
         results['ut'] = numpy.max(y_fit[250:]) * 1000.0
