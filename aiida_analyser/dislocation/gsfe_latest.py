@@ -83,28 +83,6 @@ def gamma_usf_symmetric(x, cGs):
     return sine_expansion(x, cGs, period=2)
 
 
-def gamma_usf2(x, e_usf1, e_usf2):
-    """
-    Calculates the value for the third region: 1 < x <= 2
-    Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
-    """
-    return (
-        e_usf1 * numpy.sin(numpy.pi * x)**2 +
-        e_usf2 * numpy.sin(2 * numpy.pi * x)**2
-        )
-
-
-def gamma_usf2_symmetric(x, e_usf1, e_usf2, e_usf3):
-    """
-    Calculates the value for the third region: 1 < x <= 2
-    Formula: e_usf1 * sin^2(pi*x) + e_usf2 * sin^2(2*pi*x)
-    """
-    return (
-        e_usf1 * numpy.sin(numpy.pi/2 * x)**2 + 
-        e_usf2 * numpy.sin(numpy.pi * x)**2 +
-        e_usf3 * numpy.sin(2 * numpy.pi * x)**2
-        )
-
 
 fit_function_map = {
     'A1': {
@@ -122,25 +100,25 @@ fit_function_map = {
     'B1': {
         'gliding_system': B1GlidingSystem,
         '100': {'100' : gamma_usf},
-        '011': {'100' : gamma_usf2, '010': gamma_usf2},
+        '011': {'100' : gamma_usf, '010': gamma_usf},
         '111': {'110' : gamma_esf},
     },
     'B2': {
         'gliding_system': B2GlidingSystem,
         '100': {'100' : gamma_usf},
-        '011': {'100' : gamma_usf2, '010': gamma_usf2, '110': gamma_usf2},
+        '011': {'100' : gamma_usf, '010': gamma_usf, '110': gamma_usf},
         '111': {'110' : gamma_isf},
     },
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
         '100': {'110' : gamma_usf},
-        '011': {'100' : gamma_usf2, '010': gamma_usf2, '210': gamma_usf2},
+        '011': {'100' : gamma_usf, '010': gamma_usf, '210': gamma_usf},
         '111': {'110' : gamma_esf},
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
         '100': {'110': gamma_usf_symmetric},
-        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf2_symmetric},
+        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf_symmetric},
         '111': {'110' : gamma_esf},
     },
 }
@@ -473,10 +451,10 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                         popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, b, c), x, y, p0=[0.1] * order, maxfev=1000000)
                         y_fit = func(x_plot, popt, b, c)
                         y_fit_orig = func(x, popt, b, c)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit[:250])
-                        results[slipping_direction]['isf'] = b
-                        results[slipping_direction]['ut'] = numpy.max(y_fit[250:])
-                        results[slipping_direction]['esf'] = c
+                        results[slipping_direction]['usf'] = numpy.max(y_fit[:250])*1000
+                        results[slipping_direction]['isf'] = b*1000
+                        results[slipping_direction]['ut'] = numpy.max(y_fit[250:])*1000
+                        results[slipping_direction]['esf'] = c*1000
 
                     elif func == gamma_usf:
                         order = kwargs.get('order', 4)
@@ -488,7 +466,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                             )
                         y_fit = func(x_plot, popt)
                         y_fit_orig = func(x, popt)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)*1000
 
                     elif func == gamma_usf_symmetric:
                         order = kwargs.get('order', 2)
@@ -500,27 +478,8 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                             )
                         y_fit = func(x_plot, popt)
                         y_fit_orig = func(x, popt)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit)
+                        results[slipping_direction]['usf'] = numpy.max(y_fit)*1000
 
-                    elif func == gamma_usf2:
-                        (e_usf1, e_usf2), pcov = curve_fit(func, x, y, p0=[0.1, 0.1], maxfev=100000)
-                        y_fit = func(x_plot, e_usf1, e_usf2)
-                        y_fit_orig = func(x, e_usf1, e_usf2)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit)
-                        results[slipping_direction]['s'] = e_usf2
-
-                    elif func == gamma_usf2_symmetric:
-                        e_usf1 = y[-1]
-                        (e_usf2, e_usf3), pcov = curve_fit(
-                            lambda x, e_usf2, e_usf3: func(x, e_usf1, e_usf2, e_usf3), 
-                            x, y, 
-                            p0=[0.1, 0.1], 
-                            maxfev=100000
-                            )
-                        y_fit = func(x_plot, e_usf1, e_usf2, e_usf3)
-                        y_fit_orig = func(x, e_usf1, e_usf2, e_usf3)
-                        results[slipping_direction]['usf'] = numpy.max(y_fit)
-                        results[slipping_direction]['s'] = e_usf2
                     
                     # Calculate fit quality metrics
                     residuals = y - y_fit_orig
@@ -530,7 +489,7 @@ class GSFEWorkChainAnalyserLatest(BaseWorkChainAnalyser):
                     rmse = numpy.sqrt(numpy.mean(residuals**2))
 
                     # Log extracted parameters and fit quality
-                    params_str = ", ".join([f"{k}={v:.4f}" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
+                    params_str = ", ".join([f"{k}={v:.4f} mJ/m²" for k, v in results[slipping_direction].items() if isinstance(v, (int, float, numpy.floating))])
                     logging.info(
                         f"Node<{self.node.pk}>: Fitting slip system <{slipping_direction}> completed. "
                         f"Extracted parameters: {params_str} | Fit quality: R²={r_squared:.6f}, RMSE={rmse:.6f} J/m²"
