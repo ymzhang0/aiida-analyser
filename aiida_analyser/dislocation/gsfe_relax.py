@@ -39,9 +39,9 @@ def formula_to_latex(formula):
     return rf"${latex_formula}$"
 
 
-def sine_expansion(x, cGs):
+def sine_expansion(x, cGs, period=1/2):
     """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
-    sin_sq = numpy.sin(2*numpy.pi * x)**2
+    sin_sq = numpy.sin(numpy.pi * x / period)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
         result += cG * (sin_sq**i)
