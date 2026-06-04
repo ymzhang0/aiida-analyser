@@ -28,11 +28,7 @@ from aiida_dislocation.tools import (
 
 from .fit_functions import (
     formula_to_latex,
-    sine_expansion,
-    gamma_isf,
-    gamma_esf,
-    gamma_usf,
-    gamma_usf_symmetric,
+
     fit_function_map,
     fit_gsfe,
 )

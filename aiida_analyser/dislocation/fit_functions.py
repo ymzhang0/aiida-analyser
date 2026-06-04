@@ -20,8 +20,8 @@ def formula_to_latex(formula):
 def segmented_linear_function(x, point1, point2, point3):
     """
     分段线性背景函数：
-    在 x1   <= x <= x2 时，从 y1 线性爬升到 y2
-    在 x2   <= x <= x3 时，从 y2 线性爬升到 y3
+    在 x1 <= x <= x2 时，从 y1 线性爬升到 y2
+    在 x2 <= x <= x3 时，从 y2 线性爬升到 y3
     """
     x1, y1 = point1
     x2, y2 = point2
@@ -33,7 +33,7 @@ def segmented_linear_function(x, point1, point2, point3):
     )
 
 def sine_power_expansion(x, cGs, period=1/2):
-    """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x)**(2*i)."""
+    """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x/period)**(2*i)."""
     sin_sq = numpy.sin(numpy.pi * x / period)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
@@ -41,7 +41,7 @@ def sine_power_expansion(x, cGs, period=1/2):
     return result
 
 def cosine_power_expansion(x, cGs, period=1/2):
-    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x)**(2*i)."""
+    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x/period)**(2*i)."""
     cos_sq = numpy.cos(numpy.pi * x / period)**2
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
@@ -49,33 +49,23 @@ def cosine_power_expansion(x, cGs, period=1/2):
     return result
 
 def sine_expansion(x, cGs, period=1/2):
-    """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x/period * i)."""
+    """Generic sine series expansion: sum_{i=1}^N cG_i * sin(pi*x/period)**(2*i)."""
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
-        result += cG *  numpy.sin(numpy.pi * x / period * i)
+        result += cG * numpy.sin(i*numpy.pi * x / period)
     return result
 
-def cosine_expansion(x, cGs, period=1/2):
-    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x)**(2*i)."""
+def cosine_expansion(x, cGs, period=1/2, offset=0.0):
+    """Generic cosine series expansion: sum_{i=1}^N cG_i * cos(pi*x/period)**(2*i)."""
     result = numpy.zeros_like(x, dtype=float)
     for i, cG in enumerate(cGs, 1):
-        result += cG *  numpy.cos(numpy.pi * x / period * i)
-    return result
-    
-def fourier_expansion(x, cGs, period=1/2):
-    """
-    sum_{i=1}^N cG_i * sin(pi*x/period * i) + sum_{i=1}^N cG_i * cos(pi*x/period * i)
-    """
-    result = numpy.zeros_like(x, dtype=float)
-    result += sine_expansion(x, cGs, period)
-    result += cosine_expansion(x, cGs, period)
+        result += cG * (numpy.cos(i*numpy.pi * x / period) + offset)
     return result
 
 def gamma_esf1(x, cGs, g_isf, g_esf):
     """
     模型一：分段线性背景 + 高次正弦幂次展开（周期为 1/2）。
-    由于 period=1/2，高次项在 0, 0.5, 1.0 处天然为 0，
-    因此三大控制点处的数值完全由分段线性背景接管。
+    由于 sin_sq 在 0, 0.5, 1.0 处天生为 0，控制点由分段线性背景严格掌控。
     """
     bg = segmented_linear_function(x, (0.0, 0.0), (0.5, g_isf), (1.0, g_esf))
     val = sine_power_expansion(x, cGs, period=1/2)
@@ -83,13 +73,15 @@ def gamma_esf1(x, cGs, g_isf, g_esf):
 
 def gamma_esf2(x, cGs, g_isf, g_esf):
     """
-    模型二：分段线性背景 + 传统傅里叶展开（非平方）。
-    利用 sin^2(2*pi*x) 作为全域归零调制锁，确保余弦项在 0, 0.5, 1.0 处完全归零，
-    将控制权完美留给分段线性背景。
+    模型二：分段线性背景 + 修复漂移后的傅里叶共享系数展开。
     """
+    half = len(cGs) // 2
+    cGs_sin = cGs[:half]
+    cGs_cos = cGs[half:]
+
     bg = segmented_linear_function(x, (0.0, 0.0), (0.5, g_isf), (1.0, g_esf))
-    expansion = fourier_expansion(x, cGs, period=1/2)
-    
+    # 调用加了边界锁的傅里叶函数
+    expansion = sine_expansion(x, cGs_sin, period=1/2) + cosine_expansion(x, cGs_cos, period=1/4, offset=-1)
     return bg + expansion
 
 def gamma_isf(x, cGs, g_isf):
@@ -99,37 +91,6 @@ def gamma_isf(x, cGs, g_isf):
     """
     return sine_expansion(x, cGs) + g_isf * x
 
-
-def gamma_esf(x, cGs, b, c):
-    """
-    Calculates the value for the second region: 0 < x <= 1
-    Formula: Expansion + piecewise linear terms
-    """
-    val = sine_expansion(x, cGs)
-    return numpy.where(
-        x <= 1/2,
-        val + b * x,
-        val + 1/2*b+(x - 1/2)*c
-    )
-
-def gamma_esf(x, cGs, g_isf, g_esf):
-    """
-    模型一：正弦幂次级数展开。
-    通过 sin^2(2*pi*x) 调制，使其在 x=0, 0.5, 1.0 处天然归零，
-    完美保护 g_isf 和 g_esf 的物理边界。
-    """
-    # 基础物理背景
-    bg = _get_esf_background(x, g_isf, g_esf)
-    
-    # 构建归零基底：sin^2(2*pi*x) 在 0, 0.5, 1.0 处恒为 0
-    sin_sq_base = numpy.sin(2.0 * numpy.pi * x)**2
-    
-    # 幂次级数扩展
-    expansion = numpy.zeros_like(x, dtype=float)
-    for i, cG in enumerate(cGs, 1):
-        expansion += cG * (sin_sq_base ** i)
-        
-    return bg + expansion
 
 def gamma_usf(x, cGs):
     """
@@ -152,19 +113,19 @@ fit_function_map = {
         'gliding_system': A1GlidingSystem,
         '100': {'100' : gamma_usf},
         '011': {'010' : gamma_usf},
-        '111': {'110' : gamma_esf},
+        '111': {'110' : gamma_esf2},
     },
     'A2': {
         'gliding_system': A2GlidingSystem,
         '100': {'100' : gamma_usf},
         '011': {'100' : gamma_usf},
-        '111': {'110' : gamma_esf},
+        '111': {'110' : gamma_esf2},
     },
     'B1': {
         'gliding_system': B1GlidingSystem,
         '100': {'100' : gamma_usf},
         '011': {'100' : gamma_usf, '010': gamma_usf},
-        '111': {'110' : gamma_esf},
+        '111': {'110' : gamma_esf2},
     },
     'B2': {
         'gliding_system': B2GlidingSystem,
@@ -176,13 +137,13 @@ fit_function_map = {
         'gliding_system': C1bGlidingSystem,
         '100': {'110' : gamma_usf},
         '011': {'100' : gamma_usf, '010': gamma_usf, '210': gamma_usf},
-        '111': {'110' : gamma_esf},
+        '111': {'110' : gamma_esf2},
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
         '100': {'110': gamma_usf_symmetric},
         '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf_symmetric},
-        '111': {'110' : gamma_esf},
+        '111': {'110' : gamma_esf2},
     },
 }
 
@@ -222,7 +183,7 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         results['isf'] = b * factor
         results['usf'] = func(x_max, popt, b) * factor
 
-    elif func in [gamma_esf1, gamma_esf2]:
+    elif func == gamma_esf1:
         g_isf = y[nsteps]
         g_esf = y[2 * nsteps]
         order = kwargs.get('order', 4)
@@ -230,9 +191,47 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         y_fit = func(x_plot, popt, g_isf, g_esf)
         y_fit_orig = func(x, popt, g_isf, g_esf)
         results['usf'] = numpy.max(y_fit[:250]) * 1000.0
-        results['isf'] = b * 1000.0
+        results['isf'] = g_isf * 1000.0
         results['ut'] = numpy.max(y_fit[250:]) * 1000.0
-        results['esf'] = c * 1000.0
+        results['esf'] = g_esf * 1000.0
+
+    elif func == gamma_esf2:
+        g_isf = y[nsteps]
+        g_esf = y[2 * nsteps]
+        order = kwargs.get('order', 2)
+        # 估算你曲线的大致能垒高度（用来做初猜的量级缩放，防止不同材料失真）
+        approx_height = numpy.max(y) - g_isf
+        if approx_height <= 0:
+            approx_height = g_isf if g_isf > 0 else 0.1
+
+        # 构建两组独立的初猜参数
+        p0_sin = []  # 正弦组：全给正值，负责提供能垒基础高度
+        p0_cos = []  # 余弦组：全给负值，负责把 0.25 和 0.75 处的刚性碰撞肩膀顶出来
+        
+        for i in range(1, order + 1):
+            p0_sin.append((approx_height * 0.4) / i)
+            p0_cos.append(-(approx_height * 0.2) / i)
+
+        # 将两组初猜平铺合并：前段全为正弦，后段全为余弦
+        p0 = p0_sin + p0_cos
+
+        # 加上 bounds 物理保护，限制余弦项（后半段）不要过度正向震荡导致两头下塌
+        lower_bounds = [-numpy.inf] * order + [-approx_height * 2.0] * order
+        upper_bounds = [numpy.inf] * order + [approx_height * 0.5] * order
+        bounds = (lower_bounds, upper_bounds)
+        popt, _ = curve_fit(
+            lambda x_data, *params: func(x_data, params, g_isf, g_esf), 
+            x, y, 
+            p0=p0, 
+            bounds=bounds,
+            maxfev=1000000
+        )
+        y_fit = func(x_plot, popt, g_isf, g_esf)
+        y_fit_orig = func(x, popt, g_isf, g_esf)
+        results['usf'] = numpy.max(y_fit[:250]) * 1000.0
+        results['isf'] = g_isf * 1000.0
+        results['ut'] = numpy.max(y_fit[250:]) * 1000.0
+        results['esf'] = g_esf * 1000.0
 
     elif func == gamma_usf:
         order = kwargs.get('order', 4)
