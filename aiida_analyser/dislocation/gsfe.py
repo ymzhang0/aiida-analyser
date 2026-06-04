@@ -325,6 +325,9 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
             for i in range(len(all_segments)-1):
                 x = numpy.concatenate((x, numpy.linspace(i+1, i+2, nsteps+1)[1:]))
             
+            # Renormalize to 1.0 to match the updated fit_curve segment boundaries (e.g. x <= 1/2 in gamma_esf)
+            if all_segments:
+                x = x / len(all_segments)
             xs[slipping_direction] = x
         
         return xs
