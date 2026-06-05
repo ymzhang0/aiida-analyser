@@ -382,17 +382,17 @@ class SurfaceEnergyData(BaseGroupData):
             if node_data and spacing in node_data:
                 surface_energies.append([k_dist, node_data[spacing]])
         
-        def forward(x):
-            x = numpy.array(x, dtype=float)
-            with numpy.errstate(divide='ignore', invalid='ignore'):
-                return numpy.where(x == 0, numpy.inf, 1.0 / (x ** 3))
+        # def forward(x):
+        #     x = numpy.array(x, dtype=float)
+        #     with numpy.errstate(divide='ignore', invalid='ignore'):
+        #         return numpy.where(x == 0, numpy.inf, 1.0 / (x ** 3))
 
-        def inverse(x):
-            x = numpy.array(x, dtype=float)
-            with numpy.errstate(divide='ignore', invalid='ignore'):
-                return numpy.where(x == 0, numpy.inf, numpy.sign(x) * (numpy.abs(x) ** (-1.0/3.0)))
+        # def inverse(x):
+        #     x = numpy.array(x, dtype=float)
+        #     with numpy.errstate(divide='ignore', invalid='ignore'):
+        #         return numpy.where(x == 0, numpy.inf, numpy.sign(x) * (numpy.abs(x) ** (-1.0/3.0)))
 
-        ax.set_xscale('function', functions=(forward, inverse))
+        # ax.set_xscale('function', functions=(forward, inverse))
 
         surface_energies = numpy.array(surface_energies)
         if surface_energies.size > 0:

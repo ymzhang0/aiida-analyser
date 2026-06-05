@@ -327,7 +327,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             fit_functions = deepcopy(fit_function_map[self.strukturbericht][gliding_plane])
 
 
-        sorted_keys = sorted(energies, key=lambda k: max(energies[k]), reverse=True)
+        sorted_keys = sorted(energies, key=lambda k: max(energies[k]))
         num_to_plot = len(sorted_keys)
         colors = itertools.cycle(get_gradient_shades(kwargs.get('color', 'black'), num=max(1, num_to_plot)))
         markers = itertools.cycle(['o', 's', '^', 'D', 'v', 'p', '*', 'h', 'x'])
@@ -394,7 +394,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
                     linestyle=kwargs.get('linestyle', '--'),
                     color=color,
                     lw=kwargs.get('lw', 1.0),
-                    label=kwargs.get('label', '') + f' <{slipping_direction}>')
+                    label=kwargs.get('label', '') + f' [{slipping_direction}]')
                 axis.grid(True, alpha=0.3)
 
         return results

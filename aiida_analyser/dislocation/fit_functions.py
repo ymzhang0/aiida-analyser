@@ -99,6 +99,15 @@ def gamma_usf(x, cGs):
     """
     return sine_expansion(x, cGs, period=1)
 
+def gamma_usf2(x, cGs):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: sine expansion with period=2
+    """
+    half = len(cGs) // 2
+    cGs_sin = cGs[:half]
+    cGs_cos = cGs[half:]
+    return sine_expansion(x, cGs_sin, period=1) + cosine_expansion(x, cGs_cos, period=1/2, offset=-1)
 
 def gamma_usf_symmetric(x, cGs):
     """
@@ -106,6 +115,17 @@ def gamma_usf_symmetric(x, cGs):
     Formula: sine expansion with period=2
     """
     return sine_expansion(x, cGs, period=2)
+
+
+def gamma_usf2_symmetric(x, cGs):
+    """
+    Calculates the value for the third region: 1 < x <= 2
+    Formula: sine expansion with period=2
+    """
+    half = len(cGs) // 2
+    cGs_sin = cGs[:half]
+    cGs_cos = cGs[half:]
+    return sine_expansion(x, cGs_sin, period=2) + cosine_expansion(x, cGs_cos, period=1, offset=-1)
 
 
 fit_function_map = {
@@ -136,13 +156,13 @@ fit_function_map = {
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
         '100': {'110' : gamma_usf},
-        '011': {'100' : gamma_usf, '010': gamma_usf, '210': gamma_usf},
+        '011': {'100' : gamma_usf, '010': gamma_usf2, '210': gamma_usf2},
         '111': {'110' : gamma_esf2},
     },
     'L2_1': {
         'gliding_system': L21GlidingSystem,
         '100': {'110': gamma_usf_symmetric},
-        '011': {'100': gamma_usf_symmetric, '010': gamma_usf_symmetric, '210': gamma_usf_symmetric},
+        '011': {'100': gamma_usf_symmetric, '010': gamma_usf2_symmetric, '210': gamma_usf2_symmetric},
         '111': {'110' : gamma_esf2},
     },
 }
@@ -247,6 +267,31 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         y_fit_orig = func(x, popt)
         results['usf'] = numpy.max(y_fit) * 1000.0
 
+    elif func in (gamma_usf2, gamma_usf2_symmetric):
+        order = kwargs.get('order', 2)
+        approx_height = numpy.max(y)
+        if approx_height <= 0:
+            approx_height = g_isf if g_isf > 0 else 0.1
+
+        # 构建两组独立的初猜参数
+        p0_sin = []  # 正弦组：全给正值，负责提供能垒基础高度
+        p0_cos = []  # 余弦组：全给负值，负责把 0.25 和 0.75 处的刚性碰撞肩膀顶出来
+        
+        for i in range(1, order + 1):
+            p0_sin.append((approx_height * 0.4) / i)
+            p0_cos.append(-(approx_height * 0.2) / i)
+
+        # 将两组初猜平铺合并：前段全为正弦，后段全为余弦
+        p0 = p0_sin + p0_cos
+
+        # 加上 bounds 物理保护，限制余弦项（后半段）不要过度正向震荡导致两头下塌
+        lower_bounds = [-numpy.inf] * order + [-approx_height * 2.0] * order
+        upper_bounds = [numpy.inf] * order + [approx_height * 0.5] * order
+        bounds = (lower_bounds, upper_bounds)
+        popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=p0, bounds=bounds, maxfev=100000)
+        y_fit = func(x_plot, popt)
+        y_fit_orig = func(x, popt)
+        results['usf'] = numpy.max(y_fit) * 1000.0
     else:
         raise ValueError(f"Unsupported fit function: {func.__name__ if hasattr(func, '__name__') else func}")
 
