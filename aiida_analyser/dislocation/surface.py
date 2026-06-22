@@ -19,6 +19,7 @@ from aiida_dislocation.tools import (
 from aiida_dislocation.tools.structure_utils import (
     get_strukturbericht
     )
+from pathlib import Path
 
 class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -263,6 +264,7 @@ class SurfaceEnergyData(BaseGroupData):
             for node in group.nodes:
                 if not node.is_finished_ok:
                     continue
+                    
                 try:
                     # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
                     if node.process_label == 'SurfaceEnergyWorkChain':
