@@ -231,7 +231,7 @@ class SurfaceEnergyData(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node (actually StructureType -> Formula -> Plane -> Layers -> K_Dist -> Conv_thr -> NodeData)
+        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node (actually StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> NodeData)
         self._data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
@@ -239,7 +239,9 @@ class SurfaceEnergyData(BaseGroupData):
                         lambda: defaultdict(
                             lambda: defaultdict(
                                 lambda: defaultdict(
-                                    lambda: None
+                                    lambda: defaultdict(
+                                        lambda: None
+                                    )
                                 )
                             )
                         )
@@ -289,7 +291,7 @@ class SurfaceEnergyData(BaseGroupData):
                         conv_thr = a.conv_thr
                         if conv_thr is None:
                             conv_thr = 1e-6
-                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance][conv_thr] = energies_dict
+                        self._data[a.strukturbericht][formula][gliding_plane][node.process_label][n_repeats][kpoints_distance][conv_thr] = energies_dict
                 except Exception as e:
                     logging.warning(f'Node<{node.pk}> processing failed: {e}')
                     continue
@@ -298,37 +300,39 @@ class SurfaceEnergyData(BaseGroupData):
         flattened_list = []
 
         # Iterate over the nested dictionary:
-        # StructureType -> Formula -> Plane -> Layers -> K_Dist -> Conv_thr -> NodeData
+        # StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> NodeData
         for struct_type, formulas in self._data.items():
             for formula, planes in formulas.items():
                 for plane, processes in planes.items():
-                    for layers, k_dists in processes.items():
-                        for k_dist, conv_thr_dict in k_dists.items():
-                            for conv_thr, node_data in conv_thr_dict.items():
-                                if node_data:
-                                    pk = node_data.get('pk', 'N/A')
-                                    if pk != 'N/A':
-                                        try:
-                                            node = orm.load_node(pk)
-                                            analyser = SurfaceWorkChainAnalyser(node)
-                                            conv_error = analyser.conv_error
-                                            if conv_error is not None:
-                                                conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
-                                            else:
+                    for process_label, layers_dict in processes.items():
+                        for layers, k_dists in layers_dict.items():
+                            for k_dist, conv_thr_dict in k_dists.items():
+                                for conv_thr, node_data in conv_thr_dict.items():
+                                    if node_data:
+                                        pk = node_data.get('pk', 'N/A')
+                                        if pk != 'N/A':
+                                            try:
+                                                node = orm.load_node(pk)
+                                                analyser = SurfaceWorkChainAnalyser(node)
+                                                conv_error = analyser.conv_error
+                                                if conv_error is not None:
+                                                    conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
+                                                else:
+                                                    conv_thr_str = rf'{conv_thr:.1e} Ry'
+                                            except Exception:
                                                 conv_thr_str = rf'{conv_thr:.1e} Ry'
-                                        except Exception:
-                                            conv_thr_str = rf'{conv_thr:.1e} Ry'
-                                    else:
-                                        conv_thr_str = 'N/A'
-                                    flattened_list.append({
-                                        'Structure': struct_type,
-                                        'Material': formula,
-                                        'Plane': plane,
-                                        'Layers': layers,
-                                        'K_Dist': k_dist,
-                                        'Conv_thr': conv_thr_str,
-                                        'Status': f'✅ {pk}',
-                                    })  
+                                        else:
+                                            conv_thr_str = 'N/A'
+                                        flattened_list.append({
+                                            'Structure': struct_type,
+                                            'Material': formula,
+                                            'Plane': plane,
+                                            'Process': process_label,
+                                            'Layers': layers,
+                                            'K_Dist': k_dist,
+                                            'Conv_thr': conv_thr_str,
+                                            'Status': f'✅ {pk}',
+                                        })  
         return flattened_list
 
     def plot(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, kpoints_distance=None, destpath=None, **kwargs):
@@ -348,15 +352,16 @@ class SurfaceEnergyData(BaseGroupData):
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
         plane_data = formula_data.get(gliding_plane, {})
+        process_data = plane_data.get('SurfaceEnergyWorkChain', {})
 
-        if not plane_data:
+        if not process_data:
             print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
             return ax
 
         if n_repeats is None:
-            n_repeats = sorted(plane_data.keys(), reverse=True)[0]
+            n_repeats = sorted(process_data.keys(), reverse=True)[0]
 
-        k_dist_dict = plane_data.get(n_repeats, {})
+        k_dist_dict = process_data.get(n_repeats, {})
         if not k_dist_dict:
             print(f"No data found for n_repeats={n_repeats}")
             return ax
@@ -413,15 +418,16 @@ class SurfaceEnergyData(BaseGroupData):
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
         plane_data = formula_data.get(gliding_plane, {})
+        process_data = plane_data.get('SurfaceEnergyWorkChain', {})
 
-        if not plane_data:
+        if not process_data:
             print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
             return ax
 
         if n_repeats is None:
-            n_repeats = sorted(plane_data.keys(), reverse=True)[0]
+            n_repeats = sorted(process_data.keys(), reverse=True)[0]
 
-        k_dist_dict = plane_data.get(n_repeats, {})
+        k_dist_dict = process_data.get(n_repeats, {})
         if not k_dist_dict:
             print(f"No data found for n_repeats={n_repeats}")
             return ax
@@ -485,15 +491,16 @@ class SurfaceEnergyData(BaseGroupData):
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
         plane_data = formula_data.get(gliding_plane, {})
+        process_data = plane_data.get('SurfaceEnergyWorkChain', {})
 
-        if not plane_data:
+        if not process_data:
             print(f"No SurfaceEnergyWorkChain data found for {formula} {gliding_plane}")
             return ax
 
         if n_repeats is not None:
-            filtered_n_repeats_dict = {n: v for n, v in plane_data.items() if n in n_repeats}
+            filtered_n_repeats_dict = {n: v for n, v in process_data.items() if n in n_repeats}
         else:
-            filtered_n_repeats_dict = plane_data
+            filtered_n_repeats_dict = process_data
 
         sorted_n_repeats_dict = sorted(filtered_n_repeats_dict.keys(), reverse=True)
         surface_energies = []
