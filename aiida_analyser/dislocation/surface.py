@@ -577,9 +577,15 @@ class SurfaceEnergyData(BaseGroupData):
                             continue
                         for layers, k_dists in layers_dict.items():
                             for k_dist, conv_thr_dict in k_dists.items():
-                                for conv_thr, node in conv_thr_dict.items():
-                                    if node:
-                                        analyser = SurfaceWorkChainAnalyser(node)
-                                        analyser.copy_tree(
-                                            dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
-                                            )
+                                for conv_thr, node_data in conv_thr_dict.items():
+                                    if node_data:
+                                        pk = node_data.get('pk')
+                                        if pk:
+                                            try:
+                                                actual_node = orm.load_node(pk)
+                                                analyser = SurfaceWorkChainAnalyser(actual_node)
+                                                analyser.copy_tree(
+                                                    dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{pk}"
+                                                    )
+                                            except Exception as e:
+                                                logging.warning(f"Failed to dump node {pk}: {e}")
