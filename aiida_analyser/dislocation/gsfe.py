@@ -69,6 +69,29 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         return self._get_node_from_tree('relax')
 
     @property
+    def surface_area(self) -> float:
+        """Return the surface area of the calculation."""
+        from aiida_dislocation.tools import calculate_surface_area
+        return calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
+
+    @property
+    def conv_thr(self) -> float | None:
+        """Return the convergence threshold of the calculation."""
+        try:
+            return float(self.node.inputs.sfe.pw.parameters.get('ELECTRONS', {}).get('conv_thr'))
+        except Exception:
+            return None
+
+    @property
+    def conv_error(self) -> float | None:
+        """Return the convergence error of the Stacking Stacking Stacking Fault Stretches calculation."""
+        conv_thr = self.conv_thr
+        surface_area = self.surface_area
+        if conv_thr is None or surface_area is None:
+            return None
+        return (conv_thr / surface_area) * self._eVA22Jm2
+
+    @property
     def scf(self):
         return self._get_node_from_tree('scf')
 
@@ -465,7 +488,9 @@ class GSFEGroupData(BaseGroupData):
                         raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
 
                     kpoints_distance = node.inputs.kpoints_distance.value
-                    conv_thr = node.inputs.sfe.pw.parameters.get('ELECTRONS', None).get('conv_thr', 1e-6)
+                    conv_thr = GSFEWorkChainAnalyser(node).conv_thr
+                    if conv_thr is None:
+                        conv_thr = 1e-6
                                         
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> Node
                     if process_label in ['GSFEWorkChain']:
@@ -534,6 +559,15 @@ class GSFEGroupData(BaseGroupData):
                         for layers, k_dists in layers_dict.items():
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
+                                    if node and node.is_finished_ok:
+                                        analyser = GSFEWorkChainAnalyser(node)
+                                        conv_error = analyser.conv_error
+                                        if conv_error is not None:
+                                            conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
+                                        else:
+                                            conv_thr_str = rf'{conv_thr:.1e} Ry'
+                                    else:
+                                        conv_thr_str = 'N/A'
                                     flattened_list.append({
                                         'Structure': struct_type,
                                         'Material': formula,
@@ -541,7 +575,7 @@ class GSFEGroupData(BaseGroupData):
                                         'Process': process_label,
                                         'Layers': layers,
                                         'K_Dist': k_dist,
-                                        'Conv_thr': conv_thr,
+                                        'Conv_thr': conv_thr_str,
                                         'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                                     })
         return flattened_list

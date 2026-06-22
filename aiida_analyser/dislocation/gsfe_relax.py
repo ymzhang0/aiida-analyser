@@ -192,14 +192,20 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         raise AttributeError(f'Node<{self.node.pk}>: Pristine energy (structure_01 or sfe_*) not found in process tree')
     
     @property
-    def conv_thr(self):
+    def conv_thr(self) -> float | None:
         """Return the convergence threshold of the calculation."""
-        return self.node.inputs.sfe.base_relax.pw.parameters.get('ELECTRONS', {}).get('conv_thr', 1e-6)
-    
+        try:
+            return float(self.node.inputs.sfe.base_relax.pw.parameters.get('ELECTRONS', {}).get('conv_thr'))
+        except Exception:
+            return None
+
     @property
-    def conv_error(self):
+    def conv_error(self) -> float | None:
         """Return the convergence error of the calculation."""
-        return (self.conv_thr / self.surface_area) * eVA22Jm2
+        conv_thr = self.conv_thr
+        if conv_thr is None:
+            return None
+        return (conv_thr / self.surface_area) * eVA22Jm2
     
     def get_sfe_energies(self) -> dict[str, dict[int, float | None]]:
         """Return only the SFE values grouped by direction and step."""
@@ -489,7 +495,9 @@ class GSFERelaxGroupData(BaseGroupData):
                         raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
 
                     kpoints_distance = node.inputs.kpoints_distance.value
-                    conv_thr = node.inputs.sfe.base_relax.pw.parameters.get('ELECTRONS', None).get('conv_thr', 1e-6)
+                    conv_thr = GSFERelaxWorkChainAnalyser(node).conv_thr
+                    if conv_thr is None:
+                        conv_thr = 1e-6
 
                     # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Conv_thr -> Node
                     if process_label in ['GSFERelaxWorkChain']:
@@ -513,6 +521,11 @@ class GSFERelaxGroupData(BaseGroupData):
                                 for conv_thr, node in conv_thr_dict.items():
                                     if node.is_finished_ok:
                                         analyser = GSFERelaxWorkChainAnalyser(node)
+                                        conv_error = analyser.conv_error
+                                        if conv_error is not None:
+                                            conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
+                                        else:
+                                            conv_thr_str = rf'{conv_thr:.1e} Ry'
                                         flattened_list.append({
                                             'Structure': struct_type,
                                             'Material': formula,
@@ -520,7 +533,7 @@ class GSFERelaxGroupData(BaseGroupData):
                                             'Process': process_label,
                                             'Layers': layers,
                                             'K_Dist': k_dist,
-                                            'Conv_thr': rf'{conv_thr:.1e} Ry (+- {analyser.conv_error*1000:.1e} mJ/m^2)',
+                                            'Conv_thr': conv_thr_str,
                                             'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
                                         })
                                     else:

@@ -75,6 +75,37 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         return self._get_node_from_tree('relax')
 
     @property
+    def surface_area(self) -> float:
+        """Return the surface area of the calculation."""
+        from aiida_dislocation.tools import calculate_surface_area
+        return calculate_surface_area(self.scf.inputs.pw.structure.get_ase())
+
+    @property
+    def conv_thr(self) -> float | None:
+        """Return the convergence threshold of the calculation."""
+        try:
+            if 'scf' in self.node.inputs and 'pw' in self.node.inputs.scf and 'parameters' in self.node.inputs.scf.pw:
+                return float(self.node.inputs.scf.pw.parameters.get('ELECTRONS', {}).get('conv_thr'))
+            elif 'pw' in self.node.inputs and 'parameters' in self.node.inputs.pw:
+                return float(self.node.inputs.pw.parameters.get('ELECTRONS', {}).get('conv_thr'))
+            # Fallback to process tree
+            scf_node = self.scf
+            if scf_node and 'pw' in scf_node.inputs and 'parameters' in scf_node.inputs.pw:
+                return float(scf_node.inputs.pw.parameters.get('ELECTRONS', {}).get('conv_thr'))
+        except Exception:
+            pass
+        return None
+
+    @property
+    def conv_error(self) -> float | None:
+        """Return the convergence error of the Surface energy calculation."""
+        conv_thr = self.conv_thr
+        surface_area = self.surface_area
+        if conv_thr is None or surface_area is None:
+            return None
+        return (conv_thr / surface_area) * self._eVA22Jm2
+
+    @property
     def scf(self):
         return self._get_node_from_tree('scf')
     
@@ -199,14 +230,16 @@ class SurfaceEnergyData(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
+        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node (actually StructureType -> Formula -> Plane -> Layers -> K_Dist -> Conv_thr -> NodeData)
         self._data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
                     lambda: defaultdict(
                         lambda: defaultdict(
                             lambda: defaultdict(
-                                lambda: None
+                                lambda: defaultdict(
+                                    lambda: None
+                                )
                             )
                         )
                     )
@@ -251,7 +284,10 @@ class SurfaceEnergyData(BaseGroupData):
                         a = SurfaceWorkChainAnalyser(node)
                         energies_dict = a.get_surface_energies()
                         energies_dict['pk'] = node.pk
-                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance] = energies_dict
+                        conv_thr = a.conv_thr
+                        if conv_thr is None:
+                            conv_thr = 1e-6
+                        self._data[a.strukturbericht][formula][gliding_plane][n_repeats][kpoints_distance][conv_thr] = energies_dict
                 except Exception as e:
                     logging.warning(f'Node<{node.pk}> processing failed: {e}')
                     continue
@@ -260,22 +296,37 @@ class SurfaceEnergyData(BaseGroupData):
         flattened_list = []
 
         # Iterate over the nested dictionary:
-        # StructureType -> Formula -> Plane -> Layers -> K_Dist -> NodeData
+        # StructureType -> Formula -> Plane -> Layers -> K_Dist -> Conv_thr -> NodeData
         for struct_type, formulas in self._data.items():
             for formula, planes in formulas.items():
                 for plane, processes in planes.items():
                     for layers, k_dists in processes.items():
-                        for k_dist, node_data in k_dists.items():
-                            if node_data:
-                                pk = node_data.pop('pk', 'N/A')
-                                flattened_list.append({
-                                    'Structure': struct_type,
-                                    'Material': formula,
-                                    'Plane': plane,
-                                    'Layers': layers,
-                                    'K_Dist': k_dist,
-                                    'Status': f'✅ {pk}',
-                                })  
+                        for k_dist, conv_thr_dict in k_dists.items():
+                            for conv_thr, node_data in conv_thr_dict.items():
+                                if node_data:
+                                    pk = node_data.get('pk', 'N/A')
+                                    if pk != 'N/A':
+                                        try:
+                                            node = orm.load_node(pk)
+                                            analyser = SurfaceWorkChainAnalyser(node)
+                                            conv_error = analyser.conv_error
+                                            if conv_error is not None:
+                                                conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
+                                            else:
+                                                conv_thr_str = rf'{conv_thr:.1e} Ry'
+                                        except Exception:
+                                            conv_thr_str = rf'{conv_thr:.1e} Ry'
+                                    else:
+                                        conv_thr_str = 'N/A'
+                                    flattened_list.append({
+                                        'Structure': struct_type,
+                                        'Material': formula,
+                                        'Plane': plane,
+                                        'Layers': layers,
+                                        'K_Dist': k_dist,
+                                        'Conv_thr': conv_thr_str,
+                                        'Status': f'✅ {pk}',
+                                    })  
         return flattened_list
 
     def plot(self, structure_type, formula, gliding_plane, n_repeats=None, ax=None, kpoints_distance=None, destpath=None, **kwargs):
@@ -309,7 +360,11 @@ class SurfaceEnergyData(BaseGroupData):
             return ax
 
 
-        node_data = k_dist_dict.get(kpoints_distance, None)
+        node_data = None
+        conv_thr_dict = k_dist_dict.get(kpoints_distance, {})
+        if conv_thr_dict:
+            conv_thr = sorted(conv_thr_dict.keys())[0]
+            node_data = conv_thr_dict[conv_thr]
         if node_data:
             energies = {k: v for k, v in node_data.items() if k != 'pk'}
             if energies:
@@ -378,9 +433,12 @@ class SurfaceEnergyData(BaseGroupData):
         surface_energies = []
 
         for i, k_dist in enumerate(sorted_k_dists):
-            node_data = filtered_k_dists[k_dist]
-            if node_data and spacing in node_data:
-                surface_energies.append([k_dist, node_data[spacing]])
+            conv_thr_dict = filtered_k_dists[k_dist]
+            if conv_thr_dict:
+                conv_thr = sorted(conv_thr_dict.keys())[0]
+                node_data = conv_thr_dict[conv_thr]
+                if node_data and spacing in node_data:
+                    surface_energies.append([k_dist, node_data[spacing]])
         
         # def forward(x):
         #     x = numpy.array(x, dtype=float)
@@ -444,12 +502,15 @@ class SurfaceEnergyData(BaseGroupData):
                 if not kpoints_distances_dict:
                     continue
                 k_dist = sorted(kpoints_distances_dict.keys())[0]
-                node_data = kpoints_distances_dict[k_dist]
+                conv_thr_dict = kpoints_distances_dict[k_dist]
             else:
-                node_data = kpoints_distances_dict.get(kpoints_distance)
+                conv_thr_dict = kpoints_distances_dict.get(kpoints_distance)
             
-            if node_data and spacing in node_data:
-                surface_energies.append([n_rep, node_data[spacing]])
+            if conv_thr_dict:
+                conv_thr = sorted(conv_thr_dict.keys())[0]
+                node_data = conv_thr_dict[conv_thr]
+                if node_data and spacing in node_data:
+                    surface_energies.append([n_rep, node_data[spacing]])
 
         if surface_energies:
             surface_energies = numpy.array(surface_energies)
