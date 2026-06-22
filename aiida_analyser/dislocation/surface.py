@@ -396,6 +396,8 @@ class SurfaceEnergyData(BaseGroupData):
 
         surface_energies = numpy.array(surface_energies)
         if surface_energies.size > 0:
+            if kwargs.pop('use_mJ', False):
+                surface_energies[:, 1] *= 1000
             ax.plot(surface_energies[:, 0], surface_energies[:, 1], marker=kwargs.get('marker', 'o'), label=kwargs.get('label', f'{formula}'))
             
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
@@ -451,6 +453,9 @@ class SurfaceEnergyData(BaseGroupData):
 
         if surface_energies:
             surface_energies = numpy.array(surface_energies)
+
+            if kwargs.pop('use_mJ', False):
+                surface_energies[:, 1] *= 1000
             # Sort by n_rep
             idx = numpy.argsort(surface_energies[:, 0])
             surface_energies = surface_energies[idx]
@@ -462,4 +467,4 @@ class SurfaceEnergyData(BaseGroupData):
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        return ax
+        return (ax, surface_energies)
