@@ -529,3 +529,30 @@ class SurfaceEnergyData(BaseGroupData):
         ax.grid(True, alpha=0.3)
 
         return (ax, surface_energies)
+
+    def dump(self, dest:Path|str, struct_type_list:list = None, formula_list:list = None, planes_list:list = None, process_label_list:list = None, layers_list:list = None, k_dist_list:list = None,):
+        if type(dest) == str:
+            dest = Path(dest)
+        if not dest.exists():
+            dest.mkdir(parents=True)
+
+        for struct_type, formulas in self._data.items():
+            if struct_type_list and struct_type not in struct_type_list:
+                continue
+            for formula, planes in formulas.items():
+                if formula_list and formula not in formula_list:
+                    continue
+                for plane, processes in planes.items():
+                    if planes_list and plane not in planes_list:
+                        continue
+                    for process_label, layers_dict in processes.items():
+                        if process_label_list and process_label not in process_label_list:
+                            continue
+                        for layers, k_dists in layers_dict.items():
+                            for k_dist, conv_thr_dict in k_dists.items():
+                                for conv_thr, node in conv_thr_dict.items():
+                                    if node:
+                                        analyser = SurfaceWorkChainAnalyser(node)
+                                        analyser.copy_tree(
+                                            dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
+                                            )
