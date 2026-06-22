@@ -341,6 +341,9 @@ class SurfaceEnergyData(BaseGroupData):
         import numpy
         import re
         
+        use_mJ = kwargs.pop('use_mJ', False)
+        use_relative = kwargs.pop('use_relative', False)
+
         def formula_to_latex(formula):
             latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
             return rf"${latex_formula}$"
@@ -376,6 +379,10 @@ class SurfaceEnergyData(BaseGroupData):
             energies = {k: v for k, v in node_data.items() if k != 'pk'}
             if energies:
                 array_2d = numpy.array(sorted(energies.items(), key=lambda item: item[0]))
+                if use_mJ:
+                    array_2d[:, 1] *= 1000
+                if use_relative:
+                    array_2d[:, 1] -= array_2d[0, 1]
                 ax.plot(
                     array_2d[:, 0], array_2d[:, 1],
                     label=kwargs.pop('label', f'{formula_to_latex(formula)} {gliding_plane}'),
@@ -393,7 +400,7 @@ class SurfaceEnergyData(BaseGroupData):
             if ax.get_legend_handles_labels()[0]:
                 ax.legend()
 
-        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_ylabel(r'$\gamma^{surface}$' + (' (mJ/m$^2$)' if use_mJ else r' (J/m$^2$)'))
         ax.set_xlabel('Vacuum ratio')
 
         if destpath and ax is None:
@@ -408,6 +415,9 @@ class SurfaceEnergyData(BaseGroupData):
         import re
         import numpy
         
+        use_mJ = kwargs.pop('use_mJ', False)
+        use_relative = kwargs.pop('use_relative', False)
+
         def formula_to_latex(formula):
             latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
             return rf"${latex_formula}$"
@@ -462,12 +472,14 @@ class SurfaceEnergyData(BaseGroupData):
 
         surface_energies = numpy.array(surface_energies)
         if surface_energies.size > 0:
-            if kwargs.pop('use_mJ', False):
+            if use_mJ:
                 surface_energies[:, 1] *= 1000
+            if use_relative:
+                surface_energies[:, 1] -= surface_energies[0, 1]
             ax.plot(surface_energies[:, 0], surface_energies[:, 1], marker=kwargs.get('marker', 'o'), label=kwargs.get('label', f'{formula}'))
             
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_ylabel(r'$\gamma^{surface}$' + (' (mJ/m$^2$)' if use_mJ else r' (J/m$^2$)'))
         ax.set_xlabel(r'K-points distance (1/Å) [scaled as $1/d^3$]')
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -481,6 +493,9 @@ class SurfaceEnergyData(BaseGroupData):
         import re
         import numpy
         
+        use_mJ = kwargs.pop('use_mJ', False)
+        use_relative = kwargs.pop('use_relative', False)
+
         def formula_to_latex(formula):
             latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
             return rf"${latex_formula}$"
@@ -524,15 +539,18 @@ class SurfaceEnergyData(BaseGroupData):
         if surface_energies:
             surface_energies = numpy.array(surface_energies)
 
-            if kwargs.pop('use_mJ', False):
+            if use_mJ:
                 surface_energies[:, 1] *= 1000
+            if use_relative:
+                surface_energies[:, 1] -= surface_energies[0, 1]
+                
             # Sort by n_rep
             idx = numpy.argsort(surface_energies[:, 0])
             surface_energies = surface_energies[idx]
             ax.plot(surface_energies[:, 0], surface_energies[:, 1], marker=kwargs.get('marker', 'o'), label=kwargs.get('label', f'{formula}'))
 
         ax.set_title(f"Supercell Convergence for {formula_to_latex(formula)} ({gliding_plane})")
-        ax.set_ylabel(r'$\gamma^{surface}$ (J/m$^2$)')
+        ax.set_ylabel(r'$\gamma^{surface}$' + (' (mJ/m$^2$)' if use_mJ else r' (J/m$^2$)'))
         ax.set_xlabel('Number of conventional cells')
         ax.legend()
         ax.grid(True, alpha=0.3)
