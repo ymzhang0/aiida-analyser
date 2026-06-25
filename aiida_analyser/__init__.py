@@ -59,6 +59,7 @@ _EXPORTS = {
     'ScHubbardGroup': ('hubbard.sc_hubbard', 'ScHubbardGroup', 'hubbard'),
     'EpwCalculationAnalyser': ('epw.epw_calculation', 'EpwCalculationAnalyser', None),
     'EpwBaseWorkChainAnalyser': ('epw.epw_base', 'EpwBaseWorkChainAnalyser', None),
+    'EpwData': ('epw.epw_base', 'EpwData', 'epw'),
     'EpwPrepWorkChainAnalyser': ('epw.epw_prep', 'EpwPrepWorkChainAnalyser', 'epw'),
     'EpwPrepConvergenceData': ('epw.epw_prep', 'EpwPrepConvergenceData', 'epw'),
     'EpwPrepData': ('epw.epw_prep', 'EpwPrepData', 'epw'),
