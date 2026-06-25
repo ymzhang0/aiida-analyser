@@ -110,7 +110,7 @@ class EpwData(BaseGroupData):
                     except Exception:
                         pass
             elif 'kfpoints_factor' in node.inputs:
-                fine_k = rf"{node.inputs.kfpoints_factor.value}x$\Delta_\mathbf{{q}}$"
+                fine_k = rf"${node.inputs.kfpoints_factor.value} \times \Delta_\mathbf{{q}}$"
 
             fine_q = None
             if 'qfpoints' in node.inputs:
