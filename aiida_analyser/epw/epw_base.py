@@ -133,6 +133,10 @@ class EpwData(BaseGroupData):
             real_axis = node.inputs.real_axis.value if 'real_axis' in node.inputs else '-'
             analytical_continuation = node.inputs.analytical_continuation.value if 'analytical_continuation' in node.inputs else '-'
 
+            try:
+                remote_folder = node.outputs.remote_folder.get_remote_path()
+            except Exception:
+                remote_folder = 'N/A'
             # status string
             if not node.is_terminated:
                 status_str = node.process_state.value
@@ -153,6 +157,7 @@ class EpwData(BaseGroupData):
                 'Real axis': real_axis,
                 'Analytical continuation': analytical_continuation,
                 'status': status_emoji,
+                'Remote path': remote_folder,
             })
 
         return flattened_list
