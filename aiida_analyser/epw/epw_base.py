@@ -2,6 +2,8 @@ from aiida import orm
 from ..base import BaseWorkChainAnalyser
 from .epw_calculation import EpwCalculationAnalyser
 from ..groupdata import BaseGroupData
+from pathlib import Path
+import logging
 
 class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
     """
@@ -108,7 +110,7 @@ class EpwData(BaseGroupData):
                     except Exception:
                         pass
             elif 'kfpoints_factor' in node.inputs:
-                fine_k = f"f:{node.inputs.kfpoints_factor.value}"
+                fine_k = rf"{node.inputs.kfpoints_factor.value}x$\Delta_\mathbf{{q}}$"
 
             fine_q = None
             if 'qfpoints' in node.inputs:
@@ -120,11 +122,8 @@ class EpwData(BaseGroupData):
                     except Exception:
                         pass
             elif 'qfpoints_distance' in node.inputs:
-                fine_q = f"d:{node.inputs.qfpoints_distance.value}"
+                fine_q = f"$\Delta_\mathbf{{q}}$={node.inputs.qfpoints_distance.value}"
 
-            coarse_str = f"{coarse_k or '?'}/{coarse_q or '?'}"
-            fine_str = f"{fine_k or '?'}/{fine_q or '?'}"
-            grid_str = f"{coarse_str} -> {fine_str}"
 
             # Other inputs
             restart_type = node.inputs.restart_type.value if 'restart_type' in node.inputs else '-'
@@ -143,15 +142,17 @@ class EpwData(BaseGroupData):
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
-                'Status': status_emoji,
-                '粗细网格': grid_str,
-                'restart_type': restart_type,
-                'calculation_type': calculation_type,
-                'momentum_dependence': momentum_dependence,
-                'full_bandwidth': full_bandwidth,
-                'real_axis': real_axis,
-                'analytical_continuation': analytical_continuation,
-                'status': status_str,
+                'Calculation type': calculation_type,
+                'Restart type': restart_type,
+                'Coarse k': coarse_k or '?',
+                'Coarse q': coarse_q or '?',
+                'Fine k': fine_k or '?',
+                'Fine q': fine_q or '?',
+                'Momentum dependence': momentum_dependence,
+                'Fermi restriction': full_bandwidth,
+                'Real axis': real_axis,
+                'Analytical continuation': analytical_continuation,
+                'status': status_emoji,
             })
 
         return flattened_list
@@ -164,3 +165,20 @@ class EpwData(BaseGroupData):
         df = pd.DataFrame(flattened_list)
         return df.set_index('PK') if 'PK' in df.columns else df
 
+
+    def dump(self, dest:Path|str,):
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwBaseWorkChain'})
+
+        if type(dest) == str:
+            dest = Path(dest)
+        if not dest.exists():
+            dest.mkdir(parents=True)
+
+        for [node] in qb.all():
+            try:
+                analyser = EpwBaseWorkChainAnalyser(node)
+                analyser.copy_tree(dest / str(node.pk))
+            except Exception as e:
+                logging.warning(f"Failed to dump node {node.pk}: {e}")
