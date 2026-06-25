@@ -122,7 +122,7 @@ class EpwData(BaseGroupData):
                     except Exception:
                         pass
             elif 'qfpoints_distance' in node.inputs:
-                fine_q = f"$\Delta_\mathbf{{q}}$={node.inputs.qfpoints_distance.value}"
+                fine_q = rf"$\Delta_\mathbf{{q}}$={node.inputs.qfpoints_distance.value}"
 
 
             # Other inputs
