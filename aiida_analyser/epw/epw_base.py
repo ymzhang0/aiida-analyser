@@ -165,6 +165,14 @@ class EpwData(BaseGroupData):
         df = pd.DataFrame(flattened_list)
         return df.set_index('PK') if 'PK' in df.columns else df
 
+    def show(self):
+        """Display the table as a rendered Markdown table in Jupyter Notebooks."""
+        import pandas as pd
+        from IPython.display import display, Markdown
+        df = self.get_table()
+        display(Markdown(df.to_markdown()))
+
+
 
     def dump(self, dest:Path|str,):
         qb = orm.QueryBuilder()
