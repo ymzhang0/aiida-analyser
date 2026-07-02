@@ -293,8 +293,20 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     def dump_inputs(self, destpath: Path):
         self.copy_tree(destpath)
 
+    @staticmethod
+    def _set_plot_defaults(**kwargs):
+        import matplotlib.pyplot as plt
+        fontsize = kwargs.get('font_size', kwargs.get('label_fontsize', 18))
+        plt.rcParams.update({'font.size': fontsize})
+        plt.rcParams['font.family'] = 'serif'
+        plt.rcParams['font.serif'] = ['STIXGeneral']
+        plt.rcParams['mathtext.fontset'] = 'stix'
+        plt.rcParams['font.family'] = 'STIXGeneral'
+        plt.rcParams['mathtext.default'] = 'regular'
+
     def show_pw_bands(self):
         """Show the qe bands."""
+        self._set_plot_defaults()
         a2f_workchain = self._latest_a2f_workchain()
         if a2f_workchain is None or 'band_structure' not in a2f_workchain.outputs:
             raise ValueError('No PW bands available on the selected workchain.')
@@ -306,6 +318,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         axis = None,
         **kwargs,
         ):
+        self._set_plot_defaults(**kwargs)
         a2f_workchain = self._latest_a2f_workchain()
         if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
@@ -320,6 +333,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         axis = None,
         **kwargs,
         ):
+        self._set_plot_defaults(**kwargs)
         a2f_workchain = self._latest_a2f_workchain()
         if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
@@ -330,6 +344,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         )
 
     def show_a2f(self, axis=None, **kwargs):
+        self._set_plot_defaults(**kwargs)
         a2f_workchain = self._latest_a2f_workchain()
         if a2f_workchain is None:
             raise ValueError('No a2f workchain found.')
@@ -341,6 +356,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         )
 
     def show_all_a2f(self, axis=None, **kwargs):
+        self._set_plot_defaults(**kwargs)
         if self.conv == {}:
             raise ValueError('No a2f workchain found.')
         
@@ -368,6 +384,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             )
 
     def show_iso_gap_function(self, axis=None, **kwargs):
+        self._set_plot_defaults(**kwargs)
         if self.iso:
             iso_workchain = self.iso.node
         else:
@@ -378,6 +395,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             **kwargs,
         )
     def show_aniso_gap_function(self, axis=None, **kwargs):
+        self._set_plot_defaults(**kwargs)
         if self.aniso:
             aniso_workchain = self.aniso.node   
         else:
@@ -401,6 +419,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             'ticklabel_fontsize': 18,
             'legend_fontsize': 12,
         }
+        self._set_plot_defaults(**kwargs)
 
 
         if ax_eldos:
