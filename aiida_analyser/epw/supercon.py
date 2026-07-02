@@ -1104,7 +1104,6 @@ class SuperConData(BaseGroupData):
         table_container = widgets.VBox([headers, table_body], layout=widgets.Layout(width='55%'))
         
         details_container = widgets.VBox([
-            widgets.HTML("<div style='font-size: 1.1em; font-weight: bold; margin-bottom: 8px; color: #2c3e50;'>Parameters Inspector</div>"),
             details_output
         ], layout=widgets.Layout(width='43%', margin='0 0 0 2%'))
         
