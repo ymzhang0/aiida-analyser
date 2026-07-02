@@ -650,6 +650,111 @@ from aiida_epw.tools.plot import (
     plot_anisotropic_gap,
 )
 
-# Compatibility aliases for existing aiida-analyser code
-plot_iso_gap_function = gap_iso_imag_temp
-plot_aniso_gap_function = plot_anisotropic_gap
+def plot_iso_gap_function(
+    iso_gap_function: orm.ArrayData,
+    axis=None,
+    fit=False,
+    p0=None,
+    **kwargs,
+):
+    """
+    Adapter wrapper for gap_iso_imag_temp to support external axes (axis)
+    and optional tempmax matching the original aiida-analyser signature.
+    """
+    import numpy as numpy
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
+    from scipy.optimize import curve_fit
+    from aiida_epw.tools.calculators import bcs_gap_function
+
+    imag_delta = []
+    imag_temp = []
+
+    for temperature, array in _iter_gap_functions(iso_gap_function):
+        gap = array[0, -1] * 1000
+        if numpy.isnan(gap):
+            continue
+        imag_delta.append(gap)  # Convert to meV
+        imag_temp.append(temperature)
+
+    if not imag_temp:
+        return axis
+
+    tempmax = kwargs.get('tempmax', numpy.max(imag_temp))
+    font = kwargs.get('font', kwargs.get('label_fontsize', 12))
+
+    if axis is None:
+        fig = plt.figure(figsize=kwargs.get('figsize', (4.5, 3.5)))
+        ax1 = fig.add_subplot(1, 1, 1)
+    else:
+        ax1 = axis
+
+    ax1.set_title("Superconducting Gap vs. Temperature", fontsize=font)
+    ax1.set_xlabel("Temeperature (K)", fontsize=font)
+    ax1.set_xlim(0, tempmax)
+    ax1.set_ylabel(r"$\Delta_0$ (meV)", fontsize=font)
+    ax1.tick_params(axis="y", labelsize=font)
+    ax1.tick_params(axis="x", labelsize=font)
+    ax1.plot(
+        imag_temp,
+        imag_delta,
+        linestyle="-",
+        marker="o",
+        c="k",
+        label="Im. axis",
+    )
+    ax1.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
+
+    if fit:
+        if p0 is None:
+            p0 = [imag_temp[-1], 3.3, imag_delta[0]]
+        try:
+            popt, pcov = curve_fit(bcs_gap_function, imag_temp, imag_delta, p0=p0, maxfev=100000)
+            Tc, p, Delta_0 = popt
+            T = numpy.linspace(0, Tc, 100)
+            ax1.plot(
+                T,
+                bcs_gap_function(T, Tc, p, Delta_0),
+                linestyle="--",
+                c="r",
+                label="Fit",
+            )
+        except Exception as e:
+            print(f"BCS fit failed: {e}")
+
+    destpath = kwargs.get('destpath', None)
+    prefix = kwargs.get('prefix', 'aiida')
+    if destpath and axis is None:
+        import os
+        plt.savefig(os.path.join(destpath, f"{prefix}_iso_gap_imag_vs_Temp.pdf"))
+        
+    return ax1
+
+
+def plot_aniso_gap_function(
+    aniso_gap_functions_arraydata,
+    axis=None,
+    **kwargs,
+):
+    """
+    Adapter wrapper for plot_anisotropic_gap to support ArrayData node input
+    and map the 'axis' parameter to 'ax'.
+    """
+    from aiida import orm
+    import numpy as numpy
+
+    if isinstance(aniso_gap_functions_arraydata, orm.ArrayData):
+        aniso_gap_functions_dict = {}
+        for arrayname in aniso_gap_functions_arraydata.get_arraynames():
+            array = aniso_gap_functions_arraydata.get_array(arrayname)
+            if array.size > 0:
+                temp = float(numpy.min(array[:, 0]))
+                aniso_gap_functions_dict[temp] = array
+    else:
+        aniso_gap_functions_dict = aniso_gap_functions_arraydata
+
+    return plot_anisotropic_gap(
+        aniso_gap_functions_dict=aniso_gap_functions_dict,
+        ax=axis,
+        **kwargs,
+    )
