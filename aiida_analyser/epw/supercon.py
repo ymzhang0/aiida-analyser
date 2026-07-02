@@ -947,37 +947,78 @@ class SuperConData(BaseGroupData):
                         return f"<span style='background: #eef2f7; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;'>Node &lt;{data.pk}&gt; ({data.process_label if hasattr(data, 'process_label') else data.__class__.__name__})</span>"
                     return f"<span style='font-family: monospace; color: #2c3e50;'>{html.escape(str(data))}</span>"
 
-            inputs = {}
-            for link in node.base.links.get_incoming():
-                val = link.node
-                if hasattr(val, 'get_dict'):
-                    try: inputs[link.link_label] = val.get_dict()
-                    except Exception: inputs[link.link_label] = val
-                elif hasattr(val, 'value'):
-                    inputs[link.link_label] = val.value
-                else:
-                    inputs[link.link_label] = val
-            
-            outputs = {}
-            for link in node.base.links.get_outgoing():
-                val = link.node
-                if hasattr(val, 'get_dict'):
-                    try: outputs[link.link_label] = val.get_dict()
-                    except Exception: outputs[link.link_label] = val
-                elif hasattr(val, 'value'):
-                    outputs[link.link_label] = val.value
-                else:
-                    outputs[link.link_label] = val
+            def get_process_html(p_node):
+                # Inputs: incoming links that are not call links
+                inputs = {}
+                for link in p_node.base.links.get_incoming():
+                    if not link.link_type.value.startswith('call_'):
+                        val = link.node
+                        if hasattr(val, 'get_dict'):
+                            try: inputs[link.link_label] = val.get_dict()
+                            except Exception: inputs[link.link_label] = val
+                        elif hasattr(val, 'value'):
+                            inputs[link.link_label] = val.value
+                        else:
+                            inputs[link.link_label] = val
+                
+                # Outputs: outgoing links that are return links
+                outputs = {}
+                for link in p_node.base.links.get_outgoing():
+                    if link.link_type.value == 'return':
+                        val = link.node
+                        if hasattr(val, 'get_dict'):
+                            try: outputs[link.link_label] = val.get_dict()
+                            except Exception: outputs[link.link_label] = val
+                        elif hasattr(val, 'value'):
+                            outputs[link.link_label] = val.value
+                        else:
+                            outputs[link.link_label] = val
 
-            html_content = f"<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; padding: 15px; border: 1px solid #dcdde1; border-radius: 6px; background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>"
-            html_content += f"<h3 style='margin-top: 0; color: #2f3640;'>Node Details: {node.process_label} &lt;{node.pk}&gt;</h3>"
-            html_content += f"<p style='margin: 5px 0 15px 0; font-size: 0.95em;'><b>Status:</b> {node.process_state.value} (Exit: {node.exit_status})</p>"
-            
-            html_content += dict_to_html_details(inputs, "Inputs")
-            html_content += "<div style='height: 10px;'></div>"
-            html_content += dict_to_html_details(outputs, "Outputs")
-            html_content += "</div>"
-            return html_content
+                # Sub-processes: outgoing links that start with call_
+                sub_processes = []
+                for link in p_node.base.links.get_outgoing().all():
+                    if link.link_type.value.startswith('call_'):
+                        sub_processes.append((link.link_label, link.node))
+
+                process_name = p_node.process_label if hasattr(p_node, 'process_label') else p_node.__class__.__name__
+                exit_status_str = f" (Exit: {p_node.exit_status})" if p_node.exit_status is not None else ""
+                state_emoji = "⏳" if not p_node.is_terminated else ("✅" if p_node.is_finished_ok else "❌")
+
+                html_str = f"<details style='margin: 8px 0; border: 1px solid #dcdde1; border-radius: 6px; background-color: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);'>"
+                html_str += f"<summary style='font-weight: bold; cursor: pointer; padding: 10px 14px; background-color: #f5f6fa; border-bottom: 1px solid #dcdde1;'>"
+                html_str += f"<span style='margin-right: 8px;'>{state_emoji}</span>{process_name} &lt;{p_node.pk}&gt;{exit_status_str}"
+                html_str += f"</summary>"
+                html_str += "<div style='padding: 12px;'>"
+                
+                # Show metadata
+                html_str += f"<div style='margin-bottom: 8px; font-size: 0.9em; color: #7f8c8d;'>"
+                html_str += f"<b>Type:</b> {p_node.process_type or 'Unknown'}<br>"
+                html_str += f"<b>State:</b> {p_node.process_state.value}<br>"
+                html_str += f"</div>"
+
+                # Show inputs
+                html_str += dict_to_html_details(inputs, "Inputs")
+                html_str += "<div style='height: 6px;'></div>"
+                
+                # Show outputs
+                html_str += dict_to_html_details(outputs, "Outputs")
+                
+                # Show called sub-workflows/sub-calculations recursively
+                if sub_processes:
+                    html_str += "<div style='height: 10px;'></div>"
+                    sub_html = "<div style='margin-left: 12px; border-left: 2px dashed #b2bec3; padding-left: 12px;'>"
+                    sub_html += "<div style='font-size: 0.9em; font-weight: bold; color: #636e72; margin-bottom: 4px;'>Called Processes:</div>"
+                    for label, sub_node in sorted(sub_processes, key=lambda x: x[1].pk):
+                        sub_html += f"<div style='margin-bottom: 8px;'><i>Call link: {html.escape(label)}</i>"
+                        sub_html += get_process_html(sub_node)
+                        sub_html += "</div>"
+                    sub_html += "</div>"
+                    html_str += sub_html
+
+                html_str += "</div></details>"
+                return html_str
+
+            return get_process_html(node)
 
         # Table headers styled with flexbox to match row layout
         headers = widgets.HTML(f"""
