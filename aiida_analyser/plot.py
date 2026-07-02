@@ -130,7 +130,7 @@ def plot_a2f(
 
     if axis is None:
         from matplotlib import pyplot as plt
-        fig, ax = plt.subplots(1, 1, figsize=(4, 8))
+        fig, ax = plt.subplots(1, 1, figsize=kwargs.get('figsize', (4, 5)))
     else:
         ax = axis
 
