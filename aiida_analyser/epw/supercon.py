@@ -911,43 +911,12 @@ class SuperConData(BaseGroupData):
             print("No data available to display.")
             return
 
-        node_map = {item['PK']: item['node'] for item in self._data if item['node'] is not None}
+        # Ensure index elements are python ints
+        df.index = df.index.map(int)
+
+        node_map = {int(item['PK']): item['node'] for item in self._data if item['node'] is not None}
         
         details_output = widgets.Output()
-        
-        # Inject CSS to make it look premium
-        css_style = """
-        <style>
-        .supercon-table-header {
-            background-color: #2c3e50;
-            color: #ffffff;
-            font-weight: bold;
-            padding: 8px;
-            border-radius: 4px 4px 0 0;
-            display: flex;
-            align-items: center;
-        }
-        .supercon-table-row {
-            padding: 6px 8px;
-            border-bottom: 1px solid #ecf0f1;
-            display: flex;
-            align-items: center;
-            transition: background-color 0.2s;
-        }
-        .supercon-table-row:hover {
-            background-color: #f8f9fa;
-        }
-        .supercon-selected-row {
-            background-color: #e8f4fd !important;
-            border-left: 4px solid #3498db;
-        }
-        .supercon-col-select { width: 80px; }
-        .supercon-col-pk { width: 80px; font-family: monospace; }
-        .supercon-col-material { width: 250px; font-weight: bold; }
-        .supercon-col-parent { width: 120px; font-family: monospace; }
-        .supercon-col-status { width: 150px; }
-        </style>
-        """
         
         def render_node_details(node):
             import html
@@ -1010,32 +979,48 @@ class SuperConData(BaseGroupData):
             html_content += "</div>"
             return html_content
 
+        # Table headers styled with flexbox to match row layout
         headers = widgets.HTML(f"""
-        {css_style}
-        <div class="supercon-table-header">
-            <div class="supercon-col-select">Select</div>
-            <div class="supercon-col-pk">PK</div>
-            <div class="supercon-col-material">Material</div>
-            <div class="supercon-col-parent">Parent EPW</div>
-            <div class="supercon-col-status">Status</div>
+        <div style="display: flex; align-items: center; background-color: #2c3e50; color: #ffffff; font-weight: bold; padding: 8px; border-radius: 4px 4px 0 0; width: 100%; box-sizing: border-box;">
+            <div style="width: 80px; text-align: center; flex-shrink: 0;">Select</div>
+            <div style="width: 80px; flex-shrink: 0; padding-left: 8px;">PK</div>
+            <div style="width: 150px; flex-shrink: 0;">Material</div>
+            <div style="width: 120px; flex-shrink: 0;">Parent EPW</div>
+            <div style="width: 100px; flex-grow: 1;">Status</div>
         </div>
-        """)
+        """, layout=widgets.Layout(width='100%'))
         
-        row_widgets = {}
-        row_buttons = {}
+        row_fields = {} # pk -> (btn, html_widget, row_box)
         
         def select_row(selected_pk):
-            for pk, box in row_widgets.items():
-                btn = row_buttons[pk]
+            selected_pk = int(selected_pk)
+            for pk, (btn, html_widget, row_box) in row_fields.items():
+                row_data = df.loc[pk]
+                parent_epw_val = str(row_data['parent_epw']) if pd.notna(row_data['parent_epw']) else 'N/A'
+                status_val = str(row_data['status'])
+                material_val = str(row_data['Material'])
+                
                 if pk == selected_pk:
-                    box.add_class('supercon-selected-row')
-                    btn.button_style = 'primary'
+                    btn.button_style = 'success'
                     btn.icon = 'check-circle'
+                    bg_color = "#e8f4fd"
+                    border_style = "border-left: 4px solid #3498db; padding-left: 4px;"
                 else:
-                    box.remove_class('supercon-selected-row')
                     btn.button_style = ''
                     btn.icon = 'circle-o'
-                    
+                    bg_color = "transparent"
+                    border_style = "padding-left: 8px;" # match selected padding to prevent alignment shifts
+                
+                # HTML content of columns styled to avoid overflow scrollbars
+                html_widget.value = f"""
+                <div style="display: flex; align-items: center; background-color: {bg_color}; {border_style} width: 100%; height: 28px; box-sizing: border-box; overflow: hidden;">
+                    <div style="width: 80px; flex-shrink: 0; font-family: monospace;">{pk}</div>
+                    <div style="width: 150px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
+                    <div style="width: 120px; flex-shrink: 0; font-family: monospace;">{parent_epw_val}</div>
+                    <div style="width: 100px; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{status_val}</div>
+                </div>
+                """
+                
             node = node_map.get(selected_pk)
             with details_output:
                 details_output.clear_output()
@@ -1044,34 +1029,33 @@ class SuperConData(BaseGroupData):
 
         rows = []
         for pk, row_data in df.iterrows():
-            parent_epw_val = str(row_data['parent_epw']) if pd.notna(row_data['parent_epw']) else 'N/A'
-            status_val = str(row_data['status'])
-            material_val = str(row_data['Material'])
+            pk = int(pk)
             
+            # Select button
             btn = widgets.Button(
                 description="",
                 icon="circle-o",
                 tooltip=f"Select Node {pk}",
-                layout=widgets.Layout(width='60px', height='28px')
+                layout=widgets.Layout(width='40px', height='26px')
             )
             
-            def make_handler(node_pk):
-                return lambda change: select_row(node_pk)
-            btn.on_click(make_handler(pk))
+            # Button click handler
+            def on_button_click(b, target_pk=pk):
+                select_row(target_pk)
+            btn.on_click(on_button_click)
             
-            pk_lbl = widgets.HTML(f"<div class='supercon-col-pk'>{pk}</div>")
-            mat_lbl = widgets.HTML(f"<div class='supercon-col-material'>{material_val}</div>")
-            parent_lbl = widgets.HTML(f"<div class='supercon-col-parent'>{parent_epw_val}</div>")
-            status_lbl = widgets.HTML(f"<div class='supercon-col-status'>{status_val}</div>")
+            # HTML container for row columns
+            html_widget = widgets.HTML(
+                layout=widgets.Layout(width='100%', overflow='hidden')
+            )
             
+            # Row box with HBox
             row_box = widgets.HBox(
-                [widgets.Box([btn], layout=widgets.Layout(width='80px')), pk_lbl, mat_lbl, parent_lbl, status_lbl],
-                layout=widgets.Layout(width='100%')
+                [widgets.Box([btn], layout=widgets.Layout(width='80px', justify_content='center', flex_shrink=0)), html_widget],
+                layout=widgets.Layout(width='100%', overflow='hidden', border_bottom='1px solid #ecf0f1', padding='4px 0')
             )
-            row_box.add_class('supercon-table-row')
             
-            row_widgets[pk] = row_box
-            row_buttons[pk] = btn
+            row_fields[pk] = (btn, html_widget, row_box)
             rows.append(row_box)
             
         table_body = widgets.VBox(rows, layout=widgets.Layout(max_height='400px', overflow_y='auto', border='1px solid #ecf0f1', border_top='none', border_radius='0 0 4px 4px'))
