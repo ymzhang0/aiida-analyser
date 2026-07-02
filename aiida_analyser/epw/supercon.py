@@ -991,10 +991,10 @@ class SuperConData(BaseGroupData):
                 html_str += "<div style='padding: 12px;'>"
                 
                 # Show metadata
-                html_str += f"<div style='margin-bottom: 8px; font-size: 0.9em; color: #7f8c8d;'>"
-                html_str += f"<b>Type:</b> {p_node.process_type or 'Unknown'}<br>"
-                html_str += f"<b>State:</b> {p_node.process_state.value}<br>"
-                html_str += f"</div>"
+                # html_str += f"<div style='margin-bottom: 8px; font-size: 0.9em; color: #7f8c8d;'>"
+                # html_str += f"<b>Type:</b> {p_node.process_type or 'Unknown'}<br>"
+                # html_str += f"<b>State:</b> {p_node.process_state.value}<br>"
+                # html_str += f"</div>"
 
                 # Show inputs
                 html_str += dict_to_html_details(inputs, "Inputs")
