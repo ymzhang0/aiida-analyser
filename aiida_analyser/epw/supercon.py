@@ -1,9 +1,11 @@
+import html
 from pathlib import Path
 
 from aiida import orm
 import numpy
 from collections import defaultdict
 import warnings
+from ..groupdata import BaseGroupData
 from ..base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseWorkChainAnalyser
 from ..calculators import _calculate_iso_tc, check_convergence
@@ -500,29 +502,25 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             print(f"Computer: {node.computer.label if node.computer else 'Local'}")
             print(f"Job ID (Scheduler): {node.get_job_id()}")
             
-class SuperConData:
+class SuperConData(BaseGroupData):
 
     def __init__(self, groups=None):
-        self._groups = [] if groups is None else groups
-        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
-        self._data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    lambda: defaultdict(
-                        lambda: None
-                    )
-                )
-            )
-        )
+        super().__init__(groups)
         self.get_data()
 
-    @property
-    def groups(self):
-        return self._groups
+    def get_data(self):
+        self._data = self._flatten_data()
 
-    @property
-    def data(self):
-        return self._data
+    @staticmethod
+    def _extract_degauss_k_q(node):
+        extras = node.base.extras.all
+        degauss = extras.get('degauss', '-')
+        if 'kpoints_distance_scf' in extras:
+            k_dist = extras.get('kpoints_distance_scf', '-')
+        else:
+            k_dist = extras.get('kpoints_distance', '-')
+        q_dist = extras.get('qpoints_distance', '-')
+        return degauss, k_dist, q_dist
 
     @staticmethod
     def check_protocol(node):
@@ -539,92 +537,65 @@ class SuperConData:
                 )
         return True
 
-    def get_data(self):
-        for grpname in self._groups:
-            group = orm.load_group(grpname)
-            for node in group.nodes:
-                extras = node.base.extras.all
-                self.check_protocol(node)
-                try:
-                    mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
-                except (KeyError, ValueError) as e:
-                    print(f"Error in node {node.pk}. Using formula as key {e}")
-                    mat_key = node.inputs.structure.get_formula()
-                    continue
+    def _flatten_data(self):
+        from aiida import orm
+        flattened_list = []
 
-                # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
-                if node.process_label == 'SuperConWorkChain':
-                    if 'kpoints_distance_scf' in extras:
-                        self._data[mat_key][extras['degauss']][extras['kpoints_distance_scf']][extras['qpoints_distance']] = node
-                    else:
-                        self._data[mat_key][extras['degauss']][extras['kpoints_distance']][extras['qpoints_distance']] = node
+        if not self._groups:
+            return flattened_list
+
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'SuperConWorkChain'})
+
+        for r in qb.all():
+            node = r[0]
+            self.check_protocol(node)
+            extras = node.base.extras.all
+            try:
+                formula = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
+            except (KeyError, ValueError) as e:
+                try:
+                    formula = node.inputs.structure.get_formula()
+                except Exception:
+                    formula = 'N/A'
+
+            # parent_epw pointing to parent_folder_epw's creator
+            parent_epw = None
+            if 'parent_folder_epw' in node.inputs:
+                try:
+                    parent_epw_node = node.inputs.parent_folder_epw.creator
+                    if parent_epw_node:
+                        parent_epw = parent_epw_node.pk
+                except Exception:
+                    pass
+
+            status_emoji = self.get_status_string(node)
+
+            flattened_list.append({
+                'PK': node.pk,
+                'Material': formula,
+                'parent_epw': parent_epw,
+                'status': status_emoji,
+                'node': node,
+            })
+
+        return flattened_list
 
     def get_table(self):
         import pandas as pd
-        import numpy as np
-
-        def get_status_string(node):
-            if node is None:
-                return 'N/A'
-
-            if not node.is_terminated:
-                return '⏳'
-            if node.is_finished_ok:
-                return '✅'
-            elif node.is_failed:
-                return f'❌ ({node.exit_status})'
-            elif node.is_excepted:
-                return '⚠️ Excepted'
-            elif node.is_killed:
-                return '💀 Killed'
-            else:
-                return f'🏃 {node.process_state.value}'
-
-        flattened_list = []
-
-        # Loop variables matching new dictionary structure:
-        # Material -> Degauss -> K_Dist -> {'relax': ..., 'q_dist': ...}
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_dict in k_dist_dict.items():
-                    for q_dist, supercon_node in q_dist_dict.items():
-                        if supercon_node:
-                            flattened_list.append({
-                                'Material': material,
-                                'Degauss': degauss,
-                                'K_Density': k_dist,
-                                'Q_Density': q_dist,
-                                'Status': get_status_string(supercon_node) + f" ({supercon_node.pk})",
-                            })
-
+        flattened_list = self._flatten_data()
         if not flattened_list:
             return pd.DataFrame()
-
         df = pd.DataFrame(flattened_list)
-        
-        pivot_df = df.pivot(
-            index=['Degauss', 'K_Density', 'Q_Density'],
-            columns='Material',
-            values='Status'
-        )
-
-        pivot_df = pivot_df.fillna('')
-
-        # Sort columns (Materials) alphabetically
-        pivot_df = pivot_df.sort_index(axis=1)
-
-        return pivot_df
+        if 'node' in df.columns:
+            df = df.drop(columns=['node'])
+        return df.set_index('PK') if 'PK' in df.columns else df
 
     def get_parallel_plot(self, target_metric='tc'):
         """
         Generates an interactive Plotly Parallel Coordinates plot for the stored nodes.
         Filters out unfinished or failed calculations.
-
-        Args:
-            target_metric (str): The name of the output property to use for color mapping.
-
-        Returns:
-            plotly.graph_objs._figure.Figure: The Plotly figure object, or None if empty.
         """
         import pandas as pd
         import plotly.express as px
@@ -633,44 +604,33 @@ class SuperConData:
 
         flattened_list = []
         
-        # 1. Map string materials to integers for Plotly's numeric axis requirement
-        materials = list(self._data.keys())
+        materials = sorted(list(set(item['Material'] for item in self._data)))
         if not materials:
             return None
             
         material_to_id = {mat: i for i, mat in enumerate(materials)}
 
-        # 2. Flatten the nested dictionary into a record list
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_dict in k_dist_dict.items():
-                    for q_dist, supercon_node in q_dist_dict.items():
-                        
-                        # Only plot nodes that have successfully finished
-                        if supercon_node and supercon_node.is_finished_ok:
-                            
-                            # ---------------------------------------------------------
-                            # IMPORTANT: Extract your physical result here.
-                            # You will need to adapt 'output_parameters' and 'target_metric' 
-                            # to match the actual output schema of your SuperConWorkChain.
-                            # ---------------------------------------------------------
-                            try:
-                                # Assuming output is stored in a Dict node named 'output_parameters'
-                                result_dict = supercon_node.outputs.output_parameters.get_dict()
-                                metric_value = result_dict.get(target_metric, 0.0)
-                            except Exception as e:
-                                warnings.warn(f"Failed to extract metric from node<{supercon_node.pk}>: {e}", stacklevel=2)
-                                continue # Skip if we can't get the target metric
-                            
-                            flattened_list.append({
-                                'Material': material,
-                                'Material_ID': material_to_id[material],
-                                'Degauss': float(degauss),
-                                'K_Density': float(k_dist),
-                                'Q_Density': float(q_dist),
-                                'Result_Value': float(metric_value),
-                                'PK': supercon_node.pk
-                            })
+        for item in self._data:
+            supercon_node = item['node']
+            if supercon_node and supercon_node.is_finished_ok:
+                try:
+                    result_dict = supercon_node.outputs.output_parameters.get_dict()
+                    metric_value = result_dict.get(target_metric, 0.0)
+                except Exception as e:
+                    warnings.warn(f"Failed to extract metric from node<{supercon_node.pk}>: {e}", stacklevel=2)
+                    continue
+                
+                degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
+                
+                flattened_list.append({
+                    'Material': item['Material'],
+                    'Material_ID': material_to_id[item['Material']],
+                    'Degauss': float(degauss) if degauss != '-' else 0.0,
+                    'K_Density': float(k_dist) if k_dist != '-' else 0.0,
+                    'Q_Density': float(q_dist) if q_dist != '-' else 0.0,
+                    'Result_Value': float(metric_value),
+                    'PK': supercon_node.pk
+                })
 
         if not flattened_list:
             warnings.warn("No successfully finished nodes with output metrics found.", stacklevel=2)
@@ -678,7 +638,6 @@ class SuperConData:
 
         df = pd.DataFrame(flattened_list)
 
-        # 3. Create the standard Parallel Coordinates plot
         fig = px.parallel_coordinates(
             df,
             dimensions=['Material_ID', 'Degauss', 'K_Density', 'Q_Density', 'Result_Value'],
@@ -687,15 +646,12 @@ class SuperConData:
             title="Superconducting Parameters Convergence Space"
         )
 
-        # 4. Inject the string names back into the Material axis
-        # We target the first dimension (index 0) which is 'Material_ID'
         fig.data[0].dimensions[0].update(
             tickvals=list(material_to_id.values()),
             ticktext=list(material_to_id.keys()),
             label='Material'
         )
         
-        # 5. Update other axis labels for clarity
         fig.data[0].dimensions[1].update(label='Degauss (Ry)')
         fig.data[0].dimensions[2].update(label='K-Point Dist')
         fig.data[0].dimensions[3].update(label='Q-Point Dist')
@@ -706,50 +662,38 @@ class SuperConData:
     def get_hiplot_experiment(self, target_metric='tc'):
         """
         Generates a HiPlot interactive experiment for the stored AiiDA nodes.
-        This provides both a parallel coordinates plot and a linked interactive table
-        for deep data inspection.
-
-        Args:
-            target_metric (str): The name of the output property to track.
-
-        Returns:
-            hiplot.Experiment: The HiPlot object ready to be displayed in Jupyter.
         """
         import hiplot as hip
         import warnings
 
         flattened_list = []
 
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_dict in k_dist_dict.items():
-                    for q_dist, supercon_node in q_dist_dict.items():
-                        
-                        if supercon_node and supercon_node.is_finished_ok:
-                            try:
-                                # Extract physical results
-                                result_dict = supercon_node.outputs.output_parameters.get_dict()
-                                metric_value = result_dict.get(target_metric, 0.0)
-                            except Exception as e:
-                                warnings.warn(f"Extraction failed for node<{supercon_node.pk}>: {e}", stacklevel=2)
-                                continue
-                            
-                            # Construct the data dictionary for this specific calculation line
-                            flattened_list.append({
-                                'Material': material,
-                                'Degauss': float(degauss),
-                                'K_Density': float(k_dist),
-                                'Q_Density': float(q_dist),
-                                'Result_Value': float(metric_value),
-                                'Node_PK': supercon_node.pk, # Explicitly store PK for inspection
-                                'UUID': supercon_node.uuid.split('-')[0] # Short UUID for quick reference
-                            })
+        for item in self._data:
+            supercon_node = item['node']
+            if supercon_node and supercon_node.is_finished_ok:
+                try:
+                    result_dict = supercon_node.outputs.output_parameters.get_dict()
+                    metric_value = result_dict.get(target_metric, 0.0)
+                except Exception as e:
+                    warnings.warn(f"Extraction failed for node<{supercon_node.pk}>: {e}", stacklevel=2)
+                    continue
+                
+                degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
+                
+                flattened_list.append({
+                    'Material': item['Material'],
+                    'Degauss': float(degauss) if degauss != '-' else 0.0,
+                    'K_Density': float(k_dist) if k_dist != '-' else 0.0,
+                    'Q_Density': float(q_dist) if q_dist != '-' else 0.0,
+                    'Result_Value': float(metric_value),
+                    'Node_PK': supercon_node.pk,
+                    'UUID': supercon_node.uuid.split('-')[0]
+                })
 
         if not flattened_list:
             warnings.warn("No valid data available for HiPlot.", stacklevel=2)
             return None
 
-        # Create and return the HiPlot experiment
         experiment = hip.Experiment.from_iterable(flattened_list)
         return experiment
 
@@ -757,7 +701,6 @@ class SuperConData:
         """
         Get Allen-Dynes superconducting critical temperatures.
         """
-        # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> AllenDynesTc
         allen_dynes_tcs = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
@@ -767,19 +710,15 @@ class SuperConData:
                 )
             )
         )
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_dict in k_dist_dict.items():
-                    
-                    if q_dist_dict:
-                        for q_dist, supercon_node in q_dist_dict.items():
-                            if supercon_node:
-                                analyser = SuperConWorkChainAnalyser(supercon_node)
-                                results = analyser.a2f_results
-                                if results:
-                                    allen_dynes_tcs[material][degauss][k_dist][q_dist] = results
+        for item in self._data:
+            supercon_node = item['node']
+            if supercon_node:
+                analyser = SuperConWorkChainAnalyser(supercon_node)
+                results = analyser.a2f_results
+                if results:
+                    degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
+                    allen_dynes_tcs[item['Material']][degauss][k_dist][q_dist] = results
         
-        # Convert nested defaultdict to regular dict for cleaner output
         def default_to_regular(d):
             if isinstance(d, defaultdict):
                 d = {k: default_to_regular(v) for k, v in d.items()}
@@ -791,7 +730,6 @@ class SuperConData:
         """
         Get a2f node.
         """
-        # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> AllenDynesTc
         nodes = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
@@ -803,17 +741,15 @@ class SuperConData:
                 )
             )
         )
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_dict in k_dist_dict.items():
-                    for q_dist, supercon_node in q_dist_dict.items():
-                        if supercon_node:
-                            analyser = SuperConWorkChainAnalyser(supercon_node)
-                            for link_label, value in analyser.conv.items():
-                                qf_dist = value.node.inputs.qfpoints_distance.value
-                                nodes[material][degauss][k_dist][q_dist][qf_dist] = value.node
+        for item in self._data:
+            supercon_node = item['node']
+            if supercon_node:
+                analyser = SuperConWorkChainAnalyser(supercon_node)
+                degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
+                for link_label, value in analyser.conv.items():
+                    qf_dist = value.node.inputs.qfpoints_distance.value
+                    nodes[item['Material']][degauss][k_dist][q_dist][qf_dist] = value.node
         
-        # Convert nested defaultdict to regular dict for cleaner output
         def default_to_regular(d):
             if isinstance(d, defaultdict):
                 d = {k: default_to_regular(v) for k, v in d.items()}
@@ -831,13 +767,15 @@ class SuperConData:
         import numpy
 
         # Identify all unique parameters to set up grid
-        materials = sorted(self._data.keys())
+        materials = sorted(list(set(item['Material'] for item in self._data)))
+        
         all_k_densities = set()
-        for mat in materials:
-            for d in self._data[mat].values():
-                 all_k_densities.update(d.keys())
-                 
-        k_densities = sorted(list(all_k_densities), reverse=True) # Sort descending
+        for item in self._data:
+            node = item['node']
+            if node:
+                _, k_dist, _ = self._extract_degauss_k_q(node)
+                all_k_densities.add(k_dist)
+        k_densities = sorted(list(all_k_densities), reverse=True)
 
         num_materials = len(materials)
         num_k_dens = len(k_densities)
@@ -856,75 +794,78 @@ class SuperConData:
         cmap = plt.get_cmap(cmap_name)
         
         for j, material in enumerate(materials):
-            degauss_dict = self._data[material]
+            material_items = [item for item in self._data if item['Material'] == material]
+            
+            all_degausses = set()
+            for item in material_items:
+                if item['node']:
+                    degauss, _, _ = self._extract_degauss_k_q(item['node'])
+                    all_degausses.add(degauss)
+            sorted_degausses = sorted(list(all_degausses))
+            colors = cmap(numpy.linspace(0, 1, len(sorted_degausses)))
             
             for i, k_dist in enumerate(k_densities):
                 ax = axs[i, j]
-                
-                # Check if this K_Dist exists for this material (in any degauss group)
-                # Structure: Mat -> Degauss -> K_Dist
-                
                 found_data = False
-                sorted_degausses = sorted(degauss_dict.keys())
-                colors = cmap(numpy.linspace(0, 1, len(sorted_degausses)))
                 
                 for d_idx, degauss in enumerate(sorted_degausses):
-                    k_dist_dict = degauss_dict[degauss]
-                    
-                    if k_dist in k_dist_dict:
-                        q_dist_dict = k_dist_dict[k_dist]
-                        
-                        for q_dist, node in q_dist_dict.items():
-                            
-                            if node is None or not node.is_finished_ok:
-                                continue
-                            
-                            try:
-                                analyser = SuperConWorkChainAnalyser(node)
-                                workchains = [(None, analyser._latest_a2f_workchain())]
-                                if analyser.conv:
-                                    workchains = [
-                                        (analyser._qfpoints_distance(tree.node), tree.node)
-                                        for _, tree in analyser._finished_conv_items()
-                                    ]
-
-                                for qf_dist, workchain in workchains:
-                                    if workchain is None:
-                                        continue
-                                    a2f_data = _get_a2f_arraydata(workchain)
-                                    if a2f_data is None:
-                                        continue
-
-                                    w = a2f_data.get_array('frequency')
-                                    spectral = a2f_data.get_array('a2f')
-                                    label = f"D={degauss}, Q={q_dist}"
-                                    if qf_dist is not None:
-                                        label += f", Qf={qf_dist}"
-
-                                    if kwargs.get('do_a2f', True):
-                                        y_val = spectral
-                                        if len(spectral.shape) > 1:
-                                            if spectral.shape[1] > 9:
-                                                y_val = spectral[:, 9]
-                                            else:
-                                                y_val = spectral[:, 0]
-
-                                        ax.plot(
-                                            y_val,
-                                            w,
-                                            color=colors[d_idx],
-                                            label=label,
-                                        )
-                                    found_data = True
+                    matching_items = []
+                    for item in material_items:
+                        if item['node']:
+                            d, k, q = self._extract_degauss_k_q(item['node'])
+                            if d == degauss and k == k_dist:
+                                matching_items.append((item, q))
                                 
-                            except Exception as e:
-                                print(f"Error extracting/plotting for node {node.pk}: {e}")
-                                continue
+                    for item, q_dist in matching_items:
+                        node = item['node']
+                        if node is None or not node.is_finished_ok:
+                            continue
+                        
+                        try:
+                            analyser = SuperConWorkChainAnalyser(node)
+                            workchains = [(None, analyser._latest_a2f_workchain())]
+                            if analyser.conv:
+                                workchains = [
+                                    (analyser._qfpoints_distance(tree.node), tree.node)
+                                    for _, tree in analyser._finished_conv_items()
+                                ]
+
+                            for qf_dist, workchain in workchains:
+                                if workchain is None:
+                                    continue
+                                a2f_data = _get_a2f_arraydata(workchain)
+                                if a2f_data is None:
+                                    continue
+
+                                w = a2f_data.get_array('frequency')
+                                spectral = a2f_data.get_array('a2f')
+                                label = f"D={degauss}, Q={q_dist}"
+                                if qf_dist is not None:
+                                    label += f", Qf={qf_dist}"
+
+                                if kwargs.get('do_a2f', True):
+                                    y_val = spectral
+                                    if len(spectral.shape) > 1:
+                                        if spectral.shape[1] > 9:
+                                            y_val = spectral[:, 9]
+                                        else:
+                                            y_val = spectral[:, 0]
+
+                                    ax.plot(
+                                        y_val,
+                                        w,
+                                        color=colors[d_idx],
+                                        label=label,
+                                    )
+                                found_data = True
+                            
+                        except Exception as e:
+                            print(f"Error extracting/plotting for node {node.pk}: {e}")
+                            continue
 
                 if not found_data:
                     ax.text(0.5, 0.5, 'No Data', ha='center', va='center')
                 else:
-                    # Formatting
                     ax.set_title(f"{material}\nK={k_dist}")
                     if i == num_k_dens - 1:
                         ax.set_xlabel(r"$\alpha^2F$")
@@ -936,18 +877,215 @@ class SuperConData:
         return fig, axs
 
     def dump(self, dest:Path, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
-        for material, degauss_dict in self._data.items():
-            if degauss_list:
-                degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}
-            for degauss, k_dist_dict in degauss_dict.items():
-                if k_dist_list:
-                    k_dist_dict = {k: v for k, v in k_dist_dict.items() if k in k_dist_list}
-                for k_dist, q_dist_data in k_dist_dict.items():
-                    if q_dist_list:
-                        q_dist_data = {k: v for k, v in q_dist_data.items() if k in q_dist_list}
-                    for q_dist, epw_node in q_dist_data.items():
-                        if epw_node:
-                            analyser = SuperConWorkChainAnalyser(epw_node)
-                            analyser.copy_tree(
-                                dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
-                            )
+        for item in self._data:
+            material = item['Material']
+            epw_node = item['node']
+            
+            if epw_node:
+                degauss, k_dist, q_dist = self._extract_degauss_k_q(epw_node)
+                
+                if degauss_list and degauss not in degauss_list:
+                    continue
+                if k_dist_list and k_dist not in k_dist_list:
+                    continue
+                if q_dist_list and q_dist not in q_dist_list:
+                    continue
+                    
+                analyser = SuperConWorkChainAnalyser(epw_node)
+                analyser.copy_tree(
+                    dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
+                )
+
+    def show_interactive(self):
+        """
+        Displays an interactive Jupyter table of SuperConWorkChain nodes.
+        Clicking on a row triggers a Python callback to highlight that row
+        and display the node's full nested parameters in a collapsible HTML viewer.
+        """
+        import ipywidgets as widgets
+        from IPython.display import display
+        import pandas as pd
+        
+        df = self.get_table()
+        if df.empty:
+            print("No data available to display.")
+            return
+
+        node_map = {item['PK']: item['node'] for item in self._data if item['node'] is not None}
+        
+        details_output = widgets.Output()
+        
+        # Inject CSS to make it look premium
+        css_style = """
+        <style>
+        .supercon-table-header {
+            background-color: #2c3e50;
+            color: #ffffff;
+            font-weight: bold;
+            padding: 8px;
+            border-radius: 4px 4px 0 0;
+            display: flex;
+            align-items: center;
+        }
+        .supercon-table-row {
+            padding: 6px 8px;
+            border-bottom: 1px solid #ecf0f1;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.2s;
+        }
+        .supercon-table-row:hover {
+            background-color: #f8f9fa;
+        }
+        .supercon-selected-row {
+            background-color: #e8f4fd !important;
+            border-left: 4px solid #3498db;
+        }
+        .supercon-col-select { width: 80px; }
+        .supercon-col-pk { width: 80px; font-family: monospace; }
+        .supercon-col-material { width: 250px; font-weight: bold; }
+        .supercon-col-parent { width: 120px; font-family: monospace; }
+        .supercon-col-status { width: 150px; }
+        </style>
+        """
+        
+        def render_node_details(node):
+            import html
+            
+            def dict_to_html_details(data, name="Parameters"):
+                if isinstance(data, dict):
+                    if not data:
+                        return "<i style='color: #7f8c8d;'>(empty)</i>"
+                    html_str = f"<details style='margin: 4px 0 4px 12px; border: 1px solid #e0e0e0; border-radius: 4px;'>"
+                    html_str += f"<summary style='font-weight: 600; cursor: pointer; padding: 6px 10px; background-color: #f8f9fa; border-bottom: 1px solid #e0e0e0;'>{html.escape(name)} ({len(data)} items)</summary>"
+                    html_str += "<div style='padding: 8px 12px; background-color: #ffffff;'>"
+                    for k, v in sorted(data.items()):
+                        html_str += f"<div style='margin-bottom: 6px;'><b>{html.escape(k)}:</b> {dict_to_html_details(v, k)}</div>"
+                    html_str += "</div></details>"
+                    return html_str
+                elif isinstance(data, list):
+                    if not data:
+                        return "<i style='color: #7f8c8d;'>(empty)</i>"
+                    html_str = f"<details style='margin: 4px 0 4px 12px; border: 1px solid #e0e0e0; border-radius: 4px;'>"
+                    html_str += f"<summary style='font-weight: 600; cursor: pointer; padding: 6px 10px; background-color: #f8f9fa; border-bottom: 1px solid #e0e0e0;'>{html.escape(name)} [{len(data)} items]</summary>"
+                    html_str += "<div style='padding: 8px 12px; background-color: #ffffff;'>"
+                    for idx, item in enumerate(data):
+                        html_str += f"<div style='margin-bottom: 6px;'><b>[{idx}]:</b> {dict_to_html_details(item, f'[{idx}]')}</div>"
+                    html_str += "</div></details>"
+                    return html_str
+                else:
+                    if hasattr(data, 'pk'):
+                        return f"<span style='background: #eef2f7; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;'>Node &lt;{data.pk}&gt; ({data.process_label if hasattr(data, 'process_label') else data.__class__.__name__})</span>"
+                    return f"<span style='font-family: monospace; color: #2c3e50;'>{html.escape(str(data))}</span>"
+
+            inputs = {}
+            for link in node.base.links.get_incoming():
+                val = link.node
+                if hasattr(val, 'get_dict'):
+                    try: inputs[link.link_label] = val.get_dict()
+                    except Exception: inputs[link.link_label] = val
+                elif hasattr(val, 'value'):
+                    inputs[link.link_label] = val.value
+                else:
+                    inputs[link.link_label] = val
+            
+            outputs = {}
+            for link in node.base.links.get_outgoing():
+                val = link.node
+                if hasattr(val, 'get_dict'):
+                    try: outputs[link.link_label] = val.get_dict()
+                    except Exception: outputs[link.link_label] = val
+                elif hasattr(val, 'value'):
+                    outputs[link.link_label] = val.value
+                else:
+                    outputs[link.link_label] = val
+
+            html_content = f"<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; padding: 15px; border: 1px solid #dcdde1; border-radius: 6px; background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>"
+            html_content += f"<h3 style='margin-top: 0; color: #2f3640;'>Node Details: {node.process_label} &lt;{node.pk}&gt;</h3>"
+            html_content += f"<p style='margin: 5px 0 15px 0; font-size: 0.95em;'><b>Status:</b> {node.process_state.value} (Exit: {node.exit_status})</p>"
+            
+            html_content += dict_to_html_details(inputs, "Inputs")
+            html_content += "<div style='height: 10px;'></div>"
+            html_content += dict_to_html_details(outputs, "Outputs")
+            html_content += "</div>"
+            return html_content
+
+        headers = widgets.HTML(f"""
+        {css_style}
+        <div class="supercon-table-header">
+            <div class="supercon-col-select">Select</div>
+            <div class="supercon-col-pk">PK</div>
+            <div class="supercon-col-material">Material</div>
+            <div class="supercon-col-parent">Parent EPW</div>
+            <div class="supercon-col-status">Status</div>
+        </div>
+        """)
+        
+        row_widgets = {}
+        row_buttons = {}
+        
+        def select_row(selected_pk):
+            for pk, box in row_widgets.items():
+                btn = row_buttons[pk]
+                if pk == selected_pk:
+                    box.add_class('supercon-selected-row')
+                    btn.button_style = 'primary'
+                    btn.icon = 'check-circle'
+                else:
+                    box.remove_class('supercon-selected-row')
+                    btn.button_style = ''
+                    btn.icon = 'circle-o'
+                    
+            node = node_map.get(selected_pk)
+            with details_output:
+                details_output.clear_output()
+                if node:
+                    display(widgets.HTML(render_node_details(node)))
+
+        rows = []
+        for pk, row_data in df.iterrows():
+            parent_epw_val = str(row_data['parent_epw']) if pd.notna(row_data['parent_epw']) else 'N/A'
+            status_val = str(row_data['status'])
+            material_val = str(row_data['Material'])
+            
+            btn = widgets.Button(
+                description="",
+                icon="circle-o",
+                tooltip=f"Select Node {pk}",
+                layout=widgets.Layout(width='60px', height='28px')
+            )
+            
+            def make_handler(node_pk):
+                return lambda change: select_row(node_pk)
+            btn.on_click(make_handler(pk))
+            
+            pk_lbl = widgets.HTML(f"<div class='supercon-col-pk'>{pk}</div>")
+            mat_lbl = widgets.HTML(f"<div class='supercon-col-material'>{material_val}</div>")
+            parent_lbl = widgets.HTML(f"<div class='supercon-col-parent'>{parent_epw_val}</div>")
+            status_lbl = widgets.HTML(f"<div class='supercon-col-status'>{status_val}</div>")
+            
+            row_box = widgets.HBox(
+                [widgets.Box([btn], layout=widgets.Layout(width='80px')), pk_lbl, mat_lbl, parent_lbl, status_lbl],
+                layout=widgets.Layout(width='100%')
+            )
+            row_box.add_class('supercon-table-row')
+            
+            row_widgets[pk] = row_box
+            row_buttons[pk] = btn
+            rows.append(row_box)
+            
+        table_body = widgets.VBox(rows, layout=widgets.Layout(max_height='400px', overflow_y='auto', border='1px solid #ecf0f1', border_top='none', border_radius='0 0 4px 4px'))
+        
+        table_container = widgets.VBox([headers, table_body], layout=widgets.Layout(width='55%'))
+        
+        details_container = widgets.VBox([
+            widgets.HTML("<div style='font-size: 1.1em; font-weight: bold; margin-bottom: 8px; color: #2c3e50;'>Parameters Inspector</div>"),
+            details_output
+        ], layout=widgets.Layout(width='43%', margin='0 0 0 2%'))
+        
+        main_layout = widgets.HBox([table_container, details_container], layout=widgets.Layout(width='100%'))
+        
+        if not df.empty:
+            select_row(df.index[0])
+            
+        display(main_layout)
