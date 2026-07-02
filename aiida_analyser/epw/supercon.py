@@ -455,6 +455,51 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         the_table.scale(1, 1.2)
 
 
+    def inspect_aiida_node_details(pk_value):
+        """
+        Retrieves and displays deep system-level details of a specific AiiDA node,
+        including its repository path on the disk and its immediate descendants.
+
+        Args:
+            pk_value (int): The primary key of the AiiDA node to inspect.
+        """
+        from aiida import orm
+        import json
+
+        try:
+            node = orm.load_node(pk_value)
+        except Exception as e:
+            print(f"Error loading node {pk_value}: {e}")
+            return
+
+        print(f"--- Deep Inspection for Node PK: {node.pk} ({node.process_label}) ---")
+        print(f"Status: {node.process_state.value if node.is_terminated else 'Running'}")
+        
+        # 1. Hardware & File System Location
+        repo_folder = node.repository._repository_folder
+        print(f"\n[Storage Location]")
+        print(f"Raw Directory Path: {repo_folder.abspath}")
+        
+        # List files available in the repository
+        repo_files = node.repository.list_object_names()
+        print(f"Files in Repository: {', '.join(repo_files)}")
+
+        # 2. Descendant Nodes (Children calculations or outputs)
+        print(f"\n[Descendant Nodes]")
+        outgoing = node.get_outgoing().all()
+        if not outgoing:
+            print("No outgoing child nodes found.")
+        else:
+            for link in outgoing:
+                child = link.node
+                print(f" -> {link.link_label} | PK: {child.pk} | Type: {child.__class__.__name__}")
+
+        # 3. Execution Information (if it's a calculation job)
+        if isinstance(node, orm.CalcJobNode):
+            print(f"\n[Cluster Execution Details]")
+            print(f"Computer: {node.computer.label if node.computer else 'Local'}")
+            print(f"Job ID (Scheduler): {node.get_job_id()}")
+            
 class SuperConData:
 
     def __init__(self, groups=None):
@@ -498,21 +543,21 @@ class SuperConData:
         for grpname in self._groups:
             group = orm.load_group(grpname)
             for node in group.nodes:
+                extras = node.base.extras.all
+                self.check_protocol(node)
                 try:
-                    extras = node.base.extras.all
-                    self.check_protocol(node)
-                    
                     mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
-                    
-                    # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
-                    if node.process_label == 'SuperConWorkChain':
-                        if 'kpoints_distance_scf' in extras:
-                            self._data[mat_key][extras['degauss']][extras['kpoints_distance_scf']][extras['qpoints_distance']] = node
-                        else:
-                            self._data[mat_key][extras['degauss']][extras['kpoints_distance']][extras['qpoints_distance']] = node
-                except Exception as e:
-                    # Provide more context in error message
-                    raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+                except (KeyError, ValueError) as e:
+                    print(f"Error in node {node.pk}. Using formula as key {e}")
+                    mat_key = node.inputs.structure.get_formula()
+                    continue
+
+                # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> node
+                if node.process_label == 'SuperConWorkChain':
+                    if 'kpoints_distance_scf' in extras:
+                        self._data[mat_key][extras['degauss']][extras['kpoints_distance_scf']][extras['qpoints_distance']] = node
+                    else:
+                        self._data[mat_key][extras['degauss']][extras['kpoints_distance']][extras['qpoints_distance']] = node
 
     def get_table(self):
         import pandas as pd
@@ -569,6 +614,144 @@ class SuperConData:
         pivot_df = pivot_df.sort_index(axis=1)
 
         return pivot_df
+
+    def get_parallel_plot(self, target_metric='tc'):
+        """
+        Generates an interactive Plotly Parallel Coordinates plot for the stored nodes.
+        Filters out unfinished or failed calculations.
+
+        Args:
+            target_metric (str): The name of the output property to use for color mapping.
+
+        Returns:
+            plotly.graph_objs._figure.Figure: The Plotly figure object, or None if empty.
+        """
+        import pandas as pd
+        import plotly.express as px
+        import plotly.graph_objects as go
+        import warnings
+
+        flattened_list = []
+        
+        # 1. Map string materials to integers for Plotly's numeric axis requirement
+        materials = list(self._data.keys())
+        if not materials:
+            return None
+            
+        material_to_id = {mat: i for i, mat in enumerate(materials)}
+
+        # 2. Flatten the nested dictionary into a record list
+        for material, degauss_dict in self._data.items():
+            for degauss, k_dist_dict in degauss_dict.items():
+                for k_dist, q_dist_dict in k_dist_dict.items():
+                    for q_dist, supercon_node in q_dist_dict.items():
+                        
+                        # Only plot nodes that have successfully finished
+                        if supercon_node and supercon_node.is_finished_ok:
+                            
+                            # ---------------------------------------------------------
+                            # IMPORTANT: Extract your physical result here.
+                            # You will need to adapt 'output_parameters' and 'target_metric' 
+                            # to match the actual output schema of your SuperConWorkChain.
+                            # ---------------------------------------------------------
+                            try:
+                                # Assuming output is stored in a Dict node named 'output_parameters'
+                                result_dict = supercon_node.outputs.output_parameters.get_dict()
+                                metric_value = result_dict.get(target_metric, 0.0)
+                            except Exception as e:
+                                warnings.warn(f"Failed to extract metric from node<{supercon_node.pk}>: {e}", stacklevel=2)
+                                continue # Skip if we can't get the target metric
+                            
+                            flattened_list.append({
+                                'Material': material,
+                                'Material_ID': material_to_id[material],
+                                'Degauss': float(degauss),
+                                'K_Density': float(k_dist),
+                                'Q_Density': float(q_dist),
+                                'Result_Value': float(metric_value),
+                                'PK': supercon_node.pk
+                            })
+
+        if not flattened_list:
+            warnings.warn("No successfully finished nodes with output metrics found.", stacklevel=2)
+            return None
+
+        df = pd.DataFrame(flattened_list)
+
+        # 3. Create the standard Parallel Coordinates plot
+        fig = px.parallel_coordinates(
+            df,
+            dimensions=['Material_ID', 'Degauss', 'K_Density', 'Q_Density', 'Result_Value'],
+            color='Result_Value',
+            color_continuous_scale=px.colors.diverging.Tealrose,
+            title="Superconducting Parameters Convergence Space"
+        )
+
+        # 4. Inject the string names back into the Material axis
+        # We target the first dimension (index 0) which is 'Material_ID'
+        fig.data[0].dimensions[0].update(
+            tickvals=list(material_to_id.values()),
+            ticktext=list(material_to_id.keys()),
+            label='Material'
+        )
+        
+        # 5. Update other axis labels for clarity
+        fig.data[0].dimensions[1].update(label='Degauss (Ry)')
+        fig.data[0].dimensions[2].update(label='K-Point Dist')
+        fig.data[0].dimensions[3].update(label='Q-Point Dist')
+        fig.data[0].dimensions[4].update(label=f'Target Metric ({target_metric})')
+
+        return fig
+
+    def get_hiplot_experiment(self, target_metric='tc'):
+        """
+        Generates a HiPlot interactive experiment for the stored AiiDA nodes.
+        This provides both a parallel coordinates plot and a linked interactive table
+        for deep data inspection.
+
+        Args:
+            target_metric (str): The name of the output property to track.
+
+        Returns:
+            hiplot.Experiment: The HiPlot object ready to be displayed in Jupyter.
+        """
+        import hiplot as hip
+        import warnings
+
+        flattened_list = []
+
+        for material, degauss_dict in self._data.items():
+            for degauss, k_dist_dict in degauss_dict.items():
+                for k_dist, q_dist_dict in k_dist_dict.items():
+                    for q_dist, supercon_node in q_dist_dict.items():
+                        
+                        if supercon_node and supercon_node.is_finished_ok:
+                            try:
+                                # Extract physical results
+                                result_dict = supercon_node.outputs.output_parameters.get_dict()
+                                metric_value = result_dict.get(target_metric, 0.0)
+                            except Exception as e:
+                                warnings.warn(f"Extraction failed for node<{supercon_node.pk}>: {e}", stacklevel=2)
+                                continue
+                            
+                            # Construct the data dictionary for this specific calculation line
+                            flattened_list.append({
+                                'Material': material,
+                                'Degauss': float(degauss),
+                                'K_Density': float(k_dist),
+                                'Q_Density': float(q_dist),
+                                'Result_Value': float(metric_value),
+                                'Node_PK': supercon_node.pk, # Explicitly store PK for inspection
+                                'UUID': supercon_node.uuid.split('-')[0] # Short UUID for quick reference
+                            })
+
+        if not flattened_list:
+            warnings.warn("No valid data available for HiPlot.", stacklevel=2)
+            return None
+
+        # Create and return the HiPlot experiment
+        experiment = hip.Experiment.from_iterable(flattened_list)
+        return experiment
 
     def get_allen_dynes_tc(self):
         """
