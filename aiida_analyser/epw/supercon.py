@@ -594,7 +594,6 @@ class SuperConData(BaseGroupData):
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
-                'parent_epw': parent_epw,
                 'status': status_emoji,
                 'node': node,
             })
@@ -895,25 +894,22 @@ class SuperConData(BaseGroupData):
         plt.tight_layout()
         return fig, axs
 
-    def dump(self, dest:Path, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
-        for item in self._data:
-            material = item['Material']
-            epw_node = item['node']
-            
-            if epw_node:
-                degauss, k_dist, q_dist = self._extract_degauss_k_q(epw_node)
-                
-                if degauss_list and degauss not in degauss_list:
-                    continue
-                if k_dist_list and k_dist not in k_dist_list:
-                    continue
-                if q_dist_list and q_dist not in q_dist_list:
-                    continue
-                    
-                analyser = SuperConWorkChainAnalyser(epw_node)
-                analyser.copy_tree(
-                    dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
-                )
+    def dump(self, dest:Path|str,):
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'SuperConWorkChain'})
+
+        if type(dest) == str:
+            dest = Path(dest)
+        if not dest.exists():
+            dest.mkdir(parents=True)
+
+        for [node] in qb.all():
+            try:
+                analyser = SuperConWorkChainAnalyser(node)
+                analyser.copy_tree(dest / str(node.pk))
+            except Exception as e:
+                logging.warning(f"Failed to dump node {node.pk}: {e}")
 
     def show_interactive(self):
         """
@@ -1045,7 +1041,6 @@ class SuperConData(BaseGroupData):
             <div style="width: 80px; text-align: center; flex-shrink: 0;">Select</div>
             <div style="width: 80px; flex-shrink: 0; padding-left: 8px;">PK</div>
             <div style="width: 150px; flex-shrink: 0;">Material</div>
-            <div style="width: 120px; flex-shrink: 0;">Parent EPW</div>
             <div style="width: 100px; flex-grow: 1;">Status</div>
         </div>
         """, layout=widgets.Layout(width='100%'))
@@ -1056,7 +1051,6 @@ class SuperConData(BaseGroupData):
             selected_pk = int(selected_pk)
             for pk, (btn, html_widget, row_box) in row_fields.items():
                 row_data = df.loc[pk]
-                parent_epw_val = str(row_data['parent_epw']) if pd.notna(row_data['parent_epw']) else 'N/A'
                 status_val = str(row_data['status'])
                 material_val = str(row_data['Material'])
                 
@@ -1076,7 +1070,6 @@ class SuperConData(BaseGroupData):
                 <div style="display: flex; align-items: center; background-color: {bg_color}; {border_style} width: 100%; height: 28px; box-sizing: border-box; overflow: hidden;">
                     <div style="width: 80px; flex-shrink: 0; font-family: monospace;">{pk}</div>
                     <div style="width: 150px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
-                    <div style="width: 120px; flex-shrink: 0; font-family: monospace;">{parent_epw_val}</div>
                     <div style="width: 100px; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{status_val}</div>
                 </div>
                 """

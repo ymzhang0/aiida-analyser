@@ -567,10 +567,7 @@ class EpwPrepData(BaseGroupData):
                             flattened_list.append({
                                 'PK': epw_node.pk,
                                 'Material': material,
-                                'Degauss': degauss,
-                                'K_Density': k_dist,
-                                'Q_Density': q_dist,
-                                'Status': self.get_status_string(epw_node),
+                                'status': self.get_status_string(epw_node),
                                 'node': epw_node,
                             })
         return flattened_list
@@ -762,10 +759,7 @@ class EpwPrepData(BaseGroupData):
         <div style="display: flex; align-items: center; background-color: #2c3e50; color: #ffffff; font-weight: bold; padding: 8px; border-radius: 4px 4px 0 0; width: 100%; box-sizing: border-box;">
             <div style="width: 80px; text-align: center; flex-shrink: 0;">Select</div>
             <div style="width: 80px; flex-shrink: 0; padding-left: 8px;">PK</div>
-            <div style="width: 140px; flex-shrink: 0;">Material</div>
-            <div style="width: 90px; flex-shrink: 0;">Degauss</div>
-            <div style="width: 90px; flex-shrink: 0;">K_Density</div>
-            <div style="width: 90px; flex-shrink: 0;">Q_Density</div>
+            <div style="width: 150px; flex-shrink: 0;">Material</div>
             <div style="width: 100px; flex-grow: 1;">Status</div>
         </div>
         """, layout=widgets.Layout(width='100%'))
@@ -777,10 +771,7 @@ class EpwPrepData(BaseGroupData):
             for pk, (btn, html_widget, row_box) in row_fields.items():
                 row_data = df.loc[pk]
                 material_val = str(row_data['Material'])
-                degauss_val = f"{row_data['Degauss']:.4f}" if isinstance(row_data['Degauss'], float) else str(row_data['Degauss'])
-                k_density_val = f"{row_data['K_Density']:.4f}" if isinstance(row_data['K_Density'], float) else str(row_data['K_Density'])
-                q_density_val = f"{row_data['Q_Density']:.4f}" if isinstance(row_data['Q_Density'], float) else str(row_data['Q_Density'])
-                status_val = str(row_data['Status'])
+                status_val = str(row_data['status'])
                 
                 if pk == selected_pk:
                     btn.button_style = 'success'
@@ -797,10 +788,7 @@ class EpwPrepData(BaseGroupData):
                 html_widget.value = f"""
                 <div style="display: flex; align-items: center; background-color: {bg_color}; {border_style} width: 100%; height: 28px; box-sizing: border-box; overflow: hidden;">
                     <div style="width: 80px; flex-shrink: 0; font-family: monospace;">{pk}</div>
-                    <div style="width: 140px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
-                    <div style="width: 90px; flex-shrink: 0;">{degauss_val}</div>
-                    <div style="width: 90px; flex-shrink: 0;">{k_density_val}</div>
-                    <div style="width: 90px; flex-shrink: 0;">{q_density_val}</div>
+                    <div style="width: 150px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
                     <div style="width: 100px; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{status_val}</div>
                 </div>
                 """
@@ -1041,24 +1029,19 @@ class EpwPrepData(BaseGroupData):
         plt.tight_layout()
         return fig, axs
 
-    def dump(self, dest:Path|str, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
+    def dump(self, dest:Path|str,):
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwPrepWorkChain'})
+
         if type(dest) == str:
             dest = Path(dest)
-        
         if not dest.exists():
             dest.mkdir(parents=True)
-        for material, degauss_dict in self._nested_data.items():
-            if degauss_list:
-                degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}
-            for degauss, k_dist_dict in degauss_dict.items():
-                if k_dist_list:
-                    k_dist_dict = {k: v for k, v in k_dist_dict.items() if k in k_dist_list}
-                for k_dist, q_dist_data in k_dist_dict.items():
-                    if q_dist_list:
-                        q_dist_data = {k: v for k, v in q_dist_data.items() if k in q_dist_list}
-                    for q_dist, epw_node in q_dist_data.items():
-                        if epw_node:
-                            analyser = EpwPrepWorkChainAnalyser(epw_node)
-                            analyser.copy_tree(
-                                dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
-                            )
+
+        for [node] in qb.all():
+            try:
+                analyser = EpwPrepWorkChainAnalyser(node)
+                analyser.copy_tree(dest / str(node.pk))
+            except Exception as e:
+                logging.warning(f"Failed to dump node {node.pk}: {e}")

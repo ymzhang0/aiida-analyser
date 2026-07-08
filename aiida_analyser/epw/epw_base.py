@@ -79,85 +79,10 @@ class EpwData(BaseGroupData):
             # Emojified Status
             status_emoji = self.get_status_string(node)
 
-            # Coarse Grid
-            coarse_k = None
-            if 'kpoints' in node.inputs:
-                try:
-                    coarse_k = "x".join(map(str, node.inputs.kpoints.get_kpoints_mesh()[0]))
-                except Exception:
-                    try:
-                        coarse_k = str(len(node.inputs.kpoints.get_kpoints()))
-                    except Exception:
-                        pass
-            coarse_q = None
-            if 'qpoints' in node.inputs:
-                try:
-                    coarse_q = "x".join(map(str, node.inputs.qpoints.get_kpoints_mesh()[0]))
-                except Exception:
-                    try:
-                        coarse_q = str(len(node.inputs.qpoints.get_kpoints()))
-                    except Exception:
-                        pass
-
-            # Fine Grid
-            fine_k = None
-            if 'kfpoints' in node.inputs:
-                try:
-                    fine_k = "x".join(map(str, node.inputs.kfpoints.get_kpoints_mesh()[0]))
-                except Exception:
-                    try:
-                        fine_k = str(len(node.inputs.kfpoints.get_kpoints()))
-                    except Exception:
-                        pass
-            elif 'kfpoints_factor' in node.inputs:
-                fine_k = f"{node.inputs.kfpoints_factor.value} × Δq"
-
-            fine_q = None
-            if 'qfpoints' in node.inputs:
-                try:
-                    fine_q = "x".join(map(str, node.inputs.qfpoints.get_kpoints_mesh()[0]))
-                except Exception:
-                    try:
-                        fine_q = str(len(node.inputs.qfpoints.get_kpoints()))
-                    except Exception:
-                        pass
-            elif 'qfpoints_distance' in node.inputs:
-                fine_q = f"Δq={node.inputs.qfpoints_distance.value}"
-
-
-            # Other inputs
-            restart_type = node.inputs.restart_type.value if 'restart_type' in node.inputs else '-'
-            calculation_type = node.inputs.calculation_type.value if 'calculation_type' in node.inputs else '-'
-            momentum_dependence = node.inputs.momentum_dependence.value if 'momentum_dependence' in node.inputs else '-'
-            full_bandwidth = node.inputs.full_bandwidth.value if 'full_bandwidth' in node.inputs else '-'
-            real_axis = node.inputs.real_axis.value if 'real_axis' in node.inputs else '-'
-            analytical_continuation = node.inputs.analytical_continuation.value if 'analytical_continuation' in node.inputs else '-'
-
-            try:
-                remote_folder = node.outputs.remote_folder.get_remote_path()
-            except Exception:
-                remote_folder = 'N/A'
-            # status string
-            if not node.is_terminated:
-                status_str = node.process_state.value
-            else:
-                status_str = f"{node.process_state.value} ({node.exit_status})"
-
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
-                'Calculation type': calculation_type,
-                'Restart type': restart_type,
-                'Coarse k': coarse_k or '?',
-                'Coarse q': coarse_q or '?',
-                'Fine k': fine_k or '?',
-                'Fine q': fine_q or '?',
-                'Momentum dependence': momentum_dependence,
-                'Fermi restriction': full_bandwidth,
-                'Real axis': real_axis,
-                'Analytical continuation': analytical_continuation,
                 'status': status_emoji,
-                'Remote path': remote_folder,
                 'node': node,
             })
 
@@ -309,10 +234,7 @@ class EpwData(BaseGroupData):
         <div style="display: flex; align-items: center; background-color: #2c3e50; color: #ffffff; font-weight: bold; padding: 8px; border-radius: 4px 4px 0 0; width: 100%; box-sizing: border-box;">
             <div style="width: 80px; text-align: center; flex-shrink: 0;">Select</div>
             <div style="width: 80px; flex-shrink: 0; padding-left: 8px;">PK</div>
-            <div style="width: 120px; flex-shrink: 0;">Material</div>
-            <div style="width: 130px; flex-shrink: 0;">Calc Type</div>
-            <div style="width: 90px; flex-shrink: 0;">Fine k</div>
-            <div style="width: 90px; flex-shrink: 0;">Fine q</div>
+            <div style="width: 150px; flex-shrink: 0;">Material</div>
             <div style="width: 100px; flex-grow: 1;">Status</div>
         </div>
         """, layout=widgets.Layout(width='100%'))
@@ -324,9 +246,6 @@ class EpwData(BaseGroupData):
             for pk, (btn, html_widget, row_box) in row_fields.items():
                 row_data = df.loc[pk]
                 material_val = str(row_data['Material'])
-                calc_type_val = str(row_data['Calculation type'])
-                fine_k_val = str(row_data['Fine k'])
-                fine_q_val = str(row_data['Fine q'])
                 status_val = str(row_data['status'])
                 
                 if pk == selected_pk:
@@ -344,10 +263,7 @@ class EpwData(BaseGroupData):
                 html_widget.value = f"""
                 <div style="display: flex; align-items: center; background-color: {bg_color}; {border_style} width: 100%; height: 28px; box-sizing: border-box; overflow: hidden;">
                     <div style="width: 80px; flex-shrink: 0; font-family: monospace;">{pk}</div>
-                    <div style="width: 120px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
-                    <div style="width: 130px; flex-shrink: 0;">{calc_type_val}</div>
-                    <div style="width: 90px; flex-shrink: 0; font-family: monospace;">{fine_k_val}</div>
-                    <div style="width: 90px; flex-shrink: 0; font-family: monospace;">{fine_q_val}</div>
+                    <div style="width: 150px; flex-shrink: 0; font-weight: bold;">{material_val}</div>
                     <div style="width: 100px; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{status_val}</div>
                 </div>
                 """
