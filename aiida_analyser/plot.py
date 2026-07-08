@@ -691,7 +691,7 @@ def plot_iso_gap_function(
 
     ax1.set_title("Superconducting Gap vs. Temperature", fontsize=font)
     ax1.set_xlabel("Temeperature (K)", fontsize=font)
-    ax1.set_xlim(0, tempmax)
+    ax1.set_xlim(0, tempmax*1.1)
     ax1.set_ylabel(r"$\Delta_0$ (meV)", fontsize=font)
     ax1.tick_params(axis="y", labelsize=font)
     ax1.tick_params(axis="x", labelsize=font)
@@ -719,6 +719,7 @@ def plot_iso_gap_function(
                 c="r",
                 label="Fit",
             )
+            ax1.set_xlim(0, Tc*1.1)
         except Exception as e:
             print(f"BCS fit failed: {e}")
 
