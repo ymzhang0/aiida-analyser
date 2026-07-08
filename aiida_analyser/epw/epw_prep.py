@@ -520,7 +520,7 @@ class EpwPrepData(BaseGroupData):
     def __init__(self, groups=None):
         super().__init__(groups)
         # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> Node
-        self._data = defaultdict(
+        self._nested_data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
                     lambda: defaultdict(
@@ -530,6 +530,7 @@ class EpwPrepData(BaseGroupData):
             )
         )
         self.get_data()
+        self._data = self._flatten_data()
 
     @staticmethod
     def check_protocol(node):
@@ -551,10 +552,28 @@ class EpwPrepData(BaseGroupData):
                     
                     # Structure: Material -> Degauss -> K_Dist -> ...
                     if node.process_label in ['EpwPrepWorkChain']:
-                        self._data[mat_key][degauss][kpoints_distance][qpoints_distance] = node
+                        self._nested_data[mat_key][degauss][kpoints_distance][qpoints_distance] = node
                 except Exception as e:
                     # Provide more context in error message
                     raise ValueError(f'Node<{node.pk}> processing failed: {e}')
+
+    def _flatten_data(self):
+        flattened_list = []
+        for material, degauss_dict in self._nested_data.items():
+            for degauss, k_dist_dict in degauss_dict.items():
+                for k_dist, q_dist_data in k_dist_dict.items():
+                    for q_dist, epw_node in q_dist_data.items():
+                        if epw_node:
+                            flattened_list.append({
+                                'PK': epw_node.pk,
+                                'Material': material,
+                                'Degauss': degauss,
+                                'K_Density': k_dist,
+                                'Q_Density': q_dist,
+                                'Status': self.get_status_string(epw_node),
+                                'node': epw_node,
+                            })
+        return flattened_list
 
     def get_table(self):
         import pandas as pd
@@ -581,7 +600,7 @@ class EpwPrepData(BaseGroupData):
 
         # Loop variables matching new dictionary structure:
         # Material -> Degauss -> K_Dist -> {'relax': ..., 'q_dist': ...}
-        for material, degauss_dict in self._data.items():
+        for material, degauss_dict in self._nested_data.items():
             for degauss, k_dist_dict in degauss_dict.items():
                 for k_dist, q_dist_data in k_dist_dict.items():
                     for q_dist, epw_node in q_dist_data.items():
@@ -614,24 +633,6 @@ class EpwPrepData(BaseGroupData):
 
         return pivot_df
 
-    def _flatten_data_flat(self):
-        flattened_list = []
-        for material, degauss_dict in self._data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_data in k_dist_dict.items():
-                    for q_dist, epw_node in q_dist_data.items():
-                        if epw_node:
-                            flattened_list.append({
-                                'PK': epw_node.pk,
-                                'Material': material,
-                                'Degauss': degauss,
-                                'K_Density': k_dist,
-                                'Q_Density': q_dist,
-                                'Status': self.get_status_string(epw_node),
-                                'node': epw_node,
-                            })
-        return flattened_list
-
     def show_interactive(self):
         """
         Displays an interactive Jupyter table of EpwPrepWorkChain nodes.
@@ -642,7 +643,7 @@ class EpwPrepData(BaseGroupData):
         from IPython.display import display
         import pandas as pd
         
-        flat_data = self._flatten_data_flat()
+        flat_data = self._data
         if not flat_data:
             print("No data available to display.")
             return
@@ -870,7 +871,7 @@ class EpwPrepData(BaseGroupData):
                 )
             )
         )
-        for material, degauss_dict in self._data.items():
+        for material, degauss_dict in self._nested_data.items():
             for degauss, k_dist_dict in degauss_dict.items():
                 for k_dist, q_dist_dict in k_dist_dict.items():
                     for q_dist, node in q_dist_dict.items():
@@ -892,7 +893,7 @@ class EpwPrepData(BaseGroupData):
     def plot_elbands(self):
         import matplotlib.pyplot as plt
 
-        materials = sorted(self._data.keys())
+        materials = sorted(self._nested_data.keys())
         num_materials = len(materials)
         if num_materials == 0:
             print("No data to plot.")
@@ -902,7 +903,7 @@ class EpwPrepData(BaseGroupData):
         # axs = axs.flatten()
 
         for i, material in enumerate(materials):
-            degauss_dict = self._data[material]
+            degauss_dict = self._nested_data[material]
             
             cmap = plt.get_cmap('Blues')
             blues = cmap(numpy.linspace(0.3, 1.0, 5)).tolist()
@@ -945,10 +946,10 @@ class EpwPrepData(BaseGroupData):
         import numpy
 
         # Identify all unique parameters to set up grid
-        materials = sorted(self._data.keys())
+        materials = sorted(self._nested_data.keys())
         all_k_densities = set()
         for mat in materials:
-            for d in self._data[mat].values():
+            for d in self._nested_data[mat].values():
                  all_k_densities.update(d.keys())
                  
         k_densities = sorted(list(all_k_densities), reverse=True) # Sort descending
@@ -970,7 +971,7 @@ class EpwPrepData(BaseGroupData):
         cmap = plt.get_cmap(cmap_name)
         
         for j, material in enumerate(materials):
-            degauss_dict = self._data[material]
+            degauss_dict = self._nested_data[material]
             
             for i, k_dist in enumerate(k_densities):
                 ax = axs[i, j]
@@ -1046,7 +1047,7 @@ class EpwPrepData(BaseGroupData):
         
         if not dest.exists():
             dest.mkdir(parents=True)
-        for material, degauss_dict in self._data.items():
+        for material, degauss_dict in self._nested_data.items():
             if degauss_list:
                 degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}
             for degauss, k_dist_dict in degauss_dict.items():
