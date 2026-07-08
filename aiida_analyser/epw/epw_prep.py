@@ -21,6 +21,40 @@ def _get_a2f_arraydata(workchain: orm.WorkChainNode):
         return workchain.outputs.a2f
     return None
 
+
+def _safe_get_extras(node):
+    extras = node.base.extras.all
+    
+    # Formula
+    formula = extras.get('formula', None)
+    if formula is None:
+        if 'structure' in node.inputs:
+            try:
+                formula = node.inputs.structure.get_formula()
+            except Exception:
+                pass
+        if not formula:
+            formula = 'unknown'
+            
+    # Source DB & ID
+    source_db = extras.get('source_db', 'unknown')
+    source_id = extras.get('source_id', 'unknown')
+    mat_key = f"{source_db}-{source_id}-{formula}"
+    
+    # Degauss
+    degauss = extras.get('degauss', 'unknown')
+    
+    # K-point distance (can be stored as 'kpoints_distance_scf' or 'kpoints_distance')
+    kpoints_distance = extras.get('kpoints_distance_scf', None)
+    if kpoints_distance is None:
+        kpoints_distance = extras.get('kpoints_distance', 'unknown')
+        
+    # Q-point distance
+    qpoints_distance = extras.get('qpoints_distance', 'unknown')
+    
+    return mat_key, degauss, kpoints_distance, qpoints_distance
+
+
 class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwPrepWorkChain.
@@ -181,16 +215,14 @@ class EpwPrepConvergenceData:
             group = orm.load_group(grpname)
             for node in group.nodes:
                 try:
-                    extras = node.base.extras.all
                     self.check_protocol(node)
-                    
-                    mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
+                    mat_key, degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
                     
                     # Structure: Material -> Degauss -> K_Dist -> ...
                     if node.process_label in ['PwRelaxWorkChain']:
-                        self._data[mat_key][extras['degauss']][extras['kpoints_distance']]['PwRelaxWorkChain'] = node
+                        self._data[mat_key][degauss][kpoints_distance]['PwRelaxWorkChain'] = node
                     elif node.process_label in ['EpwPrepWorkChain']:
-                        self._data[mat_key][extras['degauss']][extras['kpoints_distance']]['q_dist'][extras['qpoints_distance']]['EpwPrepWorkChain'] = node
+                        self._data[mat_key][degauss][kpoints_distance]['q_dist'][qpoints_distance]['EpwPrepWorkChain'] = node
                 except Exception as e:
                     # Provide more context in error message
                     raise ValueError(f'Node<{node.pk}> processing failed: {e}')
@@ -514,14 +546,12 @@ class EpwPrepData(BaseGroupData):
             group = orm.load_group(grpname)
             for node in group.nodes:
                 try:
-                    extras = node.base.extras.all
                     self.check_protocol(node)
-                    
-                    mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
+                    mat_key, degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
                     
                     # Structure: Material -> Degauss -> K_Dist -> ...
                     if node.process_label in ['EpwPrepWorkChain']:
-                        self._data[mat_key][extras['degauss']][extras['kpoints_distance_scf']][extras['qpoints_distance']] = node
+                        self._data[mat_key][degauss][kpoints_distance][qpoints_distance] = node
                 except Exception as e:
                     # Provide more context in error message
                     raise ValueError(f'Node<{node.pk}> processing failed: {e}')
