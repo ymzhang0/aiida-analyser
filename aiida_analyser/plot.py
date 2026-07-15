@@ -644,14 +644,13 @@ def fitting_function(T, p, delta_zero, Tc):
 # Import gap-plotting and analysis functions from aiida-epw
 from aiida_epw.tools.plot import (
     plot_max_eigenvalue,
-    _iter_gap_functions,
+    _iter_iso_gap_data,
     gap_iso_imag_temp,
-    find_multigap_averages,
     plot_anisotropic_gap,
 )
 
 def plot_iso_gap_function(
-    iso_gap_function: orm.ArrayData,
+    iso_gap_function,
     axis=None,
     fit=False,
     p0=None,
@@ -670,8 +669,8 @@ def plot_iso_gap_function(
     imag_delta = []
     imag_temp = []
 
-    for temperature, array in _iter_gap_functions(iso_gap_function):
-        gap = array[0, -1] * 1000
+    for temperature, columns in _iter_iso_gap_data(iso_gap_function, source=source):
+        gap = columns["deltaw"][0] * 1000
         if numpy.isnan(gap):
             continue
         imag_delta.append(gap)  # Convert to meV

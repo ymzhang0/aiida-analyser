@@ -25,22 +25,6 @@ def _get_a2f_arraydata(workchain: orm.WorkChainNode):
 def _safe_get_extras(node):
     extras = node.base.extras.all
     
-    # Formula
-    formula = extras.get('formula', None)
-    if formula is None:
-        if 'structure' in node.inputs:
-            try:
-                formula = node.inputs.structure.get_formula()
-            except Exception:
-                pass
-        if not formula:
-            formula = 'unknown'
-            
-    # Source DB & ID
-    source_db = extras.get('source_db', 'unknown')
-    source_id = extras.get('source_id', 'unknown')
-    mat_key = f"{source_db}-{source_id}-{formula}"
-    
     # Degauss
     degauss = extras.get('degauss', 'unknown')
     
@@ -52,7 +36,7 @@ def _safe_get_extras(node):
     # Q-point distance
     qpoints_distance = extras.get('qpoints_distance', 'unknown')
     
-    return mat_key, degauss, kpoints_distance, qpoints_distance
+    return degauss, kpoints_distance, qpoints_distance
 
 
 class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
@@ -515,6 +499,7 @@ class EpwPrepConvergenceData:
                                 dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
                             )
 
+
 class EpwPrepData(BaseGroupData):
 
     def __init__(self, groups=None):
@@ -546,89 +531,66 @@ class EpwPrepData(BaseGroupData):
         for grpname in self._groups:
             group = orm.load_group(grpname)
             for node in group.nodes:
+                formula = 'N/A'
+                if 'structure' in node.inputs:
+                    try:
+                        formula = node.inputs.structure.get_formula()
+                    except Exception:
+                        pass
+                if formula == 'N/A' and 'formula' in node.base.extras:
+                    formula = node.base.extras.get('formula')
                 try:
                     self.check_protocol(node)
-                    mat_key, degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
-                    
-                    # Structure: Material -> Degauss -> K_Dist -> ...
+                    degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
                     if node.process_label in ['EpwPrepWorkChain']:
-                        self._nested_data[mat_key][degauss][kpoints_distance][qpoints_distance] = node
+                        self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
                 except Exception as e:
-                    # Provide more context in error message
                     raise ValueError(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
+        from aiida import orm
         flattened_list = []
-        for material, degauss_dict in self._nested_data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_data in k_dist_dict.items():
-                    for q_dist, epw_node in q_dist_data.items():
-                        if epw_node:
-                            flattened_list.append({
-                                'PK': epw_node.pk,
-                                'Material': material,
-                                'status': self.get_status_string(epw_node),
-                                'node': epw_node,
-                            })
-        return flattened_list
 
+        if not self._groups:
+            return flattened_list
+
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwPrepWorkChain'})
+
+        flattened_list = []
+        for r in qb.all():
+            node = r[0]
+            # Material
+            formula = 'N/A'
+            if 'structure' in node.inputs:
+                try:
+                    formula = node.inputs.structure.get_formula()
+                except Exception:
+                    pass
+            if formula == 'N/A' and 'formula' in node.base.extras:
+                formula = node.base.extras.get('formula')
+
+            # Emojified Status
+            status_emoji = self.get_status_string(node)
+
+            flattened_list.append({
+                'PK': node.pk,
+                'Material': formula,
+                'status': status_emoji,
+                'node': node,
+            })
+
+        return flattened_list
     def get_table(self):
         import pandas as pd
-        import numpy as np
-
-        def get_status_string(node):
-            if node is None:
-                return 'N/A'
-
-            if not node.is_terminated:
-                return '⏳'
-            if node.is_finished_ok:
-                return '✅'
-            elif node.is_failed:
-                return f'❌ ({node.exit_status})'
-            elif node.is_excepted:
-                return '⚠️ Excepted'
-            elif node.is_killed:
-                return '💀 Killed'
-            else:
-                return f'🏃 {node.process_state.value}'
-
-        flattened_list = []
-
-        # Loop variables matching new dictionary structure:
-        # Material -> Degauss -> K_Dist -> {'relax': ..., 'q_dist': ...}
-        for material, degauss_dict in self._nested_data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for k_dist, q_dist_data in k_dist_dict.items():
-                    for q_dist, epw_node in q_dist_data.items():
-                        if epw_node:
-                            flattened_list.append({
-                                'Material': material,
-                                'Degauss': degauss,
-                                'K_Density': k_dist,
-                                'Q_Density': q_dist,
-                                'Type': 'EpwPrepWorkChain',
-                                'Status': get_status_string(epw_node) + f" ({epw_node.pk})",
-                            })
-                            
-
+        flattened_list = self._flatten_data()
         if not flattened_list:
             return pd.DataFrame()
-
         df = pd.DataFrame(flattened_list)
-        
-        pivot_df = df.pivot(
-            index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
-            columns='Material',
-            values='Status'
-        )
-
-        pivot_df = pivot_df.fillna('')
-
-        # Sort columns (Materials) alphabetically
-        pivot_df = pivot_df.sort_index(axis=1)
-
-        return pivot_df
+        if 'node' in df.columns:
+            df = df.drop(columns=['node'])
+        return df.set_index('PK') if 'PK' in df.columns else df
 
     def show_interactive(self):
         """
