@@ -11,9 +11,9 @@ def render_process_node_details(node, max_text_chars=120_000):
             "border-radius: 4px;"
         ), background
 
-    def read_repository_text(repo_node, filename):
+    def read_repository_text(repository, filename):
         try:
-            content = repo_node.get_object_content(filename)
+            content = repository.get_object_content(filename)
         except Exception as exc:
             return None, f"{exc.__class__.__name__}: {exc}"
 
@@ -60,11 +60,15 @@ def render_process_node_details(node, max_text_chars=120_000):
         )
 
     def render_repository(data, name):
-        if not hasattr(data, "list_object_names"):
+        if name != "retrieved":
+            return None
+
+        repository = getattr(getattr(data, "base", None), "repository", None)
+        if repository is None:
             return None
 
         try:
-            names = sorted(data.list_object_names())
+            names = sorted(repository.list_object_names())
         except Exception as exc:
             return (
                 "<span style='color: #c0392b;'>"
@@ -82,7 +86,7 @@ def render_process_node_details(node, max_text_chars=120_000):
             html_str += "<i style='color: #7f8c8d;'>(empty)</i>"
         for filename in names:
             escaped_filename = html.escape(filename)
-            content, error = read_repository_text(data, filename)
+            content, error = read_repository_text(repository, filename)
             if content is None:
                 html_str += (
                     "<div style='margin-bottom: 6px;'>"
