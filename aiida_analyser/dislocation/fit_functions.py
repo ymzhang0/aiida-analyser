@@ -156,7 +156,7 @@ fit_function_map = {
     'C1_b': {
         'gliding_system': C1bGlidingSystem,
         '100': {'110' : gamma_usf},
-        '011': {'100' : gamma_usf, '010': gamma_usf2, '210': gamma_usf2},
+        '011': {'100' : gamma_usf2_symmetric, '010': gamma_usf2_symmetric, '210': gamma_usf2_symmetric},
         '111': {'110' : gamma_esf2},
     },
     'L2_1': {

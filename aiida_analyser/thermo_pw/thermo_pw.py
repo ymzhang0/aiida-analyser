@@ -1,7 +1,7 @@
 from aiida import orm
 import numpy
-from .base import BaseWorkChainAnalyser
-from .groupdata import BaseGroupData
+from ..base import BaseWorkChainAnalyser
+from ..groupdata import BaseGroupData
 
 class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
     """
