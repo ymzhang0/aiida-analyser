@@ -236,7 +236,39 @@ class ThermoPwGroupData(BaseGroupData):
         dataframe = pd.DataFrame(self._data).drop(columns=['node'])
         return dataframe.set_index('PK').sort_index()
 
-    def get_table(self, display_mode='dataframe', *, max_height=600, page_size=25):
+    @staticmethod
+    def _filter_by_formula(dataframe, formula_contains=None, formula_match='any'):
+        """Filter rows by case-insensitive substrings in the material formula."""
+        if formula_contains is None or formula_contains == '':
+            return dataframe
+
+        terms = (
+            [formula_contains]
+            if isinstance(formula_contains, str)
+            else list(formula_contains)
+        )
+        terms = [str(term).strip().lower() for term in terms if str(term).strip()]
+        if not terms:
+            return dataframe
+        if formula_match not in {'any', 'all'}:
+            raise ValueError("formula_match must be either 'any' or 'all'")
+
+        formulas = dataframe['Material'].astype(str).str.lower()
+        masks = [formulas.str.contains(term, regex=False) for term in terms]
+        mask = masks[0]
+        for next_mask in masks[1:]:
+            mask = mask | next_mask if formula_match == 'any' else mask & next_mask
+        return dataframe.loc[mask]
+
+    def get_table(
+        self,
+        display_mode='dataframe',
+        *,
+        max_height=600,
+        page_size=25,
+        formula_contains=None,
+        formula_match='any',
+    ):
         """Return or display the ThermoPW table.
 
         :param display_mode: One of ``dataframe`` (return the normal DataFrame),
@@ -244,8 +276,16 @@ class ThermoPwGroupData(BaseGroupData):
             or ``interactive`` (searchable, paginated node browser).
         :param max_height: Maximum table height in pixels for scrollable modes.
         :param page_size: Initial number of rows per page in interactive mode.
+        :param formula_contains: A substring or iterable of substrings that must
+            occur in the material formula, matched case-insensitively.
+        :param formula_match: Use ``any`` to match at least one substring or
+            ``all`` to require every substring.
         """
-        dataframe = self._get_dataframe()
+        dataframe = self._filter_by_formula(
+            self._get_dataframe(),
+            formula_contains=formula_contains,
+            formula_match=formula_match,
+        )
         mode = 'dataframe' if display_mode is None else str(display_mode).lower()
 
         if mode in {'dataframe', 'default'}:
@@ -269,13 +309,25 @@ class ThermoPwGroupData(BaseGroupData):
             return None
 
         if mode == 'interactive':
-            return self.show_interactive(max_height=max_height, page_size=page_size)
+            return self.show_interactive(
+                max_height=max_height,
+                page_size=page_size,
+                formula_contains=formula_contains,
+                formula_match=formula_match,
+            )
 
         raise ValueError(
             "display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'"
         )
 
-    def show_interactive(self, *, max_height=600, page_size=25):
+    def show_interactive(
+        self,
+        *,
+        max_height=600,
+        page_size=25,
+        formula_contains=None,
+        formula_match='any',
+    ):
         """Display a searchable, paginated table with selectable node details."""
         try:
             import ipywidgets as widgets
@@ -285,7 +337,11 @@ class ThermoPwGroupData(BaseGroupData):
                 'Interactive display requires IPython and ipywidgets.'
             ) from exception
 
-        dataframe = self._get_dataframe()
+        dataframe = self._filter_by_formula(
+            self._get_dataframe(),
+            formula_contains=formula_contains,
+            formula_match=formula_match,
+        )
         if dataframe.empty:
             display(HTML('<i>No ThermoPW data available.</i>'))
             return None
@@ -294,6 +350,11 @@ class ThermoPwGroupData(BaseGroupData):
         search = widgets.Text(
             placeholder='Filter by PK, material, source, process, or status',
             description='Search:',
+            layout=widgets.Layout(width='100%'),
+        )
+        formula_search = widgets.Text(
+            placeholder='Filter material formulas, e.g. Fe',
+            description='Formula:',
             layout=widgets.Layout(width='100%'),
         )
         rows_per_page = widgets.Dropdown(
@@ -315,14 +376,21 @@ class ThermoPwGroupData(BaseGroupData):
         }
 
         def filter_dataframe():
+            filtered = dataframe
+            formula_query = formula_search.value.strip()
+            if formula_query:
+                filtered = self._filter_by_formula(
+                    filtered,
+                    formula_contains=formula_query,
+                )
             query = search.value.strip().lower()
             if not query:
-                return dataframe
-            searchable = dataframe.reset_index().astype(str)
+                return filtered
+            searchable = filtered.reset_index().astype(str)
             mask = searchable.apply(
                 lambda column: column.str.lower().str.contains(query, regex=False)
             ).any(axis=1)
-            return dataframe.iloc[mask.to_numpy()]
+            return filtered.iloc[mask.to_numpy()]
 
         def render_table(*_):
             filtered = filter_dataframe()
@@ -373,6 +441,7 @@ class ThermoPwGroupData(BaseGroupData):
             render_table()
 
         search.observe(reset_page, names='value')
+        formula_search.observe(reset_page, names='value')
         rows_per_page.observe(reset_page, names='value')
         node_selector.observe(render_details, names='value')
         previous_button.on_click(previous_page)
@@ -381,6 +450,7 @@ class ThermoPwGroupData(BaseGroupData):
 
         widget = widgets.VBox([
             search,
+            formula_search,
             widgets.HBox([rows_per_page, previous_button, next_button, page_label]),
             table_output,
             node_selector,

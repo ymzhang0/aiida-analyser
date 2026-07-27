@@ -65,3 +65,20 @@ def test_get_table_rejects_unknown_display_mode():
         assert 'display_mode' in str(exception)
     else:
         raise AssertionError('Expected an invalid display mode to raise ValueError')
+
+
+def test_get_table_filters_material_formula(monkeypatch):
+    nodes = [
+        make_node(1, formula='Fe2O3'),
+        make_node(2, formula='FeS2'),
+        make_node(3, formula='Al2O3'),
+    ]
+    monkeypatch.setattr(
+        'aiida_analyser.thermo_pw.thermo_pw.orm.load_group',
+        lambda label: SimpleNamespace(nodes=nodes),
+    )
+    data = ThermoPwGroupData(['thermo/group'])
+
+    assert list(data.get_table(formula_contains='fe').index) == [1, 2]
+    assert list(data.get_table(formula_contains=['Fe', 'O'], formula_match='all').index) == [1]
+    assert list(data.get_table(formula_contains=['Fe', 'Al']).index) == [1, 2, 3]
