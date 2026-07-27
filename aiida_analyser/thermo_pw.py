@@ -1,6 +1,7 @@
 from aiida import orm
 import numpy
 from .base import BaseWorkChainAnalyser
+from .groupdata import BaseGroupData
 
 class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
     """
@@ -159,3 +160,78 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
                 # print(f'RMS error for {x}-{y} is {RMS_error}')
                 RMS_errors[x][y] = RMS_error
         return RMS_errors
+
+
+class ThermoPwGroupData(BaseGroupData):
+    """Tabular view of ThermoPW work chains stored in AiiDA groups."""
+
+    _PROCESS_LABELS = {'Thermo_pwBaseWorkChain', 'ThermoPwBaseWorkChain'}
+
+    def __init__(self, groups=None):
+        super().__init__(groups)
+        self._data = self._flatten_data()
+
+    @staticmethod
+    def _get_structure(node):
+        """Return the input structure for supported ThermoPW namespaces."""
+        try:
+            return node.inputs.thermo_pw.structure
+        except (AttributeError, KeyError):
+            try:
+                return node.inputs.structure
+            except (AttributeError, KeyError):
+                return None
+
+    @classmethod
+    def _get_material(cls, node):
+        structure = cls._get_structure(node)
+        if structure is not None:
+            try:
+                return structure.get_formula()
+            except (AttributeError, ValueError):
+                pass
+        return node.base.extras.get('formula', 'N/A')
+
+    @classmethod
+    def _get_source(cls, node):
+        structure = cls._get_structure(node)
+        extras = structure.base.extras if structure is not None else None
+        if extras is not None:
+            source_db = extras.get('source_db', None)
+            source_id = extras.get('source_id', None)
+            if source_db is not None and source_id is not None:
+                return f'{source_db}-{source_id}'
+
+        source_db = node.base.extras.get('source_db', None)
+        source_id = node.base.extras.get('source_id', None)
+        if source_db is not None and source_id is not None:
+            return f'{source_db}-{source_id}'
+        return 'N/A'
+
+    def _flatten_data(self):
+        flattened_list = []
+        for group_label in self._groups:
+            group = orm.load_group(group_label)
+            for node in group.nodes:
+                process_label = getattr(node, 'process_label', '')
+                if process_label not in self._PROCESS_LABELS:
+                    continue
+                flattened_list.append({
+                    'PK': node.pk,
+                    'Material': self._get_material(node),
+                    'Source': self._get_source(node),
+                    'Process': process_label,
+                    'Status': self.get_status_string(node),
+                    'node': node,
+                })
+        return flattened_list
+
+    def get_table(self):
+        """Return one row per ThermoPW work chain, indexed by PK."""
+        import pandas as pd
+
+        if not self._data:
+            return pd.DataFrame(columns=['Material', 'Source', 'Process', 'Status'])
+
+        dataframe = pd.DataFrame(self._data).drop(columns=['node'])
+        return dataframe.set_index('PK').sort_index()

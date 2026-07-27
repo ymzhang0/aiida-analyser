@@ -66,6 +66,7 @@ _EXPORTS = {
     'SuperConWorkChainAnalyser': ('epw.supercon', 'SuperConWorkChainAnalyser', 'epw'),
     'SuperConData': ('epw.supercon', 'SuperConData', 'epw'),
     'ThermoPwBaseAnalyser': ('thermo_pw', 'ThermoPwBaseAnalyser', 'thermo'),
+    'ThermoPwGroupData': ('thermo_pw', 'ThermoPwGroupData', 'thermo'),
     'create_structure': ('structure', 'create_structure', 'structure'),
     'deprecated': ('deprecated', None, 'epw'),
     'read_labelinfo': ('wannier.io', 'read_labelinfo', None),
