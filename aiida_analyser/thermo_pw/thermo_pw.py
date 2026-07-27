@@ -1,7 +1,7 @@
 from aiida import orm
 import numpy
 from ..base import BaseWorkChainAnalyser
-from ..groupdata import BaseGroupData
+from ..groupdata import BaseGroupData, render_process_node_details
 
 class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
     """
@@ -226,8 +226,8 @@ class ThermoPwGroupData(BaseGroupData):
                 })
         return flattened_list
 
-    def get_table(self):
-        """Return one row per ThermoPW work chain, indexed by PK."""
+    def _get_dataframe(self):
+        """Build one row per ThermoPW work chain, indexed by PK."""
         import pandas as pd
 
         if not self._data:
@@ -235,3 +235,156 @@ class ThermoPwGroupData(BaseGroupData):
 
         dataframe = pd.DataFrame(self._data).drop(columns=['node'])
         return dataframe.set_index('PK').sort_index()
+
+    def get_table(self, display_mode='dataframe', *, max_height=600, page_size=25):
+        """Return or display the ThermoPW table.
+
+        :param display_mode: One of ``dataframe`` (return the normal DataFrame),
+            ``all`` (display every row), ``scroll`` (display a scrollable table),
+            or ``interactive`` (searchable, paginated node browser).
+        :param max_height: Maximum table height in pixels for scrollable modes.
+        :param page_size: Initial number of rows per page in interactive mode.
+        """
+        dataframe = self._get_dataframe()
+        mode = 'dataframe' if display_mode is None else str(display_mode).lower()
+
+        if mode in {'dataframe', 'default'}:
+            return dataframe
+
+        if mode == 'all':
+            import pandas as pd
+            from IPython.display import display
+
+            with pd.option_context('display.max_rows', None):
+                display(dataframe)
+            return None
+
+        if mode == 'scroll':
+            from IPython.display import HTML, display
+
+            display(HTML(
+                f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
+                f'{dataframe.to_html()}</div>'
+            ))
+            return None
+
+        if mode == 'interactive':
+            return self.show_interactive(max_height=max_height, page_size=page_size)
+
+        raise ValueError(
+            "display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'"
+        )
+
+    def show_interactive(self, *, max_height=600, page_size=25):
+        """Display a searchable, paginated table with selectable node details."""
+        try:
+            import ipywidgets as widgets
+            from IPython.display import HTML, display
+        except ImportError as exception:
+            raise ImportError(
+                'Interactive display requires IPython and ipywidgets.'
+            ) from exception
+
+        dataframe = self._get_dataframe()
+        if dataframe.empty:
+            display(HTML('<i>No ThermoPW data available.</i>'))
+            return None
+
+        valid_page_sizes = sorted({10, 25, 50, 100, int(page_size)})
+        search = widgets.Text(
+            placeholder='Filter by PK, material, source, process, or status',
+            description='Search:',
+            layout=widgets.Layout(width='100%'),
+        )
+        rows_per_page = widgets.Dropdown(
+            options=valid_page_sizes,
+            value=int(page_size),
+            description='Rows:',
+        )
+        previous_button = widgets.Button(description='Previous', icon='arrow-left')
+        next_button = widgets.Button(description='Next', icon='arrow-right')
+        page_label = widgets.HTML()
+        node_selector = widgets.Dropdown(description='Node:', options=[])
+        table_output = widgets.Output()
+        details_output = widgets.Output()
+        state = {'page': 0, 'filtered': dataframe}
+        node_map = {
+            int(item['PK']): item['node']
+            for item in self._data
+            if item.get('node') is not None
+        }
+
+        def filter_dataframe():
+            query = search.value.strip().lower()
+            if not query:
+                return dataframe
+            searchable = dataframe.reset_index().astype(str)
+            mask = searchable.apply(
+                lambda column: column.str.lower().str.contains(query, regex=False)
+            ).any(axis=1)
+            return dataframe.iloc[mask.to_numpy()]
+
+        def render_table(*_):
+            filtered = filter_dataframe()
+            state['filtered'] = filtered
+            size = rows_per_page.value
+            page_count = max(1, (len(filtered) + size - 1) // size)
+            state['page'] = min(state['page'], page_count - 1)
+            start = state['page'] * size
+            page = filtered.iloc[start:start + size]
+
+            previous_button.disabled = state['page'] == 0
+            next_button.disabled = state['page'] >= page_count - 1
+            page_label.value = (
+                f'<b>Page {state["page"] + 1} / {page_count}</b> '
+                f'({len(filtered)} rows)'
+            )
+            node_selector.options = [
+                (f'{pk}: {row["Material"]} — {row["Source"]}', int(pk))
+                for pk, row in page.iterrows()
+            ]
+
+            with table_output:
+                table_output.clear_output(wait=True)
+                display(HTML(
+                    f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
+                    f'{page.to_html()}</div>'
+                ))
+
+        def render_details(change):
+            if change.get('name') != 'value' or change.get('new') is None:
+                return
+            node = node_map.get(int(change['new']))
+            with details_output:
+                details_output.clear_output(wait=True)
+                if node is not None:
+                    display(HTML(render_process_node_details(node)))
+
+        def previous_page(_):
+            state['page'] = max(0, state['page'] - 1)
+            render_table()
+
+        def next_page(_):
+            state['page'] += 1
+            render_table()
+
+        def reset_page(*_):
+            state['page'] = 0
+            render_table()
+
+        search.observe(reset_page, names='value')
+        rows_per_page.observe(reset_page, names='value')
+        node_selector.observe(render_details, names='value')
+        previous_button.on_click(previous_page)
+        next_button.on_click(next_page)
+        render_table()
+
+        widget = widgets.VBox([
+            search,
+            widgets.HBox([rows_per_page, previous_button, next_button, page_label]),
+            table_output,
+            node_selector,
+            details_output,
+        ])
+        display(widget)
+        return widget

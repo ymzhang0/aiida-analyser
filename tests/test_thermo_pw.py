@@ -36,7 +36,7 @@ def test_get_table(monkeypatch):
         make_node(2, process_label='UnrelatedWorkChain'),
     ]
     monkeypatch.setattr(
-        'aiida_analyser.thermo_pw.orm.load_group',
+        'aiida_analyser.thermo_pw.thermo_pw.orm.load_group',
         lambda label: SimpleNamespace(nodes=nodes),
     )
 
@@ -56,3 +56,12 @@ def test_get_table_is_empty_without_groups():
     assert isinstance(table, pd.DataFrame)
     assert table.empty
     assert list(table.columns) == ['Material', 'Source', 'Process', 'Status']
+
+
+def test_get_table_rejects_unknown_display_mode():
+    try:
+        ThermoPwGroupData().get_table(display_mode='unknown')
+    except ValueError as exception:
+        assert 'display_mode' in str(exception)
+    else:
+        raise AssertionError('Expected an invalid display mode to raise ValueError')
