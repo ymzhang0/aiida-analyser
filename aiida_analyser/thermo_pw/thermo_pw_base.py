@@ -259,6 +259,9 @@ class ThermoPwGroupData(BaseGroupData):
                 except Exception:
                     pass
             data_list = filtered_list
+            
+        if not data_list:
+            return pd.DataFrame(columns=['PK', 'Material', 'Source', 'Process', 'Status']).set_index('PK')
 
         dataframe = pd.DataFrame(data_list).drop(columns=['node'])
         return dataframe.set_index('PK').sort_index()
