@@ -69,7 +69,10 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
 
     @property
     def is_stable(self):
-        return np.all(self.elastic_constants > 0)
+        elastic_constants = self.elastic_constants
+        if elastic_constants is None:
+            return False
+        return numpy.all(elastic_constants > 0)
 
     @property
     def bulk_modulus(self):
@@ -238,14 +241,26 @@ class ThermoPwGroupData(BaseGroupData):
                 })
         return flattened_list
 
-    def _get_dataframe(self):
+    def _get_dataframe(self, property_filter=None):
         """Build one row per ThermoPW work chain, indexed by PK."""
         import pandas as pd
 
         if not self._data:
             return pd.DataFrame(columns=['Material', 'Source', 'Process', 'Status'])
 
-        dataframe = pd.DataFrame(self._data).drop(columns=['node'])
+        data_list = self._data
+        if property_filter:
+            filtered_list = []
+            for item in data_list:
+                try:
+                    analyser = ThermoPwBaseAnalyser(item['node'])
+                    if getattr(analyser, property_filter, False):
+                        filtered_list.append(item)
+                except Exception:
+                    pass
+            data_list = filtered_list
+
+        dataframe = pd.DataFrame(data_list).drop(columns=['node'])
         return dataframe.set_index('PK').sort_index()
 
     @staticmethod
@@ -280,6 +295,7 @@ class ThermoPwGroupData(BaseGroupData):
         page_size=25,
         formula_contains=None,
         formula_match='any',
+        property_filter=None,
     ):
         """Return or display the ThermoPW table.
 
@@ -292,9 +308,11 @@ class ThermoPwGroupData(BaseGroupData):
             occur in the material formula, matched case-insensitively.
         :param formula_match: Use ``any`` to match at least one substring or
             ``all`` to require every substring.
+        :param property_filter: A string of a boolean property in ThermoPwBaseAnalyser
+            to filter the workchains (e.g. 'is_stable').
         """
         dataframe = self._filter_by_formula(
-            self._get_dataframe(),
+            self._get_dataframe(property_filter=property_filter),
             formula_contains=formula_contains,
             formula_match=formula_match,
         )
@@ -339,6 +357,7 @@ class ThermoPwGroupData(BaseGroupData):
         page_size=25,
         formula_contains=None,
         formula_match='any',
+        property_filter=None,
     ):
         """Display a searchable, paginated table with selectable node details."""
         try:
@@ -350,7 +369,7 @@ class ThermoPwGroupData(BaseGroupData):
             ) from exception
 
         dataframe = self._filter_by_formula(
-            self._get_dataframe(),
+            self._get_dataframe(property_filter=property_filter),
             formula_contains=formula_contains,
             formula_match=formula_match,
         )
