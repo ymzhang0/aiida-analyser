@@ -74,7 +74,14 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         elastic_constants = self.elastic_constants
         if elastic_constants is None:
             return False
-        return numpy.all(elastic_constants > 0)
+        try:
+            # Born stability criteria: elastic stiffness matrix must be positive definite
+            # (i.e., all eigenvalues must be positive).
+            # A simple > 0 check fails because the 6x6 matrix contains structural zeroes.
+            eigenvalues = numpy.linalg.eigvalsh(elastic_constants)
+            return numpy.all(eigenvalues > 0)
+        except Exception:
+            return False
 
     @property
     def bulk_modulus(self):
