@@ -2,12 +2,20 @@ from aiida import orm
 import numpy
 from ..base import BaseWorkChainAnalyser
 from ..groupdata import BaseGroupData, render_process_node_details
+from pathlib import Path
+from .thermo_pw_calculation import ThermoPwCalculationAnalyser
 
 class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the ThermoPwBaseWorkChain.
     """
-    
+    def copy_tree(self, destpath):
+        """Copy the tree by delegating each direct calcjob to its analyser."""
+        return self._copy_tree_for_direct_children(
+            destpath,
+            lambda _, child: ThermoPwCalculationAnalyser if child.node.process_label == 'Thermo_pwCalculation' else None,
+        )
+
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()
@@ -58,6 +66,10 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         if not self.node.is_finished_ok:
             return None
         return self.node.outputs.elastic_constants.get_array('elastic_constants')
+
+    @property
+    def is_stable(self):
+        return np.all(self.elastic_constants > 0)
 
     @property
     def bulk_modulus(self):
@@ -458,3 +470,20 @@ class ThermoPwGroupData(BaseGroupData):
         ])
         display(widget)
         return widget
+
+    def dump(self, dest:Path|str,):
+        qb = orm.QueryBuilder()
+        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
+        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'Thermo_pwBaseWorkChain'})
+
+        if type(dest) == str:
+            dest = Path(dest)
+        if not dest.exists():
+            dest.mkdir(parents=True)
+
+        for [node] in qb.all():
+            try:
+                analyser = ThermoPwBaseAnalyser(node)
+                analyser.copy_tree(dest / str(node.pk))
+            except Exception as e:
+                logging.warning(f"Failed to dump node {node.pk}: {e}")
