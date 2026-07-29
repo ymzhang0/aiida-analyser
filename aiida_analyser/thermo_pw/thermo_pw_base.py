@@ -65,6 +65,8 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         """Get the elastic constants of the workchain."""
         if not self.node.is_finished_ok:
             return None
+        if 'elastic_constants' not in self.node.outputs:
+            return None
         return self.node.outputs.elastic_constants.get_array('elastic_constants')
 
     @property
@@ -254,7 +256,22 @@ class ThermoPwGroupData(BaseGroupData):
             for item in data_list:
                 try:
                     analyser = ThermoPwBaseAnalyser(item['node'])
-                    if getattr(analyser, property_filter, False):
+                    if callable(property_filter):
+                        res = property_filter(analyser)
+                    elif isinstance(property_filter, str):
+                        prop = property_filter.strip()
+                        if prop.startswith('not '):
+                            res = not bool(getattr(analyser, prop[4:].strip(), False))
+                        elif prop.startswith('!'):
+                            res = not bool(getattr(analyser, prop[1:].strip(), False))
+                        elif prop.startswith('~'):
+                            res = not bool(getattr(analyser, prop[1:].strip(), False))
+                        else:
+                            res = bool(getattr(analyser, prop, False))
+                    else:
+                        res = False
+                    
+                    if res:
                         filtered_list.append(item)
                 except Exception:
                     pass
