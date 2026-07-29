@@ -273,7 +273,9 @@ class ThermoPwGroupData(BaseGroupData):
                     
                     if res:
                         filtered_list.append(item)
-                except Exception:
+                except Exception as e:
+                    import logging
+                    logging.warning(f"Error filtering node {item['PK']}: {e}")
                     pass
             data_list = filtered_list
             
