@@ -61,6 +61,19 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         return self.node.inputs.thermo_pw.code
 
     @property
+    def formula(self):
+        ase_atoms = self.node.inputs.thermo_pw.structure.get_ase()
+        return ase_atoms.get_chemical_formula()
+
+    @property
+    def symmetry(self):
+        from ase.spacegroup.symmetrize import check_symmetry
+
+        ase_atoms = self.node.inputs.thermo_pw.structure.get_ase()
+        symmetry = check_symmetry(ase_atoms, symprec=1e-6)
+        return symmetry
+
+    @property
     def elastic_constants(self):
         """Get the elastic constants of the workchain."""
         if not self.node.is_finished_ok:
