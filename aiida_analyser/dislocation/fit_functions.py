@@ -12,6 +12,8 @@ from aiida_dislocation.tools import (
     L21GlidingSystem,
 )
 
+from scipy.optimize import minimize_scalar
+
 
 def formula_to_latex(formula):
     latex_formula = re.sub(r'(\d+)', r'_{\1}', formula)
@@ -91,7 +93,6 @@ def gamma_isf(x, cGs, g_isf):
     """
     return sine_expansion(x, cGs) + g_isf * x
 
-
 def gamma_usf(x, cGs):
     """
     Calculates the value for the third region: 1 < x <= 2
@@ -167,7 +168,6 @@ fit_function_map = {
     },
 }
 
-
 def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
     """
     Fit a single GSFE curve using scipy's curve_fit and extract parameters.
@@ -210,9 +210,12 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         popt, _ = curve_fit(lambda x, *cGs: func(x, cGs, g_isf, g_esf), x, y, p0=[0.1] * order, maxfev=1000000)
         y_fit = func(x_plot, popt, g_isf, g_esf)
         y_fit_orig = func(x, popt, g_isf, g_esf)
-        results['usf'] = numpy.max(y_fit[:250]) * 1000.0
+        first_region = x_plot <= 0.5
+        second_region = x_plot >= 0.5
+
+        results['usf'] = numpy.max(y_fit[first_region]) * 1000.0
         results['isf'] = g_isf * 1000.0
-        results['ut'] = numpy.max(y_fit[250:]) * 1000.0
+        results['ut'] = numpy.max(y_fit[second_region]) * 1000.0
         results['esf'] = g_esf * 1000.0
 
     elif func == gamma_esf2:
@@ -248,11 +251,34 @@ def fit_gsfe(func, x, y, nsteps, x_plot, is_mJ=False, **kwargs):
         )
         y_fit = func(x_plot, popt, g_isf, g_esf)
         y_fit_orig = func(x, popt, g_isf, g_esf)
-        results['usf'] = numpy.max(y_fit[:250]) * 1000.0
-        results['isf'] = g_isf * 1000.0
-        results['ut'] = numpy.max(y_fit[250:]) * 1000.0
-        results['esf'] = g_esf * 1000.0
 
+        def fitted_function(x_value):
+            return func(
+                numpy.asarray([x_value]),
+                popt,
+                g_isf,
+                g_esf,
+            )[0]
+            
+        usf_opt = minimize_scalar(
+            lambda xx: -fitted_function(xx),
+            bounds=(0.0, 0.5),
+            method='bounded',
+        )
+
+        ut_opt = minimize_scalar(
+            lambda xx: -fitted_function(xx),
+            bounds=(0.5, 1.0),
+            method='bounded',
+        )
+
+        usf = max(-usf_opt.fun, g_isf)
+        ut = max(-ut_opt.fun, g_isf, g_esf)
+
+        results['usf'] = usf * 1000.0
+        results['isf'] = g_isf * 1000.0
+        results['ut'] = ut * 1000.0
+        results['esf'] = g_esf * 1000.0
     elif func == gamma_usf:
         order = kwargs.get('order', 4)
         popt, _ = curve_fit(lambda x, *cGs: func(x, cGs), x, y, p0=[0.1] * order, maxfev=100000)
