@@ -13,6 +13,8 @@ from aiida import orm
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData, render_process_node_details
 import logging
+from loguru import logger
+
 import itertools
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors

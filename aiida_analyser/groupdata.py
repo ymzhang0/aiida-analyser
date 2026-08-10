@@ -1,5 +1,5 @@
 from collections import defaultdict
-
+from loguru import logger
 
 def render_process_node_details(node, max_text_chars=120_000):
     """Render a process tree as collapsible HTML for notebook display."""
@@ -232,6 +232,7 @@ class BaseGroupData:
     def __init__(self, groups=None):
         self._groups = groups if groups is not None else []
         self._data = defaultdict(lambda: None)  # Subclasses should redefine this
+        logger.success(f"Groups imported {self._groups} successfully")
 
     @property
     def groups(self):
