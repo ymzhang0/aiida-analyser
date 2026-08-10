@@ -1,7 +1,7 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
 
-class Wannier90BaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class Wannier90BaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the Wannier90BaseWorkChain.
     This analyser handles a single Wannier90 base workchain,
@@ -38,4 +38,3 @@ class Wannier90BaseWorkChainAnalyser(BaseWorkChainAnalyser):
         message, success = super().clean_workchain(dry_run=dry_run)
 
         return message
-

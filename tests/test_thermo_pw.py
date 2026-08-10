@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from aiida_analyser.thermo_pw import ThermoPwGroupData
+from aiida_analyser.thermo_pw import Thermo_pwBaseGroup
 
 
 class Extras(dict):
@@ -36,11 +36,11 @@ def test_get_table(monkeypatch):
         make_node(2, process_label='UnrelatedWorkChain'),
     ]
     monkeypatch.setattr(
-        'aiida_analyser.thermo_pw.thermo_pw.orm.load_group',
+        'aiida_analyser.thermo_pw.thermo_pw_base.orm.load_group',
         lambda label: SimpleNamespace(nodes=nodes),
     )
 
-    table = ThermoPwGroupData(['thermo/group']).get_table()
+    table = Thermo_pwBaseGroup(['thermo/group']).get_table()
 
     assert list(table.index) == [1, 3]
     assert list(table.columns) == ['Material', 'Source', 'Process', 'Status']
@@ -51,16 +51,27 @@ def test_get_table(monkeypatch):
 
 
 def test_get_table_is_empty_without_groups():
-    table = ThermoPwGroupData().get_table()
+    table = Thermo_pwBaseGroup().get_table()
 
     assert isinstance(table, pd.DataFrame)
     assert table.empty
     assert list(table.columns) == ['Material', 'Source', 'Process', 'Status']
 
 
+def test_get_table_ignores_unsupported_thermopw_process_label(monkeypatch):
+    monkeypatch.setattr(
+        'aiida_analyser.thermo_pw.thermo_pw_base.orm.load_group',
+        lambda label: SimpleNamespace(nodes=[make_node(1, process_label='ThermoPwBaseWorkChain')]),
+    )
+
+    table = Thermo_pwBaseGroup(['thermo/group']).get_table()
+
+    assert table.empty
+
+
 def test_get_table_rejects_unknown_display_mode():
     try:
-        ThermoPwGroupData().get_table(display_mode='unknown')
+        Thermo_pwBaseGroup().get_table(display_mode='unknown')
     except ValueError as exception:
         assert 'display_mode' in str(exception)
     else:
@@ -74,10 +85,10 @@ def test_get_table_filters_material_formula(monkeypatch):
         make_node(3, formula='Al2O3'),
     ]
     monkeypatch.setattr(
-        'aiida_analyser.thermo_pw.thermo_pw.orm.load_group',
+        'aiida_analyser.thermo_pw.thermo_pw_base.orm.load_group',
         lambda label: SimpleNamespace(nodes=nodes),
     )
-    data = ThermoPwGroupData(['thermo/group'])
+    data = Thermo_pwBaseGroup(['thermo/group'])
 
     assert list(data.get_table(formula_contains='fe').index) == [1, 2]
     assert list(data.get_table(formula_contains=['Fe', 'O'], formula_match='all').index) == [1]

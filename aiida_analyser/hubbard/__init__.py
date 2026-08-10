@@ -1,6 +1,6 @@
-from .sc_hubbard import ScHubbardWorkChainAnalyser, ScHubbardGroup
+from .sc_hubbard import ScHubbardAnalyser, ScHubbardGroup
 
 __all__ = [
-    'ScHubbardWorkChainAnalyser',
+    'ScHubbardAnalyser',
     'ScHubbardGroup',
 ]

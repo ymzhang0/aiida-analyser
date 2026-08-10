@@ -1,8 +1,8 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
-from .matdyn_calculation import MatdynCalculationAnalyser
+from .matdyn_calculation import MatdynAnalyser
 
-class MatdynBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class MatdynBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the MatdynBaseWorkChain.
     """
@@ -11,13 +11,13 @@ class MatdynBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct MatdynCalculation child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: MatdynCalculationAnalyser if child.node.process_label == 'MatdynCalculation' else None,
+            lambda _, child: MatdynAnalyser if child.node.process_label == 'MatdynCalculation' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct MatdynCalculation child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: MatdynCalculationAnalyser if child.node.process_label == 'MatdynCalculation' else None,
+            lambda _, child: MatdynAnalyser if child.node.process_label == 'MatdynCalculation' else None,
         )
 
     def get_source(self):

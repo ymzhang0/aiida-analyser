@@ -1,7 +1,7 @@
 from collections import defaultdict
 from aiida import orm
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
 import logging
@@ -21,7 +21,7 @@ from aiida_dislocation.tools.structure_utils import (
     )
 from pathlib import Path
 
-class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
+class SurfaceEnergyAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the SurfaceWorkChain.
     """
@@ -32,11 +32,11 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf' or child_name.startswith('slab_') or child_name.startswith('spacing_')
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
@@ -47,11 +47,11 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf' or child_name.startswith('slab_') or child_name.startswith('spacing_')
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -122,16 +122,16 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         subprocesses = []
 
         for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
-            subprocesses.append((label, PwRelaxWorkChainAnalyser))
+            subprocesses.append((label, PwRelaxAnalyser))
 
         for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         for label in self._get_child_labels(
             prefixes=('slab_', 'spacing_'),
             process_label='PwBaseWorkChain',
         ):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         return self._get_state_from_subprocesses(subprocesses)
 
@@ -227,7 +227,7 @@ class SurfaceWorkChainAnalyser(BaseWorkChainAnalyser):
         )
         return ax
 
-class SurfaceEnergyData(BaseGroupData):
+class SurfaceEnergyGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -285,7 +285,7 @@ class SurfaceEnergyData(BaseGroupData):
                             gliding_plane = node.inputs.cleavaged_structure_data.gliding_plane
                         else:
                             raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'cleavaged_structure_data' found in inputs")
-                        a = SurfaceWorkChainAnalyser(node)
+                        a = SurfaceEnergyAnalyser(node)
                         energies_dict = a.get_surface_energies()
                         energies_dict['pk'] = node.pk
                         conv_thr = a.conv_thr
@@ -313,7 +313,7 @@ class SurfaceEnergyData(BaseGroupData):
                                         if pk != 'N/A':
                                             try:
                                                 node = orm.load_node(pk)
-                                                analyser = SurfaceWorkChainAnalyser(node)
+                                                analyser = SurfaceEnergyAnalyser(node)
                                                 conv_error = analyser.conv_error
                                                 if conv_error is not None:
                                                     conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
@@ -583,7 +583,7 @@ class SurfaceEnergyData(BaseGroupData):
                                         if pk:
                                             try:
                                                 actual_node = orm.load_node(pk)
-                                                analyser = SurfaceWorkChainAnalyser(actual_node)
+                                                analyser = SurfaceEnergyAnalyser(actual_node)
                                                 analyser.copy_tree(
                                                     dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{pk}"
                                                     )

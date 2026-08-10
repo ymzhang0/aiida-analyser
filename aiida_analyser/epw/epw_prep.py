@@ -6,10 +6,10 @@ import warnings
 from aiida import orm
 from ..quantumespresso.ph import check_stability_matdyn_base
 from ..base import BaseWorkChainAnalyser
-from ..wannier.wannier90 import Wannier90WorkChainAnalyser
-from ..quantumespresso.ph_base import PhBaseWorkChainAnalyser
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from .epw_base import EpwBaseWorkChainAnalyser
+from ..wannier.wannier90 import Wannier90Analyser
+from ..quantumespresso.ph_base import PhBaseAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from .epw_base import EpwBaseAnalyser
 from ..groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 from loguru import logger
@@ -38,7 +38,7 @@ def _safe_get_extras(node):
     
     return degauss, kpoints_distance, qpoints_distance
 
-class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwPrepAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwPrepWorkChain.
     """
@@ -49,13 +49,13 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'PhBaseWorkChain':
-                return PhBaseWorkChainAnalyser
+                return PhBaseAnalyser
             if process_label == 'EpwBaseWorkChain':
-                return EpwBaseWorkChainAnalyser
+                return EpwBaseAnalyser
             if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
-                return Wannier90WorkChainAnalyser
+                return Wannier90Analyser
             return None
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
@@ -66,13 +66,13 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'PhBaseWorkChain':
-                return PhBaseWorkChainAnalyser
+                return PhBaseAnalyser
             if process_label == 'EpwBaseWorkChain':
-                return EpwBaseWorkChainAnalyser
+                return EpwBaseAnalyser
             if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
-                return Wannier90WorkChainAnalyser
+                return Wannier90Analyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -95,7 +95,7 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
         if self.ph_base is None:
             raise AttributeError('ph_base is not found')
         else:
-            return PhBaseWorkChainAnalyser(self.process_tree.ph_base.node)
+            return PhBaseAnalyser(self.process_tree.ph_base.node)
 
     @property
     def epw_base(self):
@@ -120,10 +120,10 @@ class EpwPrepWorkChainAnalyser(BaseWorkChainAnalyser):
     def get_state(self):
         """Get the state of the workchain."""
         return self._get_state_from_subprocesses([
-            ('w90_bands', Wannier90WorkChainAnalyser),
-            ('ph_base', PhBaseWorkChainAnalyser),
-            ('epw_base', EpwBaseWorkChainAnalyser),
-            ('epw_bands', EpwBaseWorkChainAnalyser),
+            ('w90_bands', Wannier90Analyser),
+            ('ph_base', PhBaseAnalyser),
+            ('epw_base', EpwBaseAnalyser),
+            ('epw_bands', EpwBaseAnalyser),
         ])
 
     def check_stability_matdyn_base(self):
@@ -305,7 +305,7 @@ class EpwPrepConvergenceData:
                     for q_dist, types_dict in q_dist_data.items():
                         node = types_dict.get('EpwPrepWorkChain')
                         if node:
-                            analyser = EpwPrepWorkChainAnalyser(node)
+                            analyser = EpwPrepAnalyser(node)
                             try:
                                 nodes[material][degauss][k_dist][q_dist] = analyser.epw_bands
                             except Exception as e:
@@ -349,7 +349,7 @@ class EpwPrepConvergenceData:
                         if node and node.is_finished_ok:
                              # Use Analyser to get bands
                             try:
-                                analyser = EpwPrepWorkChainAnalyser(node)
+                                analyser = EpwPrepAnalyser(node)
 
                                 plot_epw_interpolated_bands(
                                     analyser.process_tree.epw_bands.node,
@@ -432,7 +432,7 @@ class EpwPrepConvergenceData:
                                 continue
                             
                             try:
-                                analyser = EpwPrepWorkChainAnalyser(node)
+                                analyser = EpwPrepAnalyser(node)
                                 a2f_data = _get_a2f_arraydata(analyser.epw_bands)
                                 if a2f_data is None:
                                     continue
@@ -492,16 +492,15 @@ class EpwPrepConvergenceData:
                     for q_dist, epw_dict in q_dist_data.items():
                         epw_node = epw_dict.get('EpwPrepWorkChain', None)
                         if epw_node:
-                            analyser = EpwPrepWorkChainAnalyser(epw_node)
+                            analyser = EpwPrepAnalyser(epw_node)
                             analyser.copy_tree(
                                 dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
                             )
 
-class EpwPrepData(BaseGroupData):
+class EpwPrepGroup(BaseGroupData):
 
-    analyser_class = EpwPrepWorkChainAnalyser
+    analyser_class = EpwPrepAnalyser
     dataframe_columns = ('Material', 'degauss', 'kpoints_distance_scf', 'qpoints_distance', 'status')
-    dump_process_labels = 'EpwPrepWorkChain'
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -515,6 +514,7 @@ class EpwPrepData(BaseGroupData):
                 )
             )
         )
+        self._flat_nodes = []
         self.get_data()
         self._data = self._flatten_data()
 
@@ -535,37 +535,22 @@ class EpwPrepData(BaseGroupData):
                 self.check_protocol(node)
                 degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
                 self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, qpoints_distance, node))
             except Exception as e:
                 logging.error(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
-        from aiida import orm
         flattened_list = []
-
-        if not self._groups:
-            return flattened_list
-
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwPrepWorkChain'})
-
-        flattened_list = []
-        for formula, degauss_dict in self._nested_data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for kpoints_distance_scf, q_dist_dict in k_dist_dict.items():
-                    for qpoints_distance, node in q_dist_dict.items():
-                        # Emojified Status
-                        status_emoji = self.get_status_string(node)
-
-                        flattened_list.append({
-                            'PK': node.pk,
-                            'Material': formula,
-                            'degauss': degauss,
-                            'kpoints_distance_scf': kpoints_distance_scf,
-                            'qpoints_distance': qpoints_distance,
-                            'status': status_emoji,
-                            'node': node,
-                        })
+        for formula, degauss, kpoints_distance_scf, qpoints_distance, node in self._flat_nodes:
+            flattened_list.append({
+                'PK': node.pk,
+                'Material': formula,
+                'degauss': degauss,
+                'kpoints_distance_scf': kpoints_distance_scf,
+                'qpoints_distance': qpoints_distance,
+                'status': self.get_status_string(node),
+                'node': node,
+            })
 
         return flattened_list
 
@@ -704,7 +689,7 @@ class EpwPrepData(BaseGroupData):
                 for k_dist, q_dist_dict in k_dist_dict.items():
                     for q_dist, node in q_dist_dict.items():
                         if node:
-                            analyser = EpwPrepWorkChainAnalyser(node)
+                            analyser = EpwPrepAnalyser(node)
                             try:
                                 nodes[material][degauss][k_dist][q_dist] = analyser.epw_bands
                             except Exception as e:
@@ -743,7 +728,7 @@ class EpwPrepData(BaseGroupData):
                     for q_dist, node in q_dist_dict.items():
                         if node and node.is_finished_ok:
                             try:
-                                analyser = EpwPrepWorkChainAnalyser(node)
+                                analyser = EpwPrepAnalyser(node)
 
                                 plot_epw_interpolated_bands(
                                     analyser.process_tree.epw_bands.node,
@@ -822,7 +807,7 @@ class EpwPrepData(BaseGroupData):
                                 continue
                             
                             try:
-                                analyser = EpwPrepWorkChainAnalyser(node)
+                                analyser = EpwPrepAnalyser(node)
                                 a2f_data = _get_a2f_arraydata(analyser.epw_bands)
                                 if a2f_data is None:
                                     continue

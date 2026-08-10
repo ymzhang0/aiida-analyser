@@ -7,7 +7,8 @@ from collections import defaultdict
 import warnings
 from ..groupdata import BaseGroupData, render_process_node_details
 from ..base import BaseWorkChainAnalyser
-from .epw_base import EpwBaseWorkChainAnalyser
+from .epw_base import EpwBaseAnalyser
+from .epw_prep import EpwPrepAnalyser
 from ..calculators import _calculate_iso_tc, check_convergence
 from ..quantumespresso.ph import check_stability_epw_bands
 from ..plot import (
@@ -54,7 +55,7 @@ def _safe_get_extras(node):
     
     return degauss, kpoints_distance, qpoints_distance
 
-class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
+class SuperConAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwSuperConWorkChain.
     """
@@ -63,13 +64,13 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct EpwBaseWorkChain child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: EpwBaseWorkChainAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
+            lambda _, child: EpwBaseAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct EpwBaseWorkChain child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: EpwBaseWorkChainAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
+            lambda _, child: EpwBaseAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
         )
 
 
@@ -161,9 +162,9 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     def get_state(self):
         """Get the state of the workchain."""
         subprocesses = [
-            *( (name, EpwBaseWorkChainAnalyser) for name, _ in sorted(self.conv.items()) ),
-            ('epw_final_iso', EpwBaseWorkChainAnalyser),
-            ('epw_final_aniso', EpwBaseWorkChainAnalyser),
+            *( (name, EpwBaseAnalyser) for name, _ in sorted(self.conv.items()) ),
+            ('epw_final_iso', EpwBaseAnalyser),
+            ('epw_final_aniso', EpwBaseAnalyser),
         ]
         return self._get_state_from_subprocesses(subprocesses)
 
@@ -232,7 +233,7 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         """Get the remote directory of the aniso workchain."""
         if not self.aniso:
             raise ValueError('No anisotropic EPW workchain found.')
-        paths = EpwBaseWorkChainAnalyser(self.aniso.node).get_calcjob_paths()
+        paths = EpwBaseAnalyser(self.aniso.node).get_calcjob_paths()
         if not paths:
             raise ValueError('No calcjob remote paths found under `epw_final_aniso`.')
         return list(paths.values())[-1]
@@ -536,10 +537,9 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             print(f"Computer: {node.computer.label if node.computer else 'Local'}")
             print(f"Job ID (Scheduler): {node.get_job_id()}")
             
-class SuperConData(BaseGroupData):
+class SuperConGroup(BaseGroupData):
 
-    analyser_class = SuperConWorkChainAnalyser
-    dump_process_labels = 'SuperConWorkChain'
+    analyser_class = SuperConAnalyser
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -638,7 +638,7 @@ class SuperConData(BaseGroupData):
             filtered_list = []
             for item in data_list:
                 try:
-                    analyser = EpwPrepWorkChainAnalyser(item['node'])
+                    analyser = EpwPrepAnalyser(item['node'])
                     if callable(property_filter):
                         res = property_filter(analyser)
                     elif isinstance(property_filter, str):
@@ -712,7 +712,7 @@ class SuperConData(BaseGroupData):
             occur in the material formula, matched case-insensitively.
         :param formula_match: Use ``any`` to match at least one substring or
             ``all`` to require every substring.
-        :param property_filter: A string of a boolean property in EpwPrepWorkChainAnalyser
+        :param property_filter: A string of a boolean property in EpwPrepAnalyser
             to filter the workchains (e.g. 'is_stable').
         """
         dataframe = self._filter_by_formula(
@@ -875,7 +875,7 @@ class SuperConData(BaseGroupData):
         for item in self._data:
             supercon_node = item['node']
             if supercon_node:
-                analyser = SuperConWorkChainAnalyser(supercon_node)
+                analyser = SuperConAnalyser(supercon_node)
                 results = analyser.a2f_results
                 if results:
                     degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
@@ -906,7 +906,7 @@ class SuperConData(BaseGroupData):
         for item in self._data:
             supercon_node = item['node']
             if supercon_node:
-                analyser = SuperConWorkChainAnalyser(supercon_node)
+                analyser = SuperConAnalyser(supercon_node)
                 degauss, k_dist, q_dist = self._extract_degauss_k_q(supercon_node)
                 for link_label, value in analyser.conv.items():
                     qf_dist = value.node.inputs.qfpoints_distance.value
@@ -984,7 +984,7 @@ class SuperConData(BaseGroupData):
                             continue
                         
                         try:
-                            analyser = SuperConWorkChainAnalyser(node)
+                            analyser = SuperConAnalyser(node)
                             workchains = [(None, analyser._latest_a2f_workchain())]
                             if analyser.conv:
                                 workchains = [

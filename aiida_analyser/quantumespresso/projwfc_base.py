@@ -1,9 +1,9 @@
 import logging
 
 from ..base import BaseWorkChainAnalyser
-from .projwfc_calculation import ProjwfcCalculationAnalyser
+from .projwfc_calculation import ProjwfcAnalyser
 
-class ProjwfcBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class ProjwfcBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the ProjwfcBaseWorkChain.
     This analyser handles a single Projwfc base workchain.
@@ -13,13 +13,13 @@ class ProjwfcBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct ProjwfcCalculation child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: ProjwfcCalculationAnalyser if child.node.process_label == 'ProjwfcCalculation' else None,
+            lambda _, child: ProjwfcAnalyser if child.node.process_label == 'ProjwfcCalculation' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct ProjwfcCalculation child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: ProjwfcCalculationAnalyser if child.node.process_label == 'ProjwfcCalculation' else None,
+            lambda _, child: ProjwfcAnalyser if child.node.process_label == 'ProjwfcCalculation' else None,
         )
 
     def get_source(self):

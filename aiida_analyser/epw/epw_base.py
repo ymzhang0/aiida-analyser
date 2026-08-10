@@ -1,11 +1,11 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
-from .epw_calculation import EpwCalculationAnalyser
+from .epw_calculation import EpwAnalyser
 from ..groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 import logging
 
-class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwBaseWorkChain.
     """
@@ -14,13 +14,13 @@ class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct EpwCalculation child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: EpwCalculationAnalyser if child.node.process_label == 'EpwCalculation' else None,
+            lambda _, child: EpwAnalyser if child.node.process_label == 'EpwCalculation' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct EpwCalculation child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: EpwCalculationAnalyser if child.node.process_label == 'EpwCalculation' else None,
+            lambda _, child: EpwAnalyser if child.node.process_label == 'EpwCalculation' else None,
         )
 
     def get_source(self):
@@ -44,13 +44,12 @@ class EpwBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         return message
 
 
-class EpwData(BaseGroupData):
+class EpwBaseGroup(BaseGroupData):
     """
     Data processor for EPW process groups.
     """
 
-    analyser_class = EpwBaseWorkChainAnalyser
-    dump_process_labels = 'EpwBaseWorkChain'
+    analyser_class = EpwBaseAnalyser
 
     def __init__(self, groups=None):
         super().__init__(groups)

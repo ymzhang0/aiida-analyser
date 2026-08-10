@@ -3,7 +3,7 @@ from pathlib import Path
 from ..base import BaseCalculationAnalyser
 
 
-class ThermoPwCalculationAnalyser(BaseCalculationAnalyser):
+class Thermo_pwAnalyser(BaseCalculationAnalyser):
     """Analyser for the PwCalculation calcjob."""
 
     def copy_tree(self, destpath: Path) -> Path:

@@ -8,10 +8,10 @@ from ..groupdata import BaseGroupData, render_process_node_details
 from aiida import orm
 
 from ..base import BaseWorkChainAnalyser
-from .ph_calculation import PhCalculationAnalyser
+from .ph_calculation import PhAnalyser
 from pathlib import Path
 
-class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class PhBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
     """
@@ -20,13 +20,13 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct PhCalculation child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: PhCalculationAnalyser if child.node.process_label == 'PhCalculation' else None,
+            lambda _, child: PhAnalyser if child.node.process_label == 'PhCalculation' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct PhCalculation child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PhCalculationAnalyser if child.node.process_label == 'PhCalculation' else None,
+            lambda _, child: PhAnalyser if child.node.process_label == 'PhCalculation' else None,
         )
 
     def merge_output_parameters(self):
@@ -194,10 +194,9 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         return message
 
 
-class PhData(BaseGroupData):
-    analyser_class = PhBaseWorkChainAnalyser
+class PhBaseGroup(BaseGroupData):
+    analyser_class = PhBaseAnalyser
     dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
-    dump_process_labels = 'PhBaseWorkChain'
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -208,6 +207,7 @@ class PhData(BaseGroupData):
                 )
             )
         )
+        self._flat_nodes = []
         self.get_data()
         self._data = self._flatten_data()
     
@@ -228,26 +228,21 @@ class PhData(BaseGroupData):
                 degauss = extras.get('degauss', 'unknown')
                 kpoints_distance = extras.get('kpoints_distance', 'unknown')
                 self._nested_data[formula][degauss][kpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, node))
             except Exception as e:
                 logging.error(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
         flattened_list = []
-        for formula, degauss_dict in self._nested_data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for kpoints_distance, node in k_dist_dict.items():
-
-                        # Emojified Status
-                        status_emoji = self.get_status_string(node)
-
-                        flattened_list.append({
-                            'PK': node.pk,
-                            'Material': formula,
-                            'degauss': degauss,
-                            'kpoints_distance': kpoints_distance,
-                            'status': status_emoji,
-                            'node': node,
-                        })
+        for formula, degauss, kpoints_distance, node in self._flat_nodes:
+            flattened_list.append({
+                'PK': node.pk,
+                'Material': formula,
+                'degauss': degauss,
+                'kpoints_distance': kpoints_distance,
+                'status': self.get_status_string(node),
+                'node': node,
+            })
 
         return flattened_list
 

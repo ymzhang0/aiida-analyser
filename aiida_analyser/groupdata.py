@@ -238,7 +238,6 @@ class BaseGroupData:
     analyser_class = None
     dataframe_columns = ()
     formula_column = 'Material'
-    dump_process_labels = None
 
     def __init__(self, groups=None):
         self._groups = groups if groups is not None else []
@@ -301,18 +300,30 @@ class BaseGroupData:
             except Exception as exc:
                 logger.warning(f'Failed to dump node {getattr(node, "pk", "N/A")}: {exc}')
 
-    def dump(self, dest):
-        """Dump configured process trees to ``dest/<node PK>``.
-
-        Subclasses opt in by defining ``dump_process_labels`` and
-        ``analyser_class``.  More specialised exporters can call
-        :meth:`_dump_nodes` with a custom node iterator or path builder.
-        """
-        if self.dump_process_labels is None:
+    def _iter_flattened_nodes(self):
+        """Yield nodes retained by a list-based flattened data representation."""
+        if not isinstance(self._data, list):
             raise NotImplementedError(
-                f'{self.__class__.__name__} must define dump_process_labels or override dump().'
+                f'{self.__class__.__name__} must provide list-based flattened data or override dump().'
             )
-        self._dump_nodes(dest, self.iter_group_nodes(self.dump_process_labels))
+
+        for row in self._data:
+            if 'node' not in row:
+                continue
+            nodes = row['node']
+            if isinstance(nodes, (list, tuple)):
+                yield from nodes
+            else:
+                yield nodes
+
+    def dump(self, dest):
+        """Dump the work-chain nodes retained in flattened group data.
+
+        Each flattened row identifies a node analysed by ``analyser_class``.
+        Specialised exporters can call :meth:`_dump_nodes` with a custom path
+        builder when their directory hierarchy carries domain information.
+        """
+        self._dump_nodes(dest, self._iter_flattened_nodes())
 
     @staticmethod
     def get_node_formula(node, default='N/A'):

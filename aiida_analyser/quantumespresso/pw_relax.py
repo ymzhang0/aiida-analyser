@@ -1,14 +1,14 @@
 from aiida import orm
 import logging
 from ..base import BaseWorkChainAnalyser
-from .pw_base import PwBaseWorkChainAnalyser
+from .pw_base import PwBaseAnalyser
 from ..groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 
 from collections import defaultdict
 from loguru import logger
 
-class PwRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
+class PwRelaxAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PwRelaxWorkChain.
     """
@@ -31,7 +31,7 @@ class PwRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
 
         for label in ('init_relax', 'base_init_relax'):
             if label in self.process_tree:
-                subprocesses.append((label, PwBaseWorkChainAnalyser))
+                subprocesses.append((label, PwBaseAnalyser))
 
         iteration_labels = sorted(
             (
@@ -40,14 +40,14 @@ class PwRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             ),
             key=lambda label: int(label.split('_')[1]),
         )
-        subprocesses.extend((label, PwBaseWorkChainAnalyser) for label in iteration_labels)
+        subprocesses.extend((label, PwBaseAnalyser) for label in iteration_labels)
 
         trailing_pw_bases = [
             child_name for child_name, child_tree in self.process_tree.children.items()
             if child_tree.node.process_label == 'PwBaseWorkChain'
             and child_name not in {name for name, _ in subprocesses}
         ]
-        subprocesses.extend((label, PwBaseWorkChainAnalyser) for label in trailing_pw_bases)
+        subprocesses.extend((label, PwBaseAnalyser) for label in trailing_pw_bases)
 
         return self._get_state_from_subprocesses(subprocesses)
 
@@ -55,13 +55,13 @@ class PwRelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct PwBaseWorkChain child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct PwBaseWorkChain child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
         )
 
 
@@ -76,11 +76,10 @@ def _safe_get_extras(node):
     return degauss, kpoints_distance
 
 
-class PwRelaxWorkChainData(BaseGroupData):
+class PwRelaxGroup(BaseGroupData):
 
-    analyser_class = PwRelaxWorkChainAnalyser
+    analyser_class = PwRelaxAnalyser
     dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
-    dump_process_labels = 'PwRelaxWorkChain'
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -92,6 +91,7 @@ class PwRelaxWorkChainData(BaseGroupData):
                 )
             )
         )
+        self._flat_nodes = []
         self.get_data()
         self._data = self._flatten_data()
 
@@ -112,25 +112,21 @@ class PwRelaxWorkChainData(BaseGroupData):
                 self.check_protocol(node)
                 degauss, kpoints_distance = _safe_get_extras(node)
                 self._nested_data[formula][degauss][kpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, node))
             except Exception as e:
                 logging.error(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
 
         flattened_list = []
-        for formula, degauss_dict in self._nested_data.items():
-            for degauss, k_dist_dict in degauss_dict.items():
-                for kpoints_distance, node in k_dist_dict.items():
-                        # Emojified Status
-                        status_emoji = self.get_status_string(node)
-
-                        flattened_list.append({
-                            'PK': node.pk,
-                            'Material': formula,
-                            'degauss': degauss,
-                            'kpoints_distance': kpoints_distance,
-                            'status': status_emoji,
-                            'node': node,
-                        })
+        for formula, degauss, kpoints_distance, node in self._flat_nodes:
+            flattened_list.append({
+                'PK': node.pk,
+                'Material': formula,
+                'degauss': degauss,
+                'kpoints_distance': kpoints_distance,
+                'status': self.get_status_string(node),
+                'node': node,
+            })
 
         return flattened_list

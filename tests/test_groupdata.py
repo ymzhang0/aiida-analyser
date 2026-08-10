@@ -32,7 +32,18 @@ class DumpAnalyser:
 
 class DumpGroupData(BaseGroupData):
     analyser_class = DumpAnalyser
-    dump_process_labels = 'Wanted'
+
+    def __init__(self):
+        super().__init__()
+        self._data = [
+            {
+                'PK': 12,
+                'node': [
+                    SimpleNamespace(pk=12, process_label='Wanted'),
+                    SimpleNamespace(pk=13, process_label='Wanted'),
+                ],
+            },
+        ]
 
 
 def test_tabular_group_data_filters_formula_and_properties():
@@ -55,15 +66,9 @@ def test_iter_group_nodes_filters_process_labels(monkeypatch):
     assert list(data.iter_group_nodes('Wanted')) == [nodes[0]]
 
 
-def test_dump_uses_declared_analyser_and_process_label(monkeypatch, tmp_path):
+def test_dump_uses_flattened_nodes(tmp_path):
     DumpAnalyser.copied_paths.clear()
-    wanted = SimpleNamespace(pk=12, process_label='Wanted')
-    monkeypatch.setattr(
-        'aiida.orm.load_group',
-        lambda _: SimpleNamespace(nodes=[wanted, SimpleNamespace(pk=13, process_label='Ignored')]),
-    )
-
-    data = DumpGroupData(['test/group'])
+    data = DumpGroupData()
     data.dump(tmp_path)
 
-    assert DumpAnalyser.copied_paths == [tmp_path / '12']
+    assert DumpAnalyser.copied_paths == [tmp_path / '12', tmp_path / '13']

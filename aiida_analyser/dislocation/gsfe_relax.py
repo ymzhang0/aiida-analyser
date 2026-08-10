@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import warnings
 from scipy.optimize import curve_fit, OptimizeWarning
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from ..constants import eVA22Jm2
 from aiida_dislocation.tools import (
     get_strukturbericht
@@ -39,7 +39,7 @@ import itertools
 
 from pathlib import Path
 
-class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
+class GSFERelaxAnalyser(BaseWorkChainAnalyser):
     """Analyser for the current `GSFERelaxWorkChain` output contract."""
 
     def copy_tree(self, destpath):
@@ -50,11 +50,11 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             if process_label == 'PwRelaxWorkChain' and (
                 child_name == 'relax' or child_name.startswith('structure_') or child_name.startswith('sfe_')
             ):
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf'
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
@@ -67,11 +67,11 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
             if process_label == 'PwRelaxWorkChain' and (
                 child_name == 'relax' or child_name.startswith('structure_') or child_name.startswith('sfe_')
             ):
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf'
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -139,16 +139,16 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         subprocesses = []
 
         for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
-            subprocesses.append((label, PwRelaxWorkChainAnalyser))
+            subprocesses.append((label, PwRelaxAnalyser))
 
         for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         for label in self._get_child_labels(
             prefixes=('structure_', 'sfe_'),
             process_label='PwBaseWorkChain',
         ):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         return self._get_state_from_subprocesses(subprocesses)
 
@@ -441,7 +441,7 @@ class GSFERelaxWorkChainAnalyser(BaseWorkChainAnalyser):
         return ax
 
 
-class GSFERelaxGroupData(BaseGroupData):
+class GSFERelaxGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -497,7 +497,7 @@ class GSFERelaxGroupData(BaseGroupData):
                         raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
 
                     kpoints_distance = node.inputs.kpoints_distance.value
-                    conv_thr = GSFERelaxWorkChainAnalyser(node).conv_thr
+                    conv_thr = GSFERelaxAnalyser(node).conv_thr
                     if conv_thr is None:
                         conv_thr = 1e-6
 
@@ -522,7 +522,7 @@ class GSFERelaxGroupData(BaseGroupData):
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
                                     if node.is_finished_ok:
-                                        analyser = GSFERelaxWorkChainAnalyser(node)
+                                        analyser = GSFERelaxAnalyser(node)
                                         conv_error = analyser.conv_error
                                         if conv_error is not None:
                                             conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
@@ -753,7 +753,7 @@ class GSFERelaxGroupData(BaseGroupData):
                                         if node and node.is_finished_ok:
                                             # print(node.pk, formula, plane)
                                             logging.info(f"Fitting node<{node.pk}> for {formula} {plane}")
-                                            analyser = GSFERelaxWorkChainAnalyser(node)
+                                            analyser = GSFERelaxAnalyser(node)
                                             results[struct][plane][formula] = analyser.fit_curve(
                                                 axis=ax,
                                                 plot=True,
@@ -815,7 +815,7 @@ class GSFERelaxGroupData(BaseGroupData):
         for i, k_dist in enumerate(sorted_k_dists):
             node = filtered_k_dists[k_dist]
             if node and node.is_finished_ok:
-                analyser = GSFERelaxWorkChainAnalyser(node)
+                analyser = GSFERelaxAnalyser(node)
                 color = cmap(norm(i))
 
                 if kwargs.get('fit', True):
@@ -882,7 +882,7 @@ class GSFERelaxGroupData(BaseGroupData):
             else:
                 node = kpoints_distances_dict[kpoints_distances]
             if node and node.is_finished_ok:
-                analyser = GSFERelaxWorkChainAnalyser(node)
+                analyser = GSFERelaxAnalyser(node)
                 color = cmap(norm(i))
 
                 if kwargs.get('fit', True):
@@ -934,7 +934,7 @@ class GSFERelaxGroupData(BaseGroupData):
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
                                     if node:
-                                        analyser = GSFERelaxWorkChainAnalyser(node)
+                                        analyser = GSFERelaxAnalyser(node)
                                         analyser.copy_tree(
                                             dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
                                             )

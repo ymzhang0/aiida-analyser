@@ -1,5 +1,5 @@
 from ..base import BaseCalculationAnalyser
 
 
-class ProjwfcCalculationAnalyser(BaseCalculationAnalyser):
+class ProjwfcAnalyser(BaseCalculationAnalyser):
     """Analyser for the ProjwfcCalculation calcjob."""

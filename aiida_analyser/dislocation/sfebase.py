@@ -1,10 +1,10 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
-from .layer_relax import LayerRelaxWorkChainAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
+from .layer_relax import LayerRelaxAnalyser
 
-class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class SFEBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the SFEBaseWorkChain.
     """
@@ -15,11 +15,11 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'RigidLayerRelaxWorkChain':
-                return LayerRelaxWorkChainAnalyser
+                return LayerRelaxAnalyser
             return None
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
@@ -30,11 +30,11 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'RigidLayerRelaxWorkChain':
-                return LayerRelaxWorkChainAnalyser
+                return LayerRelaxAnalyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -99,7 +99,7 @@ class SFEBaseWorkChainAnalyser(BaseWorkChainAnalyser):
         return min_x4, min_y4, poly4
 
     def get_energies(self):
-        layer_relax_analyser = LayerRelaxWorkChainAnalyser(self.layer_relax)
+        layer_relax_analyser = LayerRelaxAnalyser(self.layer_relax)
         return layer_relax_analyser.get_energies()
         
     def get_faulted_stacking_fault_energies(self):

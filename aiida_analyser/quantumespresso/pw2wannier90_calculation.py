@@ -1,5 +1,5 @@
 from ..base import BaseCalculationAnalyser
 
 
-class Pw2Wannier90CalculationAnalyser(BaseCalculationAnalyser):
+class Pw2Wannier90Analyser(BaseCalculationAnalyser):
     """Analyser for the Pw2wannier90Calculation calcjob."""

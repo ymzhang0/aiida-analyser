@@ -1,8 +1,8 @@
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from .sfebase import SFEBaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from .sfebase import SFEBaseAnalyser
 
-class ESFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
+class ESFEAnalyser(SFEBaseAnalyser):
     """
     Analyser for the ESFEWorkChain.
     """
@@ -22,10 +22,10 @@ class ESFEWorkChainAnalyser(SFEBaseWorkChainAnalyser):
     def get_state(self):
         """Get the state of the workchain."""
         return self._get_state_from_subprocesses([
-            ('relax', PwRelaxWorkChainAnalyser),
-            ('scf', PwBaseWorkChainAnalyser),
-            ('esfe', PwRelaxWorkChainAnalyser),
-            ('surface_energy', PwBaseWorkChainAnalyser),
+            ('relax', PwRelaxAnalyser),
+            ('scf', PwBaseAnalyser),
+            ('esfe', PwRelaxAnalyser),
+            ('surface_energy', PwBaseAnalyser),
         ])
 
     def calculate_esfe(self):

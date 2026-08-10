@@ -1,5 +1,5 @@
 from ..base import BaseCalculationAnalyser
 
 
-class DosCalculationAnalyser(BaseCalculationAnalyser):
+class DosAnalyser(BaseCalculationAnalyser):
     """Analyser for the DosCalculation calcjob."""

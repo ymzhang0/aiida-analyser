@@ -1,25 +1,25 @@
-from .layer_relax import LayerRelaxWorkChainAnalyser
-from .sfebase import SFEBaseWorkChainAnalyser
-from .isfe import ISFEWorkChainAnalyser
-from .esfe import ESFEWorkChainAnalyser
-from .usfe import USFEWorkChainAnalyser
-from .gsfe import GSFEWorkChainAnalyser, GSFEGroupData
-from .gsfe_latest import GSFEWorkChainAnalyserLatest, GSFEGroupDataLatest
-from .gsfe_relax import GSFERelaxWorkChainAnalyser, GSFERelaxGroupData
-from .surface import SurfaceWorkChainAnalyser, SurfaceEnergyData
+from .layer_relax import LayerRelaxAnalyser
+from .sfebase import SFEBaseAnalyser
+from .isfe import ISFEAnalyser
+from .esfe import ESFEAnalyser
+from .usfe import USFEAnalyser
+from .gsfe import GSFEAnalyser, GSFEGroup
+from .gsfe_latest import GSFEAnalyserLatest, GSFEGroupDataLatest
+from .gsfe_relax import GSFERelaxAnalyser, GSFERelaxGroup
+from .surface import SurfaceEnergyAnalyser, SurfaceEnergyGroup
 
 __all__ = [
-    'LayerRelaxWorkChainAnalyser',
-    'SFEBaseWorkChainAnalyser',
-    'ISFEWorkChainAnalyser',
-    'ESFEWorkChainAnalyser',
-    'USFEWorkChainAnalyser',
-    'GSFEWorkChainAnalyser',
-    'GSFEGroupData',
-    'GSFEWorkChainAnalyserLatest',
+    'LayerRelaxAnalyser',
+    'SFEBaseAnalyser',
+    'ISFEAnalyser',
+    'ESFEAnalyser',
+    'USFEAnalyser',
+    'GSFEAnalyser',
+    'GSFEGroup',
+    'GSFEAnalyserLatest',
     'GSFEGroupDataLatest',
-    'GSFERelaxWorkChainAnalyser',
-    'GSFERelaxGroupData',
-    'SurfaceWorkChainAnalyser',
-    'SurfaceEnergyData',
+    'GSFERelaxAnalyser',
+    'GSFERelaxGroup',
+    'SurfaceEnergyAnalyser',
+    'SurfaceEnergyGroup',
 ]

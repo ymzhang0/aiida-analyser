@@ -1,7 +1,7 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
-from .pw_base import PwBaseWorkChainAnalyser
+from .pw_base import PwBaseAnalyser
 from collections import defaultdict
 import logging
 from ..plot import plot_bands
@@ -10,7 +10,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
+class PwBandsAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PwBandsWorkChain.
     """
@@ -19,13 +19,13 @@ class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
         """Copy the tree by delegating each direct PwBaseWorkChain child."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
         )
 
     def get_calcjob_paths(self):
         """Get calcjob remote paths by delegating each direct PwBaseWorkChain child."""
         return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PwBaseWorkChainAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
+            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
         )
 
     def get_source(self):
@@ -86,7 +86,7 @@ class PwBandsWorkChainAnalyser(BaseWorkChainAnalyser):
         )
 
 
-class PwBandsGroupData(BaseGroupData):
+class PwBandsGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -191,7 +191,7 @@ class PwBandsGroupData(BaseGroupData):
                         if node and node.is_finished_ok:
                             color = next(base_colors)
                             logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc}")
-                            analyser = PwBandsWorkChainAnalyser(node)
+                            analyser = PwBandsAnalyser(node)
                             analyser.plot_bands(
                                 axis=ax,
                                 label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {with_soc}',
@@ -221,5 +221,5 @@ class PwBandsGroupData(BaseGroupData):
                     for node, with_soc in node_list:
                         if node and node.is_finished_ok:
                             logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc}")
-                            analyser = PwBandsWorkChainAnalyser(node)
+                            analyser = PwBandsAnalyser(node)
                             analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / str(with_soc).replace(' ', '_'))

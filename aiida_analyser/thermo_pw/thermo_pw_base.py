@@ -3,17 +3,17 @@ import numpy
 from ..base import BaseWorkChainAnalyser
 from ..groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
-from .thermo_pw_calculation import ThermoPwCalculationAnalyser
+from .thermo_pw_calculation import Thermo_pwAnalyser
 
-class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
+class Thermo_pwBaseAnalyser(BaseWorkChainAnalyser):
     """
-    Analyser for the ThermoPwBaseWorkChain.
+    Analyser for the Thermo_pwBaseWorkChain.
     """
     def copy_tree(self, destpath):
         """Copy the tree by delegating each direct calcjob to its analyser."""
         return self._copy_tree_for_direct_children(
             destpath,
-            lambda _, child: ThermoPwCalculationAnalyser if child.node.process_label == 'Thermo_pwCalculation' else None,
+            lambda _, child: Thermo_pwAnalyser if child.node.process_label == 'Thermo_pwCalculation' else None,
         )
 
     def get_source(self):
@@ -36,12 +36,12 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         """Print the state of the workchain."""
         result = self.get_state()
         if not result:
-            print(f"Can't check the state of ThermoPwBaseWorkChain<{self.node.pk}>.")
+            print(f"Can't check the state of Thermo_pwBaseWorkChain<{self.node.pk}>.")
             return
         path, process_state, exit_code = result
         normalized_exit_code = getattr(exit_code, 'status', exit_code)
         print(
-            f"ThermoPwBaseWorkChain<{self.node.pk}> is {process_state} at {path} "
+            f"Thermo_pwBaseWorkChain<{self.node.pk}> is {process_state} at {path} "
             f"(exit code: {normalized_exit_code})."
         )
     
@@ -199,12 +199,11 @@ class ThermoPwBaseAnalyser(BaseWorkChainAnalyser):
         return RMS_errors
 
 
-class ThermoPwGroupData(BaseGroupData):
+class Thermo_pwBaseGroup(BaseGroupData):
     """Tabular view of ThermoPW work chains stored in AiiDA groups."""
 
-    _PROCESS_LABELS = {'Thermo_pwBaseWorkChain', 'ThermoPwBaseWorkChain'}
-    analyser_class = ThermoPwBaseAnalyser
-    dump_process_labels = 'Thermo_pwBaseWorkChain'
+    _PROCESS_LABELS = {'Thermo_pwBaseWorkChain'}
+    analyser_class = Thermo_pwBaseAnalyser
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -277,7 +276,7 @@ class ThermoPwGroupData(BaseGroupData):
             filtered_list = []
             for item in data_list:
                 try:
-                    analyser = ThermoPwBaseAnalyser(item['node'])
+                    analyser = Thermo_pwBaseAnalyser(item['node'])
                     if callable(property_filter):
                         res = property_filter(analyser)
                     elif isinstance(property_filter, str):
@@ -352,7 +351,7 @@ class ThermoPwGroupData(BaseGroupData):
             occur in the material formula, matched case-insensitively.
         :param formula_match: Use ``any`` to match at least one substring or
             ``all`` to require every substring.
-        :param property_filter: A string of a boolean property in ThermoPwBaseAnalyser
+        :param property_filter: A string of a boolean property in Thermo_pwBaseAnalyser
             to filter the workchains (e.g. 'is_stable').
         """
         dataframe = self._filter_by_formula(

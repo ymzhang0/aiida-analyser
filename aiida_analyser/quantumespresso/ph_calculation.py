@@ -1,5 +1,5 @@
 from ..base import BaseCalculationAnalyser
 
 
-class PhCalculationAnalyser(BaseCalculationAnalyser):
+class PhAnalyser(BaseCalculationAnalyser):
     """Analyser for the PhCalculation calcjob."""

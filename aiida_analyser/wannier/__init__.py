@@ -1,9 +1,9 @@
-from .wannier90 import Wannier90WorkChainAnalyser
-from .wannier90_base import Wannier90BaseWorkChainAnalyser
+from .wannier90 import Wannier90Analyser
+from .wannier90_base import Wannier90BaseAnalyser
 from .io import read_labelinfo, load_bandsdata
 __all__ = [
-    'Wannier90WorkChainAnalyser',
-    'Wannier90BaseWorkChainAnalyser',
+    'Wannier90Analyser',
+    'Wannier90BaseAnalyser',
     'read_labelinfo',
     'load_bandsdata',
 ]

@@ -2,16 +2,16 @@ from aiida import orm
 from pathlib import Path
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData
-from .dos_calculation import DosCalculationAnalyser
-from .pw_base import PwBaseWorkChainAnalyser
-from .projwfc_calculation import ProjwfcCalculationAnalyser
+from .dos_calculation import DosAnalyser
+from .pw_base import PwBaseAnalyser
+from .projwfc_calculation import ProjwfcAnalyser
 from collections import defaultdict
 import logging
 import itertools
 
 logger = logging.getLogger(__name__)
 
-class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
+class PdosAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PdosWorkChain.
     """
@@ -22,11 +22,11 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'DosCalculation':
-                return DosCalculationAnalyser
+                return DosAnalyser
             if process_label == 'ProjwfcCalculation':
-                return ProjwfcCalculationAnalyser
+                return ProjwfcAnalyser
             return None
 
         return self._copy_tree_for_direct_children(
@@ -40,11 +40,11 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwBaseWorkChain':
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             if process_label == 'DosCalculation':
-                return DosCalculationAnalyser
+                return DosAnalyser
             if process_label == 'ProjwfcCalculation':
-                return ProjwfcCalculationAnalyser
+                return ProjwfcAnalyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -66,12 +66,12 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
         subprocesses = []
 
         if 'scf' in self.process_tree:
-            subprocesses.append(('scf', PwBaseWorkChainAnalyser))
+            subprocesses.append(('scf', PwBaseAnalyser))
 
         subprocesses.extend([
-            ('nscf', PwBaseWorkChainAnalyser),
-            ('dos', DosCalculationAnalyser),
-            ('projwfc', ProjwfcCalculationAnalyser),
+            ('nscf', PwBaseAnalyser),
+            ('dos', DosAnalyser),
+            ('projwfc', ProjwfcAnalyser),
         ])
 
         return self._get_state_from_subprocesses(
@@ -131,7 +131,7 @@ class PdosWorkChainAnalyser(BaseWorkChainAnalyser):
             return plt
 
 
-class PdosGroupData(BaseGroupData):
+class PdosGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -242,7 +242,7 @@ class PdosGroupData(BaseGroupData):
                         if node and node.is_finished_ok:
                             color = next(base_colors)
                             logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc} {with_hubbard_u}")
-                            analyser = PdosWorkChainAnalyser(node)
+                            analyser = PdosAnalyser(node)
                             analyser.plot_pdos(
                                 axis=ax,
                                 label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {with_soc}, {with_hubbard_u}',
@@ -285,5 +285,5 @@ class PdosGroupData(BaseGroupData):
                     for node, with_soc, with_hubbard_u in node_list:
                         if node and node.is_finished_ok:
                             logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc.replace(' ', '-')} {with_hubbard_u.replace(' ', '-')}")
-                            analyser = PdosWorkChainAnalyser(node)
+                            analyser = PdosAnalyser(node)
                             analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / with_soc.replace(' ', '-') / with_hubbard_u.replace(' ', '-'))

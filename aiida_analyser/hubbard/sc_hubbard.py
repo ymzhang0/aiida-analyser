@@ -6,7 +6,7 @@ from aiida import orm
 from ..base import BaseWorkChainAnalyser
 from pathlib import Path
 
-class ScHubbardWorkChainAnalyser(BaseWorkChainAnalyser):
+class ScHubbardAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the ScHubbardWorkChain.
     """
@@ -144,7 +144,7 @@ class ScHubbardGroup:
     def dump(self, dest:Path):
         for material, node in self._data.items():
             if node:
-                analyser = ScHubbardWorkChainAnalyser(node)
+                analyser = ScHubbardAnalyser(node)
                 analyser.copy_tree(
                     dest / material.split("-")[-1] / f"{node.pk}"
                 )

@@ -1,9 +1,9 @@
 from collections import defaultdict, deque
 from typing import Callable
 from aiida import orm
-from aiida_analyser.dislocation.gsfe_latest import GSFEWorkChainAnalyserLatest
-from ..quantumespresso.pw_base import PwBaseWorkChainAnalyser
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
+from aiida_analyser.dislocation.gsfe_latest import GSFEAnalyserLatest
+from ..quantumespresso.pw_base import PwBaseAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from ..base import BaseWorkChainAnalyser
 from .basegroup import BaseGroupData, render_process_node_details
 import logging
@@ -25,7 +25,7 @@ import itertools
 
 from pathlib import Path
 
-class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
+class GSFEAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the GsfeWorkChain.
     """
@@ -36,11 +36,11 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._copy_tree_for_direct_children(destpath, _resolve)
@@ -51,11 +51,11 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
             process_label = child.node.process_label
 
             if process_label == 'PwRelaxWorkChain':
-                return PwRelaxWorkChainAnalyser
+                return PwRelaxAnalyser
             if process_label == 'PwBaseWorkChain' and (
                 child_name == 'scf' or child_name.startswith('structure_') or child_name.startswith('sfe_')
             ):
-                return PwBaseWorkChainAnalyser
+                return PwBaseAnalyser
             return None
 
         return self._get_calcjob_paths_for_direct_children(_resolve)
@@ -104,16 +104,16 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
         subprocesses = []
 
         for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
-            subprocesses.append((label, PwRelaxWorkChainAnalyser))
+            subprocesses.append((label, PwRelaxAnalyser))
 
         for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         for label in self._get_child_labels(
             prefixes=('structure_', 'sfe_'),
             process_label='PwBaseWorkChain',
         ):
-            subprocesses.append((label, PwBaseWorkChainAnalyser))
+            subprocesses.append((label, PwBaseAnalyser))
 
         return self._get_state_from_subprocesses(subprocesses)
 
@@ -433,7 +433,7 @@ class GSFEWorkChainAnalyser(BaseWorkChainAnalyser):
 
         return ax
 
-class GSFEGroupData(BaseGroupData):
+class GSFEGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -488,7 +488,7 @@ class GSFEGroupData(BaseGroupData):
                         raise AttributeError(f"Node<{node.pk}>: Neither 'gliding_plane' nor 'faulted_structure_data' found in inputs")
 
                     kpoints_distance = node.inputs.kpoints_distance.value
-                    conv_thr = GSFEWorkChainAnalyser(node).conv_thr
+                    conv_thr = GSFEAnalyser(node).conv_thr
                     if conv_thr is None:
                         conv_thr = 1e-6
                                         
@@ -527,7 +527,7 @@ class GSFEGroupData(BaseGroupData):
                                     for conv_thr, node in conv_thr_dict.items():
                                         if node and node.is_finished_ok:
                                             try:
-                                                analyser = GSFEWorkChainAnalyser(node)
+                                                analyser = GSFEAnalyser(node)
                                                 # fit_curve plots on axis if provided
                                                 # Label with formula, maybe layers/kdist if distinct?
                                                 # For now just formula as typically we compare materials
@@ -560,7 +560,7 @@ class GSFEGroupData(BaseGroupData):
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
                                     if node and node.is_finished_ok:
-                                        analyser = GSFEWorkChainAnalyser(node)
+                                        analyser = GSFEAnalyser(node)
                                         conv_error = analyser.conv_error
                                         if conv_error is not None:
                                             conv_thr_str = rf'{conv_thr:.1e} Ry (+- {conv_error*1000:.1e} mJ/m^2)'
@@ -789,7 +789,7 @@ class GSFEGroupData(BaseGroupData):
                                         if node and node.is_finished_ok:
                                             # print(node.pk, formula, plane)
                                             logging.info(f"Fitting node<{node.pk}> for {formula} {plane}")
-                                            analyser = GSFEWorkChainAnalyser(node)
+                                            analyser = GSFEAnalyser(node)
                                             
                                             results[struct][plane][formula] = analyser.fit_curve(
                                                 plot=True, 
@@ -864,7 +864,7 @@ class GSFEGroupData(BaseGroupData):
         for i, k_dist in enumerate(sorted_k_dists):
             for conv, node in filtered_k_dists[k_dist].items():
                 if node and node.is_finished_ok:
-                    analyser = GSFEWorkChainAnalyser(node)
+                    analyser = GSFEAnalyser(node)
                     color = cmap(norm(i))
 
                     if kwargs.get('fit', True):
@@ -935,7 +935,7 @@ class GSFEGroupData(BaseGroupData):
                 k_dist = kpoints_distances_dict[kpoints_distance]
             for conv, node in k_dist.items():
                 if node and node.is_finished_ok:
-                    analyser = GSFEWorkChainAnalyser(node)
+                    analyser = GSFEAnalyser(node)
                     color = cmap(norm(i))
 
                     if kwargs.get('fit', True):
@@ -988,7 +988,7 @@ class GSFEGroupData(BaseGroupData):
                             for k_dist, conv_thr_dict in k_dists.items():
                                 for conv_thr, node in conv_thr_dict.items():
                                     if node:
-                                        analyser = GSFEWorkChainAnalyser(node)
+                                        analyser = GSFEAnalyser(node)
                                         analyser.copy_tree(
                                             dest / struct_type / formula / plane / process_label / f"{layers}" / f"{k_dist}" / f"{conv_thr}" / f"{node.pk}"
                                             )

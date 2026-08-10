@@ -1,5 +1,5 @@
 from ..base import BaseCalculationAnalyser
 
 
-class EpwCalculationAnalyser(BaseCalculationAnalyser):
+class EpwAnalyser(BaseCalculationAnalyser):
     """Analyser for the EpwCalculation calcjob."""

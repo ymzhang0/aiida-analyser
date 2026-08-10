@@ -1,7 +1,7 @@
 from aiida import orm
 from ..base import BaseWorkChainAnalyser
 
-class HPBaseWorkChainAnalyser(BaseWorkChainAnalyser):
+class HPBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the HPBaseWorkChain.
     """

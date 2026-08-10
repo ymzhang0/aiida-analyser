@@ -1,15 +1,15 @@
-from .epw_calculation import EpwCalculationAnalyser
-from .epw_base import EpwBaseWorkChainAnalyser, EpwData
-from .epw_prep import EpwPrepWorkChainAnalyser, EpwPrepConvergenceData, EpwPrepData
-from .supercon import SuperConWorkChainAnalyser, SuperConData
+from .epw_calculation import EpwAnalyser
+from .epw_base import EpwBaseAnalyser, EpwBaseGroup
+from .epw_prep import EpwPrepAnalyser, EpwPrepConvergenceData, EpwPrepGroup
+from .supercon import SuperConAnalyser, SuperConGroup
 
 __all__ = [
-    'EpwCalculationAnalyser',
-    'EpwBaseWorkChainAnalyser',
-    'EpwData',
-    'EpwPrepWorkChainAnalyser',
+    'EpwAnalyser',
+    'EpwBaseAnalyser',
+    'EpwBaseGroup',
+    'EpwPrepAnalyser',
     'EpwPrepConvergenceData',
-    'EpwPrepData',
-    'SuperConWorkChainAnalyser',
-    'SuperConData',
+    'EpwPrepGroup',
+    'SuperConAnalyser',
+    'SuperConGroup',
 ]
