@@ -9,7 +9,7 @@ from ..workchains import clean_workdir
 from ..base import BaseWorkChainAnalyser
 from enum import Enum
 from aiida.tools import delete_nodes
-from ..epw.epw_prep import EpwPrepWorkChainAnalyser
+from ..epw.epw_prep import EpwPrepAnalyser
 from ..plot import (
     plot_epw_interpolated_bands,
     plot_a2f,
@@ -76,7 +76,7 @@ class EpwTransportWorkChainState(Enum):
     IBTE_FINISHED_OK = 1012
     UNKNOWN = 999
 
-class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwTransportAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwTransportWorkChain.
     """
@@ -169,7 +169,7 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
         if self.descendants['b2w'] == []:
             return None
         else:
-            return EpwPrepWorkChainAnalyser(self.descendants['b2w'][-1])
+            return EpwPrepAnalyser(self.descendants['b2w'][-1])
 
     @property
     def b2w_w90_intp(self):
@@ -261,7 +261,7 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
 
     def check_b2w(self):
         """Check the state of the b2w workchain."""
-        b2w_analyser = EpwPrepWorkChainAnalyser(self.descendants['b2w'][-1])
+        b2w_analyser = EpwPrepAnalyser(self.descendants['b2w'][-1])
         return b2w_analyser.check_process_state()
 
     def check_bands(self):
@@ -393,12 +393,12 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def processes_dict(self):
         """Get the processes dictionary."""
-        return EpwTransportWorkChainAnalyser.get_processes_dict(self.node)
+        return EpwTransportAnalyser.get_processes_dict(self.node)
 
     @property
     def retrieved(self):
         """Get the retrieved dictionary."""
-        return EpwTransportWorkChainAnalyser.get_retrieved(self.node)
+        return EpwTransportAnalyser.get_retrieved(self.node)
 
     @property
     def source(self):
@@ -569,4 +569,3 @@ class EpwTransportWorkChainAnalyser(BaseWorkChainAnalyser):
             )
         ax4.set_ylabel("")
         ax4.set_yticks([], [])
-

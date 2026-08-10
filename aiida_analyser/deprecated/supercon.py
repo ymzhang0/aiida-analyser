@@ -7,10 +7,10 @@ import numpy
 from collections import defaultdict
 from ..workchains import clean_workdir
 from ..base import BaseWorkChainAnalyser
-from ..quantumespresso.pw_relax import PwRelaxWorkChainAnalyser
-from ..quantumespresso.pw_bands import PwBandsWorkChainAnalyser
-from ..epw.epw_prep import EpwPrepWorkChainAnalyser
-from ..epw.epw_base import EpwBaseWorkChainAnalyser
+from ..quantumespresso.pw_relax import PwRelaxAnalyser
+from ..quantumespresso.pw_bands import PwBandsAnalyser
+from ..epw.epw_prep import EpwPrepAnalyser
+from ..epw.epw_base import EpwBaseAnalyser
 from ..calculators import _calculate_iso_tc, check_convergence
 from ..plot import (
     plot_a2f,
@@ -20,7 +20,7 @@ from ..plot import (
     plot_iso_gap_function
 )
 
-class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
+class EpwSuperConAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwSuperConWorkChain.
     """
@@ -97,14 +97,14 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
 
         # Check subprocesses in order
         for subprocess_name, subprocess_analyser in [
-            ('pw_relax', PwRelaxWorkChainAnalyser), 
-            ('pw_bands', PwBandsWorkChainAnalyser), 
-            ('b2w', EpwPrepWorkChainAnalyser), 
-            ('bands', EpwBaseWorkChainAnalyser),
-            ('a2f', EpwBaseWorkChainAnalyser),
-            ('a2f_conv', EpwBaseWorkChainAnalyser),
-            ('iso', EpwBaseWorkChainAnalyser),
-            ('aniso', EpwBaseWorkChainAnalyser),
+            ('pw_relax', PwRelaxAnalyser),
+            ('pw_bands', PwBandsAnalyser),
+            ('b2w', EpwPrepAnalyser),
+            ('bands', EpwBaseAnalyser),
+            ('a2f', EpwBaseAnalyser),
+            ('a2f_conv', EpwBaseAnalyser),
+            ('iso', EpwBaseAnalyser),
+            ('aniso', EpwBaseAnalyser),
             ]:
             if subprocess_name in self.process_tree:
                 if not self.process_tree[subprocess_name].node.is_finished_ok:
@@ -197,12 +197,12 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
     @property
     def processes_dict(self):
         """Get the processes dictionary."""
-        return EpwSuperConWorkChainAnalyser.get_processes_dict(self.node)
+        return EpwSuperConAnalyser.get_processes_dict(self.node)
 
     @property
     def retrieved(self):
         """Get the retrieved dictionary."""
-        return EpwSuperConWorkChainAnalyser.get_retrieved(self.node)
+        return EpwSuperConAnalyser.get_retrieved(self.node)
 
     @property
     def source(self):
@@ -419,7 +419,7 @@ class EpwSuperConWorkChainAnalyser(BaseWorkChainAnalyser):
         the_table.scale(1, 1.2)
 
 
-class SuperConData:
+class EpwSuperConGroup:
 
     def __init__(self, groups = []):
         self._groups = groups
@@ -564,7 +564,7 @@ class SuperConData:
                             supercon_node = types_dict.get('EpwSuperConWorkChain')
                             
                             if supercon_node:
-                                analyser = EpwSuperConWorkChainAnalyser(supercon_node)
+                                analyser = EpwSuperConAnalyser(supercon_node)
                                 results = analyser.a2f_results
                                 if results:
                                     allen_dynes_tcs[material][degauss][k_dist][q_dist] = results
@@ -604,7 +604,7 @@ class SuperConData:
                             supercon_node = types_dict.get('EpwSuperConWorkChain')
                             
                             if supercon_node:
-                                analyser = EpwSuperConWorkChainAnalyser(supercon_node)
+                                analyser = EpwSuperConAnalyser(supercon_node)
                                 for node in analyser.a2f_conv:
                                     qfpoints_distance = node.inputs.a2f.qfpoints_distance.value
                                     nodes[material][degauss][k_dist][q_dist][qfpoints_distance] = node
@@ -678,7 +678,7 @@ class SuperConData:
                                 continue
                             
                             try:
-                                analyser = EpwSuperConWorkChainAnalyser(node)
+                                analyser = EpwSuperConAnalyser(node)
                                 a2f_node = analyser.a2f 
                                 if a2f_node and a2f_node.node:
                                     

@@ -15,7 +15,7 @@ class EpwIntpWorkChainState(Enum):
     EPW_BASE_EXCEPTED = 9
     UNKNOWN = 999
 
-class EpwIntpWorkChainAnalyser:
+class EpwIntpAnalyser:
     """
     Analyser for the EpwIntpWorkChain.
     """

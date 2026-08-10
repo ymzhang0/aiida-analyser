@@ -1,10 +1,10 @@
-from .intp import EpwIntpWorkChainAnalyser
-from .supercon import EpwSuperConWorkChainAnalyser, SuperConData
-from .transport import EpwTransportWorkChainAnalyser
+from .intp import EpwIntpAnalyser
+from .supercon import EpwSuperConAnalyser, EpwSuperConGroup
+from .transport import EpwTransportAnalyser
 
 __all__ = [
-    'EpwIntpWorkChainAnalyser',
-    'EpwSuperConWorkChainAnalyser',
-    'SuperConData',
-    'EpwTransportWorkChainAnalyser',
+    'EpwIntpAnalyser',
+    'EpwSuperConAnalyser',
+    'EpwSuperConGroup',
+    'EpwTransportAnalyser',
 ]
