@@ -2,6 +2,7 @@ from collections import defaultdict
 from itertools import chain
 import logging
 import warnings
+from loguru import logger
 from ..groupdata import BaseGroupData, render_process_node_details
 
 from aiida import orm
@@ -194,24 +195,20 @@ class PhBaseWorkChainAnalyser(BaseWorkChainAnalyser):
 
 
 class PhData(BaseGroupData):
-    def __init__(self, groups):
+    analyser_class = PhBaseWorkChainAnalyser
+    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
+
+    def __init__(self, groups=None):
         super().__init__(groups)
-        self._data = defaultdict(
+        self._nested_data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
-                    lambda: defaultdict(
-                        lambda: None
-                    )
+                    lambda: None
                 )
             )
         )
         self.get_data()
-
-    @property
-    def groups(self):
-        if self._groups is None:
-            self._groups = self._data.keys()
-        return self._groups
+        self._data = self._flatten_data()
     
     def check_protocol(self, node):
         if node.process_label not in ['PhBaseWorkChain']:
@@ -222,19 +219,16 @@ class PhData(BaseGroupData):
                 logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
 
     def get_data(self):
-        for grpname in self._groups:
-            group = orm.load_group(grpname)
-            for node in group.nodes:
-                if node.process_label not in ['PhBaseWorkChain']:
-                    continue
-                try:
-                    extras = node.base.extras.all
-                    self.check_protocol(node)
-                    mat_key = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
-                    self._data[mat_key][extras['kpoints_distance']][extras['degauss']] = node
-                except Exception as e:
-                    # Provide more context in error message
-                    logging.error(f'Node<{node.pk}> processing failed: {e}')
+        for node in self.iter_group_nodes('PhBaseWorkChain'):
+            try:
+                extras = node.base.extras.all
+                self.check_protocol(node)
+                formula = self.get_node_formula(node, default=extras.get('formula', 'N/A'))
+                degauss = extras.get('degauss', 'unknown')
+                kpoints_distance = extras.get('kpoints_distance', 'unknown')
+                self._nested_data[formula][degauss][kpoints_distance] = node
+            except Exception as e:
+                logging.error(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
         flattened_list = []
@@ -255,134 +249,6 @@ class PhData(BaseGroupData):
                         })
 
         return flattened_list
-
-    def _get_dataframe(self, property_filter=None):
-        """Build one row per EpwPrep work chain, indexed by PK."""
-        import pandas as pd
-
-        if not self._data:
-            return pd.DataFrame(columns=['Material', 'degauss', 'kpoints_distance', 'Process', 'Status'])
-
-        data_list = self._data
-        if property_filter:
-            filtered_list = []
-            for item in data_list:
-                try:
-                    analyser = EpwPrepWorkChainAnalyser(item['node'])
-                    if callable(property_filter):
-                        res = property_filter(analyser)
-                    elif isinstance(property_filter, str):
-                        prop = property_filter.strip()
-                        if prop.startswith('not '):
-                            res = not bool(getattr(analyser, prop[4:].strip(), False))
-                        elif prop.startswith('!'):
-                            res = not bool(getattr(analyser, prop[1:].strip(), False))
-                        elif prop.startswith('~'):
-                            res = not bool(getattr(analyser, prop[1:].strip(), False))
-                        else:
-                            res = bool(getattr(analyser, prop, False))
-                    else:
-                        res = False
-                    
-                    if res:
-                        filtered_list.append(item)
-                except Exception as e:
-                    logging.warning(f"Error filtering node {item['PK']}: {e}")
-                    pass
-            data_list = filtered_list
-            
-        if not data_list:
-            return pd.DataFrame(columns=['PK', 'Material', 'degauss', 'kpoints_distance', 'Status']).set_index('PK')
-
-        dataframe = pd.DataFrame(data_list).drop(columns=['node'])
-        return dataframe.set_index('PK').sort_index()
-
-    @staticmethod
-    def _filter_by_formula(dataframe, formula_contains=None, formula_match='any'):
-        """Filter rows by case-insensitive substrings in the material formula."""
-        if formula_contains is None or formula_contains == '':
-            return dataframe
-
-        terms = (
-            [formula_contains]
-            if isinstance(formula_contains, str)
-            else list(formula_contains)
-        )
-        terms = [str(term).strip().lower() for term in terms if str(term).strip()]
-        if not terms:
-            return dataframe
-        if formula_match not in {'any', 'all'}:
-            raise ValueError("formula_match must be either 'any' or 'all'")
-
-        formulas = dataframe['Material'].astype(str).str.lower()
-        masks = [formulas.str.contains(term, regex=False) for term in terms]
-        mask = masks[0]
-        for next_mask in masks[1:]:
-            mask = mask | next_mask if formula_match == 'any' else mask & next_mask
-        return dataframe.loc[mask]
-
-    def get_table(
-        self,
-        display_mode='dataframe',
-        *,
-        max_height=600,
-        page_size=25,
-        formula_contains=None,
-        formula_match='any',
-        property_filter=None,
-    ):
-        """Return or display the EpwPrep table.
-
-        :param display_mode: One of ``dataframe`` (return the normal DataFrame),
-            ``all`` (display every row), ``scroll`` (display a scrollable table),
-            or ``interactive`` (searchable, paginated node browser).
-        :param max_height: Maximum table height in pixels for scrollable modes.
-        :param page_size: Initial number of rows per page in interactive mode.
-        :param formula_contains: A substring or iterable of substrings that must
-            occur in the material formula, matched case-insensitively.
-        :param formula_match: Use ``any`` to match at least one substring or
-            ``all`` to require every substring.
-        :param property_filter: A string of a boolean property in EpwPrepWorkChainAnalyser
-            to filter the workchains (e.g. 'is_stable').
-        """
-        dataframe = self._filter_by_formula(
-            self._get_dataframe(property_filter=property_filter),
-            formula_contains=formula_contains,
-            formula_match=formula_match,
-        )
-        mode = 'dataframe' if display_mode is None else str(display_mode).lower()
-
-        if mode in {'dataframe', 'default'}:
-            return dataframe
-
-        if mode == 'all':
-            import pandas as pd
-            from IPython.display import display
-
-            with pd.option_context('display.max_rows', None):
-                display(dataframe)
-            return None
-
-        if mode == 'scroll':
-            from IPython.display import HTML, display
-
-            display(HTML(
-                f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
-                f'{dataframe.to_html()}</div>'
-            ))
-            return None
-
-        if mode == 'interactive':
-            return self.show_interactive(
-                max_height=max_height,
-                page_size=page_size,
-                formula_contains=formula_contains,
-                formula_match=formula_match,
-            )
-
-        raise ValueError(
-            "display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'"
-        )
 
     def plot_convergence(self):
         import re

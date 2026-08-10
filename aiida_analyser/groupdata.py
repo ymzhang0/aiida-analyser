@@ -1,4 +1,5 @@
 from collections import defaultdict
+import inspect
 from loguru import logger
 
 def render_process_node_details(node, max_text_chars=120_000):
@@ -227,7 +228,16 @@ def render_process_node_details(node, max_text_chars=120_000):
 
 
 class BaseGroupData:
-    """Base class for group data objects."""
+    """Shared helpers for collections of AiiDA process nodes.
+
+    Subclasses can keep a domain-specific nested representation while exposing a
+    list of row dictionaries in ``_data``.  The latter automatically gains
+    consistent dataframe, filtering, and display behaviour from this class.
+    """
+
+    analyser_class = None
+    dataframe_columns = ()
+    formula_column = 'Material'
 
     def __init__(self, groups=None):
         self._groups = groups if groups is not None else []
@@ -241,6 +251,140 @@ class BaseGroupData:
     @property
     def data(self):
         return self._data
+
+    def iter_group_nodes(self, process_labels=None):
+        """Yield nodes from configured groups, optionally filtered by label.
+
+        A missing or inaccessible group is logged and skipped, so one stale
+        group label does not prevent the remaining analysis from loading.
+        """
+        from aiida import orm
+
+        if process_labels is None:
+            labels = None
+        elif isinstance(process_labels, str):
+            labels = {process_labels}
+        else:
+            labels = set(process_labels)
+
+        for group_label in self._groups:
+            try:
+                group = orm.load_group(group_label)
+            except Exception as exc:
+                logger.warning(f'Could not load group {group_label!r}: {exc}')
+                continue
+
+            for node in group.nodes:
+                if labels is None or getattr(node, 'process_label', None) in labels:
+                    yield node
+
+    @staticmethod
+    def get_node_formula(node, default='N/A'):
+        """Get a structure formula, falling back to the node extras."""
+        try:
+            formula = node.inputs.structure.get_formula()
+        except Exception:
+            formula = default
+
+        if formula != default:
+            return formula
+
+        try:
+            return node.base.extras.get('formula', default)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _matches_property(analyser, property_filter):
+        """Evaluate the compact property-filter syntax used by group tables."""
+        if callable(property_filter):
+            return bool(property_filter(analyser))
+        if not isinstance(property_filter, str):
+            return False
+
+        property_name = property_filter.strip()
+        negate = property_name.startswith(('not ', '!', '~'))
+        if property_name.startswith('not '):
+            property_name = property_name[4:].strip()
+        elif negate:
+            property_name = property_name[1:].strip()
+        value = bool(getattr(analyser, property_name, False))
+        return not value if negate else value
+
+    def _get_dataframe(self, property_filter=None):
+        """Build a PK-indexed dataframe from flat row dictionaries in ``_data``."""
+        import pandas as pd
+
+        rows = self._data if isinstance(self._data, list) else self._flatten_data()
+        columns = ['PK', *self.dataframe_columns]
+        if not rows:
+            return pd.DataFrame(columns=columns).set_index('PK')
+
+        if property_filter:
+            if self.analyser_class is None:
+                raise ValueError(
+                    f'{self.__class__.__name__} does not define analyser_class; '
+                    'property_filter is unavailable.'
+                )
+            filtered_rows = []
+            for item in rows:
+                try:
+                    analyser = self.analyser_class(item['node'])
+                    if self._matches_property(analyser, property_filter):
+                        filtered_rows.append(item)
+                except Exception as exc:
+                    logger.warning(f"Error filtering node {item.get('PK', 'N/A')}: {exc}")
+            rows = filtered_rows
+
+        dataframe = pd.DataFrame(rows)
+        if 'node' in dataframe:
+            dataframe = dataframe.drop(columns='node')
+        if 'PK' not in dataframe:
+            return dataframe
+        return dataframe.set_index('PK').sort_index()
+
+    @staticmethod
+    def _filter_by_formula(dataframe, formula_contains=None, formula_match='any', column='Material'):
+        """Filter a dataframe by case-insensitive formula substrings."""
+        if formula_contains is None or formula_contains == '' or column not in dataframe:
+            return dataframe
+
+        terms = [formula_contains] if isinstance(formula_contains, str) else list(formula_contains)
+        terms = [str(term).strip().lower() for term in terms if str(term).strip()]
+        if not terms:
+            return dataframe
+        if formula_match not in {'any', 'all'}:
+            raise ValueError("formula_match must be either 'any' or 'all'")
+
+        formulas = dataframe[column].astype(str).str.lower()
+        masks = [formulas.str.contains(term, regex=False) for term in terms]
+        mask = masks[0]
+        for next_mask in masks[1:]:
+            mask = mask | next_mask if formula_match == 'any' else mask & next_mask
+        return dataframe.loc[mask]
+
+    @staticmethod
+    def _display_dataframe(dataframe, display_mode, max_height):
+        """Display a dataframe in notebook-friendly modes, or return it."""
+        mode = 'dataframe' if display_mode is None else str(display_mode).lower()
+        if mode in {'dataframe', 'default'}:
+            return dataframe
+        if mode == 'all':
+            import pandas as pd
+            from IPython.display import display
+
+            with pd.option_context('display.max_rows', None):
+                display(dataframe)
+            return None
+        if mode == 'scroll':
+            from IPython.display import HTML, display
+
+            display(HTML(
+                f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
+                f'{dataframe.to_html()}</div>'
+            ))
+            return None
+        raise ValueError("display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'")
 
     @staticmethod
     def get_status_string(node):
@@ -259,9 +403,42 @@ class BaseGroupData:
             return '💀 Killed'
         return f'🏃 {node.process_state.value}'
 
-    def get_table(self):
-        """Generic table generation with pivoting."""
+    def get_table(
+        self,
+        display_mode='dataframe',
+        *,
+        max_height=600,
+        page_size=25,
+        formula_contains=None,
+        formula_match='any',
+        property_filter=None,
+    ):
+        """Return a table, with optional formula and analyser-property filters."""
         import pandas as pd
+
+        if isinstance(self._data, list):
+            dataframe = self._filter_by_formula(
+                self._get_dataframe(property_filter=property_filter),
+                formula_contains=formula_contains,
+                formula_match=formula_match,
+                column=self.formula_column,
+            )
+            if str(display_mode).lower() == 'interactive':
+                show_interactive = getattr(self, 'show_interactive', None)
+                if show_interactive is None:
+                    raise ValueError(f'{self.__class__.__name__} does not provide an interactive table.')
+                parameters = inspect.signature(show_interactive).parameters
+                kwargs = {}
+                if 'max_height' in parameters:
+                    kwargs['max_height'] = max_height
+                if 'page_size' in parameters:
+                    kwargs['page_size'] = page_size
+                if 'formula_contains' in parameters:
+                    kwargs['formula_contains'] = formula_contains
+                if 'formula_match' in parameters:
+                    kwargs['formula_match'] = formula_match
+                return show_interactive(**kwargs)
+            return self._display_dataframe(dataframe, display_mode, max_height)
 
         flattened_list = self._flatten_data()
         if not flattened_list:

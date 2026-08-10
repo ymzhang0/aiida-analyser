@@ -29,6 +29,7 @@ dependencies = [
     "aiida-core[atomic_tools]~=2.6",
     "aiida-quantumespresso>=4.11",
     "aiida-wannier90-workflows",
+    "loguru",
     "PyYAML",
     "rich",
 ]
