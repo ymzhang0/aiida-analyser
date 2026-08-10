@@ -238,6 +238,7 @@ class BaseGroupData:
     analyser_class = None
     dataframe_columns = ()
     formula_column = 'Material'
+    dump_process_labels = None
 
     def __init__(self, groups=None):
         self._groups = groups if groups is not None else []
@@ -277,6 +278,41 @@ class BaseGroupData:
             for node in group.nodes:
                 if labels is None or getattr(node, 'process_label', None) in labels:
                     yield node
+
+    def _dump_nodes(self, dest, nodes, analyser_class=None, path_builder=None):
+        """Copy process trees for *nodes* into a destination directory.
+
+        ``path_builder`` receives a node and returns its path relative to
+        ``dest``.  It lets specialised group-data classes keep their semantic
+        directory layout while sharing directory creation and error handling.
+        """
+        from pathlib import Path
+
+        analyser_class = analyser_class or self.analyser_class
+        if analyser_class is None:
+            raise ValueError(f'{self.__class__.__name__} does not define an analyser_class.')
+
+        destination = Path(dest)
+        destination.mkdir(parents=True, exist_ok=True)
+        for node in nodes:
+            try:
+                relative_path = path_builder(node) if path_builder else Path(str(node.pk))
+                analyser_class(node).copy_tree(destination / relative_path)
+            except Exception as exc:
+                logger.warning(f'Failed to dump node {getattr(node, "pk", "N/A")}: {exc}')
+
+    def dump(self, dest):
+        """Dump configured process trees to ``dest/<node PK>``.
+
+        Subclasses opt in by defining ``dump_process_labels`` and
+        ``analyser_class``.  More specialised exporters can call
+        :meth:`_dump_nodes` with a custom node iterator or path builder.
+        """
+        if self.dump_process_labels is None:
+            raise NotImplementedError(
+                f'{self.__class__.__name__} must define dump_process_labels or override dump().'
+            )
+        self._dump_nodes(dest, self.iter_group_nodes(self.dump_process_labels))
 
     @staticmethod
     def get_node_formula(node, default='N/A'):

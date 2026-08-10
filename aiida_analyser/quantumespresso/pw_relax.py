@@ -80,6 +80,7 @@ class PwRelaxWorkChainData(BaseGroupData):
 
     analyser_class = PwRelaxWorkChainAnalyser
     dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
+    dump_process_labels = 'PwRelaxWorkChain'
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -133,20 +134,3 @@ class PwRelaxWorkChainData(BaseGroupData):
                         })
 
         return flattened_list
-
-    def dump(self, dest:Path|str,):
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'PwRelaxWorkChain'})
-
-        if type(dest) == str:
-            dest = Path(dest)
-        if not dest.exists():
-            dest.mkdir(parents=True)
-
-        for [node] in qb.all():
-            try:
-                analyser = PwRelaxWorkChainAnalyser(node)
-                analyser.copy_tree(dest / str(node.pk))
-            except Exception as e:
-                logging.warning(f"Failed to dump node {node.pk}: {e}")

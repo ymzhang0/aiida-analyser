@@ -20,6 +20,21 @@ class DummyGroupData(BaseGroupData):
         ]
 
 
+class DumpAnalyser:
+    copied_paths = []
+
+    def __init__(self, node):
+        self.node = node
+
+    def copy_tree(self, destination):
+        self.copied_paths.append(destination)
+
+
+class DumpGroupData(BaseGroupData):
+    analyser_class = DumpAnalyser
+    dump_process_labels = 'Wanted'
+
+
 def test_tabular_group_data_filters_formula_and_properties():
     table = DummyGroupData().get_table(formula_contains='fe', property_filter='is_stable')
 
@@ -38,3 +53,17 @@ def test_iter_group_nodes_filters_process_labels(monkeypatch):
     data._groups = ['test/group']
 
     assert list(data.iter_group_nodes('Wanted')) == [nodes[0]]
+
+
+def test_dump_uses_declared_analyser_and_process_label(monkeypatch, tmp_path):
+    DumpAnalyser.copied_paths.clear()
+    wanted = SimpleNamespace(pk=12, process_label='Wanted')
+    monkeypatch.setattr(
+        'aiida.orm.load_group',
+        lambda _: SimpleNamespace(nodes=[wanted, SimpleNamespace(pk=13, process_label='Ignored')]),
+    )
+
+    data = DumpGroupData(['test/group'])
+    data.dump(tmp_path)
+
+    assert DumpAnalyser.copied_paths == [tmp_path / '12']

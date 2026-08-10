@@ -538,6 +538,9 @@ class SuperConWorkChainAnalyser(BaseWorkChainAnalyser):
             
 class SuperConData(BaseGroupData):
 
+    analyser_class = SuperConWorkChainAnalyser
+    dump_process_labels = 'SuperConWorkChain'
+
     def __init__(self, groups=None):
         super().__init__(groups)
         self.get_data()
@@ -1034,23 +1037,6 @@ class SuperConData(BaseGroupData):
 
         plt.tight_layout()
         return fig, axs
-
-    def dump(self, dest:Path|str,):
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'SuperConWorkChain'})
-
-        if type(dest) == str:
-            dest = Path(dest)
-        if not dest.exists():
-            dest.mkdir(parents=True)
-
-        for [node] in qb.all():
-            try:
-                analyser = SuperConWorkChainAnalyser(node)
-                analyser.copy_tree(dest / str(node.pk))
-            except Exception as e:
-                logging.warning(f"Failed to dump node {node.pk}: {e}")
 
     def show_interactive(self):
         """

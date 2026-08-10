@@ -203,6 +203,8 @@ class ThermoPwGroupData(BaseGroupData):
     """Tabular view of ThermoPW work chains stored in AiiDA groups."""
 
     _PROCESS_LABELS = {'Thermo_pwBaseWorkChain', 'ThermoPwBaseWorkChain'}
+    analyser_class = ThermoPwBaseAnalyser
+    dump_process_labels = 'Thermo_pwBaseWorkChain'
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -531,20 +533,3 @@ class ThermoPwGroupData(BaseGroupData):
         ])
         display(widget)
         return widget
-
-    def dump(self, dest:Path|str,):
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'Thermo_pwBaseWorkChain'})
-
-        if type(dest) == str:
-            dest = Path(dest)
-        if not dest.exists():
-            dest.mkdir(parents=True)
-
-        for [node] in qb.all():
-            try:
-                analyser = ThermoPwBaseAnalyser(node)
-                analyser.copy_tree(dest / str(node.pk))
-            except Exception as e:
-                logging.warning(f"Failed to dump node {node.pk}: {e}")

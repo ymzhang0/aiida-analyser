@@ -49,6 +49,9 @@ class EpwData(BaseGroupData):
     Data processor for EPW process groups.
     """
 
+    analyser_class = EpwBaseWorkChainAnalyser
+    dump_process_labels = 'EpwBaseWorkChain'
+
     def __init__(self, groups=None):
         super().__init__(groups)
         self._data = self._flatten_data()
@@ -220,20 +223,3 @@ class EpwData(BaseGroupData):
             select_row(df.index[0])
             
         display(main_layout)
-
-    def dump(self, dest:Path|str,):
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwBaseWorkChain'})
-
-        if type(dest) == str:
-            dest = Path(dest)
-        if not dest.exists():
-            dest.mkdir(parents=True)
-
-        for [node] in qb.all():
-            try:
-                analyser = EpwBaseWorkChainAnalyser(node)
-                analyser.copy_tree(dest / str(node.pk))
-            except Exception as e:
-                logging.warning(f"Failed to dump node {node.pk}: {e}")
