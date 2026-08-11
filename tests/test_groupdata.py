@@ -87,6 +87,26 @@ def test_tabular_group_data_filters_formula_and_properties():
     assert table.loc[2, 'Material'] == 'Fe2O3'
 
 
+def test_available_columns_excludes_internal_node_data():
+    assert DummyGroupData().available_columns == ('Material', 'status')
+
+
+def test_get_table_can_select_nodes_with_or_without_status():
+    nodes_only = DummyGroupData().get_table(values='node')
+    nodes_and_status = DummyGroupData().get_table(values=['status', 'node'])
+
+    assert list(nodes_only.columns) == ['node']
+    assert nodes_only.loc[1, 'node'].is_stable is False
+    assert list(nodes_and_status.columns) == ['status', 'node']
+
+
+def test_get_table_can_use_nodes_as_pivot_values():
+    table = DummyGroupData().get_table(index='status', columns='Material', values='node')
+
+    assert table.loc['✅', 'Fe2O3'].is_stable is True
+    assert table.loc['✅', 'Al2O3'].is_stable is False
+
+
 def test_iter_group_nodes_filters_process_labels(monkeypatch):
     nodes = [
         SimpleNamespace(process_label='Wanted'),

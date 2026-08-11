@@ -252,6 +252,16 @@ class BaseGroupData:
     def data(self):
         return self._data
 
+    @property
+    def available_columns(self):
+        """Names available for the public dataframe and table reshaping options.
+
+        Internal ``node`` objects are intentionally excluded: they are kept
+        only for filtering and exporting process trees, and are removed before
+        the dataframe is returned.
+        """
+        return self.dataframe_columns
+
     def iter_group_nodes(self, process_labels=None):
         """Yield nodes from configured groups, optionally filtered by label.
 
@@ -358,7 +368,7 @@ class BaseGroupData:
         value = bool(getattr(analyser, property_name, False))
         return not value if negate else value
 
-    def _get_dataframe(self, property_filter=None):
+    def _get_dataframe(self, property_filter=None, values=None):
         """Build a PK-indexed dataframe from flat row dictionaries in ``_data``."""
         import pandas as pd
 
@@ -384,7 +394,8 @@ class BaseGroupData:
             rows = filtered_rows
 
         dataframe = pd.DataFrame(rows)
-        if 'node' in dataframe:
+        value_keys = self._table_keys(values, 'values')
+        if 'node' in dataframe and 'node' not in value_keys:
             dataframe = dataframe.drop(columns='node')
         if 'PK' not in dataframe:
             return dataframe
@@ -463,9 +474,13 @@ class BaseGroupData:
         value_keys = cls._table_keys(values, 'values')
 
         if not index_keys and not column_keys:
-            if value_keys:
-                raise ValueError('values can only be used together with columns.')
-            return dataframe
+            if not value_keys:
+                return dataframe
+            missing = set(value_keys).difference(dataframe.columns)
+            if missing:
+                available = ', '.join(map(str, dataframe.columns))
+                raise KeyError(f'Unknown table key(s): {sorted(missing)!r}. Available columns: {available}.')
+            return dataframe.loc[:, value_keys]
 
         import pandas as pd
 
@@ -482,9 +497,8 @@ class BaseGroupData:
             raise KeyError(f'Unknown table key(s): {sorted(missing)!r}. Available columns: {available}.')
 
         if not column_keys:
-            if value_keys:
-                raise ValueError('values can only be used together with columns.')
-            return flat.set_index(index_keys).sort_index()
+            hierarchical = flat.set_index(index_keys).sort_index()
+            return hierarchical.loc[:, value_keys] if value_keys else hierarchical
 
         if not value_keys:
             for status_key in ('Status', 'status'):
@@ -497,7 +511,7 @@ class BaseGroupData:
                 )
 
         if not index_keys:
-            excluded = set(column_keys + value_keys + ['PK', 'node'])
+            excluded = set(column_keys + value_keys + ['PK', 'node', 'status', 'Status'])
             index_keys = [key for key in flat.columns if key not in excluded]
 
         pivot = flat.pivot_table(
@@ -558,19 +572,28 @@ class BaseGroupData:
 
         ``aggfunc`` resolves duplicate index/column combinations and defaults
         to ``'first'``.  Set ``fill_value=None`` to retain missing values.
+        Without ``columns``, ``values`` selects the returned data columns. For
+        example, use ``values='node'`` to return nodes instead of status, or
+        ``values=['status', 'node']`` to retain both.  The internal ``node``
+        column is otherwise omitted from public dataframes.
         """
         import pandas as pd
 
         if isinstance(self._data, list):
             dataframe = self._filter_by_formula(
-                self._get_dataframe(property_filter=property_filter),
+                self._get_dataframe(
+                    property_filter=property_filter,
+                    values=values,
+                ),
                 formula_contains=formula_contains,
                 formula_match=formula_match,
                 column=self.formula_column,
             )
             if str(display_mode).lower() == 'interactive':
                 if any(value is not None for value in (index, columns, values)):
-                    raise ValueError('index, columns, and values are not supported in interactive mode.')
+                    raise ValueError(
+                        'index, columns, and values are not supported in interactive mode.'
+                    )
                 show_interactive = getattr(self, 'show_interactive', None)
                 if show_interactive is None:
                     raise ValueError(f'{self.__class__.__name__} does not provide an interactive table.')
@@ -600,6 +623,9 @@ class BaseGroupData:
             return pd.DataFrame()
 
         dataframe = pd.DataFrame(flattened_list)
+        value_keys = self._table_keys(values, 'values')
+        if 'node' in dataframe and 'node' not in value_keys:
+            dataframe = dataframe.drop(columns='node', errors='ignore')
         if index is None and columns is None and 'Plane' in dataframe and 'Status' in dataframe:
             # Preserve the historical default for the legacy nested data model.
             columns = 'Plane'

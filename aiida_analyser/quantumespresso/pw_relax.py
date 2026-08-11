@@ -83,15 +83,14 @@ class PwRelaxGroup(BaseGroupData):
 
     def __init__(self, groups=None):
         super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Node
+        # Data structure: Material -> Degauss -> K_Dist -> [Node, ...]
         self._nested_data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
-                    lambda: None
+                    list
                 )
             )
         )
-        self._flat_nodes = []
         self.get_data()
         self._data = self._flatten_data()
 
@@ -111,22 +110,24 @@ class PwRelaxGroup(BaseGroupData):
             try:
                 self.check_protocol(node)
                 degauss, kpoints_distance = _safe_get_extras(node)
-                self._nested_data[formula][degauss][kpoints_distance] = node
-                self._flat_nodes.append((formula, degauss, kpoints_distance, node))
+                self._nested_data[formula][degauss][kpoints_distance].append(node)
             except Exception as e:
                 logging.error(f'Node<{node.pk}> processing failed: {e}')
 
     def _flatten_data(self):
 
         flattened_list = []
-        for formula, degauss, kpoints_distance, node in self._flat_nodes:
-            flattened_list.append({
-                'PK': node.pk,
-                'Material': formula,
-                'degauss': degauss,
-                'kpoints_distance': kpoints_distance,
-                'status': self.get_status_string(node),
-                'node': node,
-            })
+        for formula, degauss_data in self._nested_data.items():
+            for degauss, kpoints_data in degauss_data.items():
+                for kpoints_distance, nodes in kpoints_data.items():
+                    for node in nodes:
+                        flattened_list.append({
+                            'PK': node.pk,
+                            'Material': formula,
+                            'degauss': degauss,
+                            'kpoints_distance': kpoints_distance,
+                            'status': self.get_status_string(node),
+                            'node': node,
+                        })
 
         return flattened_list
