@@ -15,8 +15,8 @@ class DummyGroupData(BaseGroupData):
     def __init__(self):
         super().__init__()
         self._data = [
-            {'PK': 2, 'Material': 'Fe2O3', 'status': '✅', 'node': SimpleNamespace(is_stable=True)},
-            {'PK': 1, 'Material': 'Al2O3', 'status': '✅', 'node': SimpleNamespace(is_stable=False)},
+            {'PK': 2, 'Material': 'Fe2O3', 'status': '✅', 'node': SimpleNamespace(pk=2, is_stable=True)},
+            {'PK': 1, 'Material': 'Al2O3', 'status': '✅', 'node': SimpleNamespace(pk=1, is_stable=False)},
         ]
 
 
@@ -87,8 +87,8 @@ def test_tabular_group_data_filters_formula_and_properties():
     assert table.loc[2, 'Material'] == 'Fe2O3'
 
 
-def test_available_columns_excludes_internal_node_data():
-    assert DummyGroupData().available_columns == ('Material', 'status')
+def test_available_columns_includes_node_data():
+    assert DummyGroupData().available_columns == ('Material', 'status', 'node')
 
 
 def test_get_table_can_select_nodes_with_or_without_status():
@@ -96,15 +96,27 @@ def test_get_table_can_select_nodes_with_or_without_status():
     nodes_and_status = DummyGroupData().get_table(values=['status', 'node'])
 
     assert list(nodes_only.columns) == ['node']
-    assert nodes_only.loc[1, 'node'].is_stable is False
+    assert nodes_only.loc[1, 'node'] == '1'
     assert list(nodes_and_status.columns) == ['status', 'node']
+    assert nodes_and_status.loc[2, 'node'] == '2'
 
 
 def test_get_table_can_use_nodes_as_pivot_values():
     table = DummyGroupData().get_table(index='status', columns='Material', values='node')
 
-    assert table.loc['✅', 'Fe2O3'].is_stable is True
-    assert table.loc['✅', 'Al2O3'].is_stable is False
+    assert table.loc['✅', 'Fe2O3'] == '2'
+    assert table.loc['✅', 'Al2O3'] == '1'
+
+
+def test_get_table_keeps_status_and_node_pairs_on_separate_lines():
+    data = DummyGroupData()
+    data._data.append(
+        {'PK': 3, 'Material': 'Fe2O3', 'status': '✅', 'node': SimpleNamespace(pk=3, is_stable=True)}
+    )
+
+    table = data.get_table(index='status', columns='Material', values=('status', 'node'))
+
+    assert table.loc['✅', 'Fe2O3'].splitlines() == ['✅ (2)', '✅ (3)']
 
 
 def test_iter_group_nodes_filters_process_labels(monkeypatch):

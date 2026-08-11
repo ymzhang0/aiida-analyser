@@ -254,13 +254,12 @@ class BaseGroupData:
 
     @property
     def available_columns(self):
-        """Names available for the public dataframe and table reshaping options.
-
-        Internal ``node`` objects are intentionally excluded: they are kept
-        only for filtering and exporting process trees, and are removed before
-        the dataframe is returned.
-        """
-        return self.dataframe_columns
+        """Names accepted by the dataframe and table reshaping options."""
+        columns = list(self.dataframe_columns)
+        if isinstance(self._data, list) and any('node' in row for row in self._data):
+            if 'node' not in columns:
+                columns.append('node')
+        return tuple(columns)
 
     def iter_group_nodes(self, process_labels=None):
         """Yield nodes from configured groups, optionally filtered by label.
@@ -368,6 +367,21 @@ class BaseGroupData:
         value = bool(getattr(analyser, property_name, False))
         return not value if negate else value
 
+    @staticmethod
+    def _format_node_value(nodes):
+        """Render one or more AiiDA nodes as their compact PK representation."""
+        if isinstance(nodes, (list, tuple)):
+            node_list = nodes
+        else:
+            node_list = [nodes]
+
+        pks = []
+        for node in node_list:
+            if node is None:
+                continue
+            pks.append(str(getattr(node, 'pk', node)))
+        return '\n'.join(pks)
+
     def _get_dataframe(self, property_filter=None, values=None):
         """Build a PK-indexed dataframe from flat row dictionaries in ``_data``."""
         import pandas as pd
@@ -395,8 +409,11 @@ class BaseGroupData:
 
         dataframe = pd.DataFrame(rows)
         value_keys = self._table_keys(values, 'values')
-        if 'node' in dataframe and 'node' not in value_keys:
-            dataframe = dataframe.drop(columns='node')
+        if 'node' in dataframe:
+            if 'node' not in value_keys:
+                dataframe = dataframe.drop(columns='node')
+            else:
+                dataframe['node'] = dataframe['node'].map(self._format_node_value)
         if 'PK' not in dataframe:
             return dataframe
         return dataframe.set_index('PK').sort_index()
@@ -514,11 +531,36 @@ class BaseGroupData:
             excluded = set(column_keys + value_keys + ['PK', 'node', 'status', 'Status'])
             index_keys = [key for key in flat.columns if key not in excluded]
 
+        pivot_values = value_keys[0] if len(value_keys) == 1 else '__table_value__'
+        if len(value_keys) > 1:
+            flat = flat.copy()
+
+            def combine_values(row):
+                parts = []
+                for key in value_keys:
+                    value = row[key]
+                    if value is None or value == '':
+                        continue
+                    parts.append(f'({value})' if key == 'node' else str(value))
+                return ' '.join(parts)
+
+            flat[pivot_values] = flat.apply(combine_values, axis=1)
+
+        def join_values(cell_values):
+            rendered = []
+            for value in cell_values:
+                if value is None or value == '':
+                    continue
+                value = str(value)
+                if value not in rendered:
+                    rendered.append(value)
+            return '\n'.join(rendered)
+
         pivot = flat.pivot_table(
             index=index_keys,
             columns=column_keys,
-            values=value_keys[0] if len(value_keys) == 1 else value_keys,
-            aggfunc=aggfunc,
+            values=pivot_values,
+            aggfunc=join_values if aggfunc == 'first' else aggfunc,
         )
         if fill_value is not None:
             pivot = pivot.fillna(fill_value)
@@ -571,11 +613,13 @@ class BaseGroupData:
             )
 
         ``aggfunc`` resolves duplicate index/column combinations and defaults
-        to ``'first'``.  Set ``fill_value=None`` to retain missing values.
+        to one line per distinct value.  Set ``fill_value=None`` to retain
+        missing values.
         Without ``columns``, ``values`` selects the returned data columns. For
-        example, use ``values='node'`` to return nodes instead of status, or
-        ``values=['status', 'node']`` to retain both.  The internal ``node``
-        column is otherwise omitted from public dataframes.
+        example, use ``values='node'`` to return node PKs instead of status,
+        or ``values=['status', 'node']`` to retain both.  With ``columns``,
+        a values list or tuple combines each row's values in one cell; multiple
+        nodes are separated by newlines.
         """
         import pandas as pd
 
@@ -624,8 +668,11 @@ class BaseGroupData:
 
         dataframe = pd.DataFrame(flattened_list)
         value_keys = self._table_keys(values, 'values')
-        if 'node' in dataframe and 'node' not in value_keys:
-            dataframe = dataframe.drop(columns='node', errors='ignore')
+        if 'node' in dataframe:
+            if 'node' not in value_keys:
+                dataframe = dataframe.drop(columns='node')
+            else:
+                dataframe['node'] = dataframe['node'].map(self._format_node_value)
         if index is None and columns is None and 'Plane' in dataframe and 'Status' in dataframe:
             # Preserve the historical default for the legacy nested data model.
             columns = 'Plane'
