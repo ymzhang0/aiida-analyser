@@ -117,6 +117,7 @@ def test_get_table_keeps_status_and_node_pairs_on_separate_lines():
     table = data.get_table(index='status', columns='Material', values=('status', 'node'))
 
     assert table.loc['✅', 'Fe2O3'].splitlines() == ['✅ (2)', '✅ (3)']
+    assert 'white-space: pre-line' in table._repr_html_()
 
 
 def test_iter_group_nodes_filters_process_labels(monkeypatch):

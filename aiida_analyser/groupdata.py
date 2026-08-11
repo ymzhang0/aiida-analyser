@@ -441,6 +441,7 @@ class BaseGroupData:
     @staticmethod
     def _display_dataframe(dataframe, display_mode, max_height):
         """Display a dataframe in notebook-friendly modes, or return it."""
+        dataframe = BaseGroupData._with_multiline_html(dataframe)
         mode = 'dataframe' if display_mode is None else str(display_mode).lower()
         if mode in {'dataframe', 'default'}:
             return dataframe
@@ -455,11 +456,37 @@ class BaseGroupData:
             from IPython.display import HTML, display
 
             display(HTML(
-                f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
+                f'<div style="max-height:{int(max_height)}px; overflow:auto; white-space: pre-line;">'
                 f'{dataframe.to_html()}</div>'
             ))
             return None
         raise ValueError("display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'")
+
+    @staticmethod
+    def _with_multiline_html(dataframe):
+        """Give dataframes with newline cells a notebook representation that wraps lines."""
+        has_multiline_values = any(
+            isinstance(value, str) and '\n' in value
+            for column in dataframe.columns
+            for value in dataframe[column]
+        )
+        if not has_multiline_values:
+            return dataframe
+
+        import pandas as pd
+
+        class MultilineDataFrame(pd.DataFrame):
+            @property
+            def _constructor(self):
+                return MultilineDataFrame
+
+            def _repr_html_(self):
+                html = super()._repr_html_()
+                if html is None:
+                    return None
+                return f'<div style="white-space: pre-line;">{html}</div>'
+
+        return MultilineDataFrame(dataframe)
 
     @staticmethod
     def _table_keys(value, parameter):
@@ -678,13 +705,15 @@ class BaseGroupData:
             columns = 'Plane'
             values = 'Status'
 
-        return self._reshape_table(
-            dataframe,
-            index=index,
-            columns=columns,
-            values=values,
-            aggfunc=aggfunc,
-            fill_value=fill_value,
+        return self._with_multiline_html(
+            self._reshape_table(
+                dataframe,
+                index=index,
+                columns=columns,
+                values=values,
+                aggfunc=aggfunc,
+                fill_value=fill_value,
+            )
         )
 
     def _flatten_data(self):
