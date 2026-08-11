@@ -8,7 +8,6 @@ import warnings
 from ..groupdata import BaseGroupData, render_process_node_details
 from ..base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseAnalyser
-from .epw_prep import EpwPrepAnalyser
 from ..calculators import _calculate_iso_tc, check_convergence
 from ..quantumespresso.ph import check_stability_epw_bands
 from ..plot import (
@@ -540,13 +539,37 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
 class SuperConGroup(BaseGroupData):
 
     analyser_class = SuperConAnalyser
+    dataframe_columns = (
+        'Material',
+        'degauss',
+        'kpoints_distance',
+        'qpoints_distance',
+        'parent_epw',
+        'status',
+    )
 
     def __init__(self, groups=None):
         super().__init__(groups)
+        self._flat_nodes = []
         self.get_data()
+        self._data = self._flatten_data()
 
     def get_data(self):
-        self._data = self._flatten_data()
+        """Collect SuperCon work chains into the flat representation source."""
+        for node in self.iter_group_nodes('SuperConWorkChain'):
+            try:
+                self.check_protocol(node)
+                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
+                self._flat_nodes.append((
+                    self._material_label(node),
+                    degauss,
+                    kpoints_distance,
+                    qpoints_distance,
+                    self._parent_epw_pk(node),
+                    node,
+                ))
+            except Exception as exc:
+                logging.error(f'Node<{node.pk}> processing failed: {exc}')
 
     @staticmethod
     def _extract_degauss_k_q(node):
@@ -574,49 +597,30 @@ class SuperConGroup(BaseGroupData):
                 )
         return True
 
-    def _flatten_data(self):
-        from aiida import orm
-        flattened_list = []
-
-        if not self._groups:
-            return flattened_list
-
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'SuperConWorkChain'})
-
-        for r in qb.all():
-            node = r[0]
-            self.check_protocol(node)
+    def _material_label(self, node):
+        """Return the historical source-qualified material label when available."""
+        try:
             extras = node.base.extras.all
-            try:
-                formula = f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
-            except (KeyError, ValueError) as e:
-                try:
-                    formula = node.inputs.structure.get_formula()
-                except Exception:
-                    formula = 'N/A'
-            try:
-                self.check_protocol(node)
-                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
-            except Exception as e:
-                logging.error(f'Node<{node.pk}> processing failed: {e}')
-            # parent_epw pointing to parent_folder_epw's creator
-            parent_epw = None
-            if 'parent_folder_epw' in node.inputs:
-                try:
-                    parent_epw_node = node.inputs.parent_folder_epw.creator
-                    if parent_epw_node:
-                        parent_epw = parent_epw_node.pk
-                except Exception:
-                    pass
+            return f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
+        except (AttributeError, KeyError, TypeError):
+            return self.get_node_formula(node)
 
-            status_emoji = self.get_status_string(node)
+    @staticmethod
+    def _parent_epw_pk(node):
+        """Return the creator PK of ``parent_folder_epw`` when it is present."""
+        try:
+            parent_epw_node = node.inputs.parent_folder_epw.creator
+            return parent_epw_node.pk if parent_epw_node is not None else None
+        except (AttributeError, KeyError):
+            return None
 
+    def _flatten_data(self):
+        flattened_list = []
+        for formula, degauss, kpoints_distance, qpoints_distance, parent_epw, node in self._flat_nodes:
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
-                'status': status_emoji,
+                'status': self.get_status_string(node),
                 'degauss': degauss,
                 'kpoints_distance': kpoints_distance,
                 'qpoints_distance': qpoints_distance,
@@ -625,134 +629,6 @@ class SuperConGroup(BaseGroupData):
             })
 
         return flattened_list
-
-    def _get_dataframe(self, property_filter=None):
-        """Build one row per EpwPrep work chain, indexed by PK."""
-        import pandas as pd
-
-        if not self._data:
-            return pd.DataFrame(columns=['Material', 'degauss', 'kpoints_distance', 'qpoints_distance', 'Process', 'Status'])
-
-        data_list = self._data
-        if property_filter:
-            filtered_list = []
-            for item in data_list:
-                try:
-                    analyser = EpwPrepAnalyser(item['node'])
-                    if callable(property_filter):
-                        res = property_filter(analyser)
-                    elif isinstance(property_filter, str):
-                        prop = property_filter.strip()
-                        if prop.startswith('not '):
-                            res = not bool(getattr(analyser, prop[4:].strip(), False))
-                        elif prop.startswith('!'):
-                            res = not bool(getattr(analyser, prop[1:].strip(), False))
-                        elif prop.startswith('~'):
-                            res = not bool(getattr(analyser, prop[1:].strip(), False))
-                        else:
-                            res = bool(getattr(analyser, prop, False))
-                    else:
-                        res = False
-                    
-                    if res:
-                        filtered_list.append(item)
-                except Exception as e:
-                    logging.warning(f"Error filtering node {item['PK']}: {e}")
-                    pass
-            data_list = filtered_list
-            
-        if not data_list:
-            return pd.DataFrame(columns=['PK', 'Material', 'degauss', 'kpoints_distance', 'qpoints_distance', 'Status']).set_index('PK')
-
-        dataframe = pd.DataFrame(data_list).drop(columns=['node'])
-        return dataframe.set_index('PK').sort_index()
-
-    @staticmethod
-    def _filter_by_formula(dataframe, formula_contains=None, formula_match='any'):
-        """Filter rows by case-insensitive substrings in the material formula."""
-        if formula_contains is None or formula_contains == '':
-            return dataframe
-
-        terms = (
-            [formula_contains]
-            if isinstance(formula_contains, str)
-            else list(formula_contains)
-        )
-        terms = [str(term).strip().lower() for term in terms if str(term).strip()]
-        if not terms:
-            return dataframe
-        if formula_match not in {'any', 'all'}:
-            raise ValueError("formula_match must be either 'any' or 'all'")
-
-        formulas = dataframe['Material'].astype(str).str.lower()
-        masks = [formulas.str.contains(term, regex=False) for term in terms]
-        mask = masks[0]
-        for next_mask in masks[1:]:
-            mask = mask | next_mask if formula_match == 'any' else mask & next_mask
-        return dataframe.loc[mask]
-
-    def get_table(
-        self,
-        display_mode='dataframe',
-        *,
-        max_height=600,
-        page_size=25,
-        formula_contains=None,
-        formula_match='any',
-        property_filter=None,
-    ):
-        """Return or display the EpwPrep table.
-
-        :param display_mode: One of ``dataframe`` (return the normal DataFrame),
-            ``all`` (display every row), ``scroll`` (display a scrollable table),
-            or ``interactive`` (searchable, paginated node browser).
-        :param max_height: Maximum table height in pixels for scrollable modes.
-        :param page_size: Initial number of rows per page in interactive mode.
-        :param formula_contains: A substring or iterable of substrings that must
-            occur in the material formula, matched case-insensitively.
-        :param formula_match: Use ``any`` to match at least one substring or
-            ``all`` to require every substring.
-        :param property_filter: A string of a boolean property in EpwPrepAnalyser
-            to filter the workchains (e.g. 'is_stable').
-        """
-        dataframe = self._filter_by_formula(
-            self._get_dataframe(property_filter=property_filter),
-            formula_contains=formula_contains,
-            formula_match=formula_match,
-        )
-        mode = 'dataframe' if display_mode is None else str(display_mode).lower()
-
-        if mode in {'dataframe', 'default'}:
-            return dataframe
-
-        if mode == 'all':
-            import pandas as pd
-            from IPython.display import display
-
-            with pd.option_context('display.max_rows', None):
-                display(dataframe)
-            return None
-
-        if mode == 'scroll':
-            from IPython.display import HTML, display
-
-            display(HTML(
-                f'<div style="max-height:{int(max_height)}px; overflow:auto;">'
-                f'{dataframe.to_html()}</div>'
-            ))
-            return None
-
-        if mode == 'interactive':
-            return self.show_interactive(
-                max_height=max_height,
-                page_size=page_size,
-                formula_contains=formula_contains,
-                formula_match=formula_match,
-            )
-
-        raise ValueError(
-            "display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'"
-        )
 
     def get_parallel_plot(self, target_metric='tc'):
         """
