@@ -481,10 +481,25 @@ class BaseGroupData:
                 return MultilineDataFrame
 
             def _repr_html_(self):
+                import re
+
                 html = super()._repr_html_()
                 if html is None:
                     return None
-                return f'<div style="white-space: pre-line;">{html}</div>'
+                # Pandas stores the newline correctly but some notebook
+                # frontends serialise it as the literal ``\\n``.  Replacing
+                # newlines inside data cells with an HTML break makes the
+                # intended layout independent of CSS whitespace handling.
+                def format_cell(match):
+                    contents = match.group(2).replace('\\n', '<br>').replace(chr(10), '<br>')
+                    return f'{match.group(1)}{contents}{match.group(3)}'
+
+                return re.sub(
+                    r'(<td[^>]*>)(.*?)(</td>)',
+                    format_cell,
+                    html,
+                    flags=re.DOTALL,
+                )
 
         return MultilineDataFrame(dataframe)
 
