@@ -46,6 +46,40 @@ class DumpGroupData(BaseGroupData):
         ]
 
 
+class PivotGroupData(BaseGroupData):
+    def __init__(self):
+        super().__init__()
+        self._data = [
+            {
+                'PK': 11,
+                'Degauss': 0.005,
+                'K_Density': 0.10,
+                'Q_Density': 0.5,
+                'Type': 'EpwPrepWorkChain',
+                'Material': 'mpds-S1612209-RuSbTi',
+                'Status': '✅ (40579)',
+            },
+            {
+                'PK': 12,
+                'Degauss': 0.005,
+                'K_Density': 0.10,
+                'Q_Density': 0.5,
+                'Type': 'EpwPrepWorkChain',
+                'Material': 'mpds-S1612210-RuSbZr',
+                'Status': '✅ (40637)',
+            },
+            {
+                'PK': 13,
+                'Degauss': 0.005,
+                'K_Density': 0.10,
+                'Q_Density': '-',
+                'Type': 'PwRelaxWorkChain',
+                'Material': 'mpds-S1612209-RuSbTi',
+                'Status': '✅ (36196)',
+            },
+        ]
+
+
 def test_tabular_group_data_filters_formula_and_properties():
     table = DummyGroupData().get_table(formula_contains='fe', property_filter='is_stable')
 
@@ -72,3 +106,25 @@ def test_dump_uses_flattened_nodes(tmp_path):
     data.dump(tmp_path)
 
     assert DumpAnalyser.copied_paths == [tmp_path / '12', tmp_path / '13']
+
+
+def test_get_table_can_create_a_hierarchical_index():
+    table = PivotGroupData().get_table(index=['Degauss', 'K_Density', 'Type'])
+
+    assert table.index.names == ['Degauss', 'K_Density', 'Type']
+    assert table.loc[(0.005, 0.10, 'EpwPrepWorkChain'), 'Material'].tolist() == [
+        'mpds-S1612209-RuSbTi',
+        'mpds-S1612210-RuSbZr',
+    ]
+
+
+def test_get_table_can_pivot_an_arbitrary_key_into_columns():
+    table = PivotGroupData().get_table(
+        index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
+        columns='Material',
+    )
+
+    assert table.index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']
+    assert table.loc[(0.005, 0.10, 0.5, 'EpwPrepWorkChain'), 'mpds-S1612209-RuSbTi'] == '✅ (40579)'
+    assert table.loc[(0.005, 0.10, 0.5, 'EpwPrepWorkChain'), 'mpds-S1612210-RuSbZr'] == '✅ (40637)'
+    assert table.loc[(0.005, 0.10, '-', 'PwRelaxWorkChain'), 'mpds-S1612210-RuSbZr'] == ''

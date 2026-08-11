@@ -434,6 +434,83 @@ class BaseGroupData:
         raise ValueError("display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'")
 
     @staticmethod
+    def _table_keys(value, parameter):
+        """Normalise one or more dataframe column names passed to ``get_table``."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        try:
+            keys = list(value)
+        except TypeError as exc:
+            raise TypeError(f'{parameter} must be a column name or an iterable of column names.') from exc
+        if not all(isinstance(key, str) for key in keys):
+            raise TypeError(f'{parameter} must contain only column names.')
+        return keys
+
+    @classmethod
+    def _reshape_table(cls, dataframe, *, index=None, columns=None, values=None, aggfunc='first', fill_value=''):
+        """Create an optional hierarchical or pivoted view of a flat dataframe.
+
+        ``index`` accepts one key or a sequence of keys.  A sequence creates a
+        pandas ``MultiIndex`` and therefore keeps the requested hierarchy in
+        notebook HTML output.  Supplying ``columns`` pivots its key(s) into
+        columns; ``values`` identifies the cell value(s).  When the latter is
+        omitted, ``Status`` (or ``status``) is selected automatically.
+        """
+        index_keys = cls._table_keys(index, 'index')
+        column_keys = cls._table_keys(columns, 'columns')
+        value_keys = cls._table_keys(values, 'values')
+
+        if not index_keys and not column_keys:
+            if value_keys:
+                raise ValueError('values can only be used together with columns.')
+            return dataframe
+
+        import pandas as pd
+
+        # A freshly-created dataframe has an anonymous RangeIndex.  Retaining
+        # it would make every row a distinct pivot index, so only materialise
+        # a meaningful index (notably the PK index of list-based group data).
+        if dataframe.index.name is None and isinstance(dataframe.index, pd.RangeIndex):
+            flat = dataframe.copy()
+        else:
+            flat = dataframe.reset_index()
+        missing = set(index_keys + column_keys + value_keys).difference(flat.columns)
+        if missing:
+            available = ', '.join(map(str, flat.columns))
+            raise KeyError(f'Unknown table key(s): {sorted(missing)!r}. Available columns: {available}.')
+
+        if not column_keys:
+            if value_keys:
+                raise ValueError('values can only be used together with columns.')
+            return flat.set_index(index_keys).sort_index()
+
+        if not value_keys:
+            for status_key in ('Status', 'status'):
+                if status_key in flat.columns:
+                    value_keys = [status_key]
+                    break
+            else:
+                raise ValueError(
+                    'values is required when pivoting data without a Status or status column.'
+                )
+
+        if not index_keys:
+            excluded = set(column_keys + value_keys + ['PK', 'node'])
+            index_keys = [key for key in flat.columns if key not in excluded]
+
+        pivot = flat.pivot_table(
+            index=index_keys,
+            columns=column_keys,
+            values=value_keys[0] if len(value_keys) == 1 else value_keys,
+            aggfunc=aggfunc,
+        )
+        if fill_value is not None:
+            pivot = pivot.fillna(fill_value)
+        return pivot.sort_index().sort_index(axis=1)
+
+    @staticmethod
     def get_status_string(node):
         if node is None:
             return 'N/A'
@@ -459,8 +536,29 @@ class BaseGroupData:
         formula_contains=None,
         formula_match='any',
         property_filter=None,
+        index=None,
+        columns=None,
+        values=None,
+        aggfunc='first',
+        fill_value='',
     ):
-        """Return a table, with optional formula and analyser-property filters."""
+        """Return a flat, hierarchical, or pivoted table of group-data rows.
+
+        By default the existing flat PK-indexed table is returned.  ``index``
+        can be a key or a sequence of keys to produce a hierarchical
+        ``MultiIndex``.  ``columns`` pivots one or more keys into columns and
+        ``values`` chooses the cell value(s); it defaults to ``Status`` or
+        ``status`` when available.  For example::
+
+            group.get_table(
+                index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
+                columns='Material',
+                values='Status',
+            )
+
+        ``aggfunc`` resolves duplicate index/column combinations and defaults
+        to ``'first'``.  Set ``fill_value=None`` to retain missing values.
+        """
         import pandas as pd
 
         if isinstance(self._data, list):
@@ -471,6 +569,8 @@ class BaseGroupData:
                 column=self.formula_column,
             )
             if str(display_mode).lower() == 'interactive':
+                if any(value is not None for value in (index, columns, values)):
+                    raise ValueError('index, columns, and values are not supported in interactive mode.')
                 show_interactive = getattr(self, 'show_interactive', None)
                 if show_interactive is None:
                     raise ValueError(f'{self.__class__.__name__} does not provide an interactive table.')
@@ -485,32 +585,34 @@ class BaseGroupData:
                 if 'formula_match' in parameters:
                     kwargs['formula_match'] = formula_match
                 return show_interactive(**kwargs)
+            dataframe = self._reshape_table(
+                dataframe,
+                index=index,
+                columns=columns,
+                values=values,
+                aggfunc=aggfunc,
+                fill_value=fill_value,
+            )
             return self._display_dataframe(dataframe, display_mode, max_height)
 
         flattened_list = self._flatten_data()
         if not flattened_list:
             return pd.DataFrame()
 
-        df = pd.DataFrame(flattened_list)
+        dataframe = pd.DataFrame(flattened_list)
+        if index is None and columns is None and 'Plane' in dataframe and 'Status' in dataframe:
+            # Preserve the historical default for the legacy nested data model.
+            columns = 'Plane'
+            values = 'Status'
 
-        # 1. Define the columns we know are NOT part of the index
-        # 'Plane' is our pivot column, 'Status' is our value
-        pivot_col = 'Plane'
-        value_col = 'Status'
-
-        if pivot_col in df.columns and value_col in df.columns:
-            index_cols = [col for col in df.columns if col not in [pivot_col, value_col]]
-            pivot_df = df.pivot_table(
-                values=value_col,
-                index=index_cols,
-                columns=pivot_col,
-                aggfunc='first',
-            )
-            pivot_df = pivot_df.fillna('')
-            pivot_df = pivot_df.sort_index(axis=1)
-            return pivot_df
-
-        return df
+        return self._reshape_table(
+            dataframe,
+            index=index,
+            columns=columns,
+            values=values,
+            aggfunc=aggfunc,
+            fill_value=fill_value,
+        )
 
     def _flatten_data(self):
         """To be implemented by subclasses."""
