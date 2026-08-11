@@ -764,6 +764,715 @@ class SuperConGroup(BaseGroupData):
 
         return default_to_regular(allen_dynes_tcs)
 
+    def plot_allen_dynes_tc_vs_kpoints(
+        self,
+        qpoints_distance=0.5,
+        qfpoints_distance=0.07,
+        *,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        colors=None,
+        figsize=None,
+        xlim=(0.55, 0.04),
+        xticks=(0.5, 0.3, 0.2, 0.1, 0.05),
+        ylim=None,
+        cubic_kpoints_scale=True,
+        highlight_points=None,
+        legend=True,
+        **kwargs,
+    ):
+        """Plot Allen-Dynes Tc against k-point distance for each material.
+
+        The q-point and fine q-point distances are fixed so that each curve
+        shows k-point convergence at one ``degauss`` value.  The data source is
+        :meth:`get_allen_dynes_tc`, whose leaves are AiiDA output-parameter
+        nodes keyed by ``qfpoints_distance``.
+
+        Parameters
+        ----------
+        qpoints_distance, qfpoints_distance
+            Fixed q- and fine-q-point distances to select.
+        materials
+            Optional material name or iterable of material names.  Defaults to
+            all materials with matching data.
+        degauss_values, exclude_degauss
+            Optional degauss inclusion and exclusion filters.
+        cubic_kpoints_scale
+            Use the cubic functional x-axis transformation from the original
+            convergence plotting script.
+        highlight_points
+            Optional iterable of ``(degauss, kpoints_distance)`` pairs to mark
+            with a black star.
+
+        Returns
+        -------
+        tuple
+            The Matplotlib ``(figure, axes)`` pair.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.ticker import FixedLocator
+
+        all_tcs = self.get_allen_dynes_tc()
+        if materials is None:
+            selected_materials = list(all_tcs)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+
+        selected_materials = [material for material in selected_materials if material in all_tcs]
+        if not selected_materials:
+            raise ValueError('No Allen-Dynes Tc data matches the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        if (
+            isinstance(highlight_points, tuple)
+            and len(highlight_points) == 2
+            and not isinstance(highlight_points[0], (list, tuple))
+        ):
+            highlight_points = [highlight_points]
+        highlight_points = {tuple(point) for point in as_list(highlight_points)}
+        palette = colors if colors is not None else ['#e41a1c', '#ff7f00', '#4daf4a', '#377eb8']
+        if not palette:
+            raise ValueError('colors must contain at least one colour.')
+
+        if figsize is None:
+            figsize = (max(2.3 * len(selected_materials), 2.3), 2.1)
+
+        rc_params = {
+            'font.size': kwargs.get('font_size', 9),
+            'axes.titlesize': kwargs.get('title_fontsize', kwargs.get('font_size', 9)),
+            'axes.labelsize': kwargs.get('label_fontsize', kwargs.get('font_size', 9)),
+            'xtick.labelsize': kwargs.get('tick_fontsize', kwargs.get('font_size', 9)),
+            'ytick.labelsize': kwargs.get('tick_fontsize', kwargs.get('font_size', 9)),
+            'legend.fontsize': kwargs.get('legend_fontsize', kwargs.get('font_size', 9)),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        def read_tc(parameters):
+            if hasattr(parameters, 'get_dict'):
+                parameters = parameters.get_dict()
+            if hasattr(parameters, 'get'):
+                return parameters.get('Allen_Dynes_Tc')
+            return None
+
+        with plt.rc_context(rc_params):
+            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
+            axes = axes.ravel()
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_tcs[material]
+                degauss_keys = [
+                    degauss for degauss in material_data
+                    if (allowed_degauss is None or degauss in allowed_degauss)
+                    and degauss not in excluded_degauss
+                ]
+
+                for degauss_index, degauss in enumerate(sorted(degauss_keys, key=sort_key, reverse=True)):
+                    x_values, y_values = [], []
+                    for kpoints_distance, qpoint_data in material_data[degauss].items():
+                        qfpoint_data = qpoint_data.get(qpoints_distance, {})
+                        parameters = qfpoint_data.get(qfpoints_distance)
+                        if parameters is None:
+                            continue
+
+                        tc_value = read_tc(parameters)
+                        if tc_value is None:
+                            continue
+                        x_values.append(kpoints_distance)
+                        y_values.append(tc_value)
+
+                    if not x_values:
+                        continue
+
+                    pairs = sorted(zip(x_values, y_values), key=lambda pair: sort_key(pair[0]), reverse=True)
+                    x_sorted, y_sorted = zip(*pairs)
+                    color = palette[degauss_index % len(palette)]
+                    try:
+                        sigma = f'{float(degauss) * 1000:g}'
+                    except (TypeError, ValueError):
+                        sigma = str(degauss)
+                    axis.scatter(x_sorted, y_sorted, marker='o', s=20, c=color)
+                    axis.plot(x_sorted, y_sorted, label=rf'$\sigma$={sigma} mRy', c=color)
+
+                    for kpoints_distance, tc_value in pairs:
+                        if (degauss, kpoints_distance) in highlight_points:
+                            axis.scatter(kpoints_distance, tc_value, marker='*', s=60, c='black', zorder=20)
+
+                axis.text(
+                    0.05,
+                    0.9,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_xlabel(r'kpoints distance [$\AA^{-1}$]')
+                if cubic_kpoints_scale:
+                    axis.set_xscale('function', functions=(np.cbrt, lambda value: value**3))
+                if xlim is not None:
+                    axis.set_xlim(xlim)
+                if xticks is not None:
+                    axis.set_xticks(xticks)
+                    axis.xaxis.set_major_locator(FixedLocator(xticks))
+                    axis.set_xticklabels([str(tick) for tick in xticks])
+                if ylim is not None:
+                    axis.set_ylim(ylim)
+                axis.grid(True, linestyle='--', alpha=0.6)
+
+            axes[0].set_ylabel(r'$T_c$ (K)')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 1.0, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', len(palette)),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
+
+    def plot_allen_dynes_tc_convergence(
+        self,
+        sweep='kpoints',
+        *,
+        degauss=0.02,
+        kpoints_distance=0.15,
+        qpoints_distance=0.5,
+        qfpoints_distance=0.07,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        colors=None,
+        figsize=None,
+        xlim=None,
+        xticks=None,
+        ylim=None,
+        cubic_scale=True,
+        highlight_points=None,
+        legend=None,
+        **kwargs,
+    ):
+        """Plot Allen-Dynes Tc convergence by k-point or q-point distance.
+
+        ``sweep='kpoints'`` fixes q/qf distances and draws one curve for each
+        degauss value.  ``sweep='qpoints'`` fixes degauss/k/qf distances and
+        draws one q-point convergence curve per material.
+
+        The specialised :meth:`plot_allen_dynes_tc_vs_kpoints` method remains
+        available; this method provides one consistent interface for both
+        convergence directions.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.ticker import FixedLocator
+
+        sweep = str(sweep).lower()
+        if sweep not in {'kpoints', 'qpoints'}:
+            raise ValueError("sweep must be either 'kpoints' or 'qpoints'.")
+
+        all_tcs = self.get_allen_dynes_tc()
+        if materials is None:
+            selected_materials = list(all_tcs)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_tcs]
+        if not selected_materials:
+            raise ValueError('No Allen-Dynes Tc data matches the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        def read_tc(parameters):
+            if hasattr(parameters, 'get_dict'):
+                parameters = parameters.get_dict()
+            return parameters.get('Allen_Dynes_Tc') if hasattr(parameters, 'get') else None
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        if (
+            isinstance(highlight_points, tuple)
+            and len(highlight_points) == 2
+            and not isinstance(highlight_points[0], (list, tuple))
+        ):
+            highlight_points = [highlight_points]
+        highlight_points = {tuple(point) for point in as_list(highlight_points)}
+        palette = colors if colors is not None else ['#e41a1c', '#ff7f00', '#4daf4a', '#377eb8']
+        if not palette:
+            raise ValueError('colors must contain at least one colour.')
+
+        if xticks is None:
+            xticks = (0.5, 0.3, 0.2, 0.1, 0.05) if sweep == 'kpoints' else (1.0, 0.7, 0.5, 0.3)
+        if xlim is None and sweep == 'kpoints':
+            xlim = (0.55, 0.04)
+        if figsize is None:
+            height = 2.1 if sweep == 'kpoints' else 2.4
+            figsize = (max((2.3 if sweep == 'kpoints' else 2.6) * len(selected_materials), 2.3), height)
+        if legend is None:
+            legend = sweep == 'kpoints'
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
+            axes = axes.ravel()
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_tcs[material]
+
+                if sweep == 'kpoints':
+                    degauss_keys = [
+                        value for value in material_data
+                        if (allowed_degauss is None or value in allowed_degauss)
+                        and value not in excluded_degauss
+                    ]
+                    for degauss_index, degauss_value in enumerate(
+                        sorted(degauss_keys, key=sort_key, reverse=True)
+                    ):
+                        points = []
+                        for kpoint_value, qpoint_data in material_data[degauss_value].items():
+                            tc_value = read_tc(
+                                qpoint_data.get(qpoints_distance, {}).get(qfpoints_distance)
+                            )
+                            if tc_value is not None:
+                                points.append((kpoint_value, tc_value))
+                        if not points:
+                            continue
+                        points.sort(key=lambda point: sort_key(point[0]), reverse=True)
+                        x_values, y_values = zip(*points)
+                        color = palette[degauss_index % len(palette)]
+                        try:
+                            sigma = f'{float(degauss_value) * 1000:g}'
+                        except (TypeError, ValueError):
+                            sigma = str(degauss_value)
+                        axis.scatter(x_values, y_values, marker='o', s=20, c=color)
+                        axis.plot(x_values, y_values, label=rf'$\sigma$={sigma} mRy', c=color)
+                        for kpoint_value, tc_value in points:
+                            if (degauss_value, kpoint_value) in highlight_points:
+                                axis.scatter(kpoint_value, tc_value, marker='*', s=60, c='black', zorder=20)
+                    axis.text(
+                        0.05, 0.9, material.split('-')[-1], transform=axis.transAxes,
+                        bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                    )
+                    axis.set_xlabel(r'kpoints distance [$\AA^{-1}$]')
+                else:
+                    points = []
+                    qpoint_data = material_data.get(degauss, {}).get(kpoints_distance, {})
+                    for qpoint_value, qfpoint_data in qpoint_data.items():
+                        tc_value = read_tc(qfpoint_data.get(qfpoints_distance))
+                        if tc_value is not None:
+                            points.append((qpoint_value, tc_value))
+                    points.sort(key=lambda point: sort_key(point[0]), reverse=True)
+                    if points:
+                        x_values, y_values = zip(*points)
+                        axis.plot(x_values, y_values, marker='o', c='black')
+                    axis.text(
+                        0.7, 0.9, material.split('-')[-1], transform=axis.transAxes,
+                        bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                    )
+                    axis.set_xlabel(r'qpoints distance [$\AA^{-1}$]')
+
+                axis.grid(True, linestyle='--', alpha=0.6)
+                if cubic_scale:
+                    axis.set_xscale('function', functions=(np.cbrt, lambda value: value**3))
+                if xlim is not None:
+                    axis.set_xlim(xlim)
+                elif sweep == 'qpoints':
+                    axis.invert_xaxis()
+                if xticks is not None:
+                    axis.set_xticks(xticks)
+                    axis.xaxis.set_major_locator(FixedLocator(xticks))
+                    axis.set_xticklabels([str(tick) for tick in xticks])
+                if ylim is not None:
+                    axis.set_ylim(ylim)
+
+            axes[0].set_ylabel(r'$T_c$ (K)')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 1.0, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', len(palette)),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
+
+    def plot_phonon_bands_vs_degauss(
+        self,
+        kpoints_distance=0.15,
+        qpoints_distance=0.5,
+        qfpoints_distance=0.07,
+        *,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        cmap='OrRd',
+        figsize=None,
+        ylim=(-2, 24),
+        yticks=(-2, 24),
+        legend=True,
+        **kwargs,
+    ):
+        """Plot phonon band structures at fixed k-, q-, and fine-q-point distances.
+
+        One subplot is produced for each material, with one band structure per
+        degauss value.  Set ``kpoints_distance=None`` to reproduce the old
+        notebook behaviour of selecting the smallest available k-point distance
+        for each degauss value.
+
+        Parameters
+        ----------
+        kpoints_distance, qpoints_distance, qfpoints_distance
+            Parameter-space point used to select the A2F workchain whose
+            ``ph_band_structure`` output is plotted.
+        materials, degauss_values, exclude_degauss
+            Optional filters for the plotted data.
+
+        Returns
+        -------
+        tuple
+            The Matplotlib ``(figure, axes)`` pair.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        from ..plot import plot_bands
+
+        all_nodes = self.get_a2f_nodes()
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No A2F nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
+            axes = axes.ravel()
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                degauss_keys = [
+                    degauss for degauss in material_data
+                    if (allowed_degauss is None or degauss in allowed_degauss)
+                    and degauss not in excluded_degauss
+                ]
+                degauss_keys = sorted(degauss_keys, key=sort_key, reverse=True)
+                colors = plt.get_cmap(cmap)(np.linspace(0.2, 0.8, len(degauss_keys)))
+
+                for color, degauss in zip(colors, degauss_keys):
+                    kpoint_data = material_data[degauss]
+                    if not kpoint_data:
+                        continue
+                    selected_kpoint_distance = (
+                        min(kpoint_data, key=sort_key)
+                        if kpoints_distance is None else kpoints_distance
+                    )
+                    qpoint_data = kpoint_data.get(selected_kpoint_distance, {})
+                    qfpoint_data = qpoint_data.get(qpoints_distance, {})
+                    node = qfpoint_data.get(qfpoints_distance)
+                    if node is None:
+                        continue
+                    try:
+                        bands_data = node.outputs.ph_band_structure
+                    except AttributeError:
+                        continue
+
+                    plot_bands(
+                        bands_data,
+                        axis=axis,
+                        color=color,
+                        ticklabel_fontsize=kwargs.get('tick_fontsize', font_size),
+                        label_fontsize=kwargs.get('label_fontsize', font_size),
+                    )
+                    try:
+                        sigma = f'{float(degauss) * 1000:g}'
+                    except (TypeError, ValueError):
+                        sigma = str(degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=color)
+
+                axis.text(
+                    0.05,
+                    0.9,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                if ylim is not None:
+                    axis.set_ylim(ylim)
+
+            if yticks is not None:
+                axes[0].set_yticks(yticks)
+                axes[0].set_yticklabels([str(tick) for tick in yticks])
+            axes[0].set_ylabel('Frequency (THz)')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 1.05, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', 4),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
+
+    def plot_a2f_vs_degauss(
+        self,
+        kpoints_distance=0.15,
+        qpoints_distance=0.5,
+        qfpoints_distance=0.07,
+        *,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        cmap='OrRd',
+        figsize=None,
+        xlim=(0, 1),
+        material_xlims=None,
+        ylim=(0, 30),
+        legend=True,
+        **kwargs,
+    ):
+        """Plot α²F spectra at fixed k-, q-, and fine-q-point distances.
+
+        Each material receives one subplot and its spectra are overlaid by
+        degauss value.  Set ``kpoints_distance=None`` to select the smallest
+        available k-point distance for each degauss value, matching the old
+        notebook script.
+
+        Parameters
+        ----------
+        material_xlims
+            Optional mapping from material label to a material-specific
+            x-axis limit, useful when one spectrum extends beyond ``xlim``.
+
+        Returns
+        -------
+        tuple
+            The Matplotlib ``(figure, axes)`` pair.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        all_nodes = self.get_a2f_nodes()
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No A2F nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        material_xlims = material_xlims or {}
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
+            axes = axes.ravel()
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                degauss_keys = [
+                    degauss for degauss in material_data
+                    if (allowed_degauss is None or degauss in allowed_degauss)
+                    and degauss not in excluded_degauss
+                ]
+                degauss_keys = sorted(degauss_keys, key=sort_key, reverse=True)
+                colors = plt.get_cmap(cmap)(np.linspace(0.2, 0.8, len(degauss_keys)))
+
+                for color, degauss in zip(colors, degauss_keys):
+                    kpoint_data = material_data[degauss]
+                    if not kpoint_data:
+                        continue
+                    selected_kpoint_distance = (
+                        min(kpoint_data, key=sort_key)
+                        if kpoints_distance is None else kpoints_distance
+                    )
+                    qpoint_data = kpoint_data.get(selected_kpoint_distance, {})
+                    qfpoint_data = qpoint_data.get(qpoints_distance, {})
+                    node = qfpoint_data.get(qfpoints_distance)
+                    if node is None:
+                        continue
+
+                    a2f_data = _get_a2f_arraydata(node)
+                    try:
+                        output_parameters = node.outputs.output_parameters
+                    except AttributeError:
+                        output_parameters = None
+                    if a2f_data is None or output_parameters is None:
+                        continue
+
+                    plot_a2f(
+                        a2f_arraydata=a2f_data,
+                        output_parameters=output_parameters,
+                        axis=axis,
+                        label1=None,
+                        label2=None,
+                        color=color,
+                    )
+                    try:
+                        sigma = f'{float(degauss) * 1000:g}'
+                    except (TypeError, ValueError):
+                        sigma = str(degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=color)
+
+                axis.text(
+                    0.07,
+                    0.95,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_xlabel(r'$\alpha^2 F$')
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                axis.set_xlim(material_xlims.get(material, xlim))
+                if ylim is not None:
+                    axis.set_ylim(ylim)
+                axis.grid(True, linestyle='--', alpha=0.6)
+
+            axes[0].set_ylabel(r'$\omega$ [meV]')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 0.9, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', 4),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
+
     def get_a2f_nodes(self):
         """
         Get a2f node.
