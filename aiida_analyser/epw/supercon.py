@@ -54,6 +54,72 @@ def _safe_get_extras(node):
     
     return degauss, kpoints_distance, qpoints_distance
 
+
+def _axis_limits(limits, num_axes, parameter='ylim'):
+    """Normalise one axis limit or one limit pair per subplot."""
+    if limits is None:
+        return [None] * num_axes
+
+    try:
+        items = list(limits)
+    except TypeError as exc:
+        raise TypeError(f'{parameter} must be a two-value range or one range per subplot.') from exc
+
+    def is_nested_range(value):
+        if isinstance(value, (str, bytes)):
+            return False
+        try:
+            iter(value)
+        except TypeError:
+            return False
+        return True
+
+    is_single_range = len(items) == 2 and not any(is_nested_range(value) for value in items)
+    if is_single_range:
+        return [tuple(items)] * num_axes
+
+    if len(items) != num_axes:
+        raise ValueError(
+            f'{parameter} must be one two-value range or contain {num_axes} ranges, one for each subplot.'
+        )
+
+    normalized = []
+    for value in items:
+        try:
+            limit = tuple(value)
+        except TypeError as exc:
+            raise TypeError(f'Each {parameter} entry must be a two-value range.') from exc
+        if len(limit) != 2:
+            raise ValueError(f'Each {parameter} entry must contain exactly two values.')
+        normalized.append(limit)
+    return normalized
+
+
+def _plot_axes(axes, num_axes, *, plt, figsize):
+    """Create plot axes or validate a user-supplied set of axes."""
+    if axes is None:
+        figure, axes_array = plt.subplots(1, num_axes, figsize=figsize, squeeze=False)
+        return figure, axes_array.ravel()
+
+    def flatten(value):
+        if hasattr(value, 'plot') and hasattr(value, 'figure'):
+            return [value]
+        try:
+            values = iter(value)
+        except TypeError as exc:
+            raise TypeError('axes must be a Matplotlib Axes or an iterable of Axes.') from exc
+        return [axis for item in values for axis in flatten(item)]
+
+    axes_array = flatten(axes)
+    if len(axes_array) != num_axes:
+        raise ValueError(
+            f'axes must contain exactly {num_axes} axes, one for each selected material.'
+        )
+    figure = axes_array[0].figure
+    if any(axis.figure is not figure for axis in axes_array):
+        raise ValueError('All supplied axes must belong to the same Matplotlib figure.')
+    return figure, axes_array
+
 class SuperConAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwSuperConWorkChain.
@@ -774,6 +840,7 @@ class SuperConGroup(BaseGroupData):
         exclude_degauss=None,
         colors=None,
         figsize=None,
+        axes=None,
         xlim=(0.55, 0.04),
         xticks=(0.5, 0.3, 0.2, 0.1, 0.05),
         ylim=None,
@@ -796,6 +863,9 @@ class SuperConGroup(BaseGroupData):
         materials
             Optional material name or iterable of material names.  Defaults to
             all materials with matching data.
+        axes
+            Optional Matplotlib Axes (or iterable of axes), one per selected
+            material.  This permits custom subplot layouts and styling.
         degauss_values, exclude_degauss
             Optional degauss inclusion and exclusion filters.
         cubic_kpoints_scale
@@ -804,6 +874,9 @@ class SuperConGroup(BaseGroupData):
         highlight_points
             Optional iterable of ``(degauss, kpoints_distance)`` pairs to mark
             with a black star.
+        ylim
+            A two-value y-axis range applied to every subplot, or one such
+            range per selected material/subplot.
 
         Returns
         -------
@@ -851,6 +924,7 @@ class SuperConGroup(BaseGroupData):
 
         if figsize is None:
             figsize = (max(2.3 * len(selected_materials), 2.3), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
 
         rc_params = {
             'font.size': kwargs.get('font_size', 9),
@@ -877,8 +951,9 @@ class SuperConGroup(BaseGroupData):
             return None
 
         with plt.rc_context(rc_params):
-            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
-            axes = axes.ravel()
+            fig, axes = _plot_axes(
+                axes, len(selected_materials), plt=plt, figsize=figsize
+            )
 
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -936,8 +1011,8 @@ class SuperConGroup(BaseGroupData):
                     axis.set_xticks(xticks)
                     axis.xaxis.set_major_locator(FixedLocator(xticks))
                     axis.set_xticklabels([str(tick) for tick in xticks])
-                if ylim is not None:
-                    axis.set_ylim(ylim)
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
                 axis.grid(True, linestyle='--', alpha=0.6)
 
             axes[0].set_ylabel(r'$T_c$ (K)')
@@ -967,6 +1042,7 @@ class SuperConGroup(BaseGroupData):
         exclude_degauss=None,
         colors=None,
         figsize=None,
+        axes=None,
         xlim=None,
         xticks=None,
         ylim=None,
@@ -984,6 +1060,12 @@ class SuperConGroup(BaseGroupData):
         The specialised :meth:`plot_allen_dynes_tc_vs_kpoints` method remains
         available; this method provides one consistent interface for both
         convergence directions.
+
+        ``ylim`` may be one two-value range for every subplot or a range per
+        selected material/subplot.
+
+        Pass ``axes`` to use an existing Matplotlib layout; it must contain one
+        axis per selected material.
         """
         import matplotlib.pyplot as plt
         import numpy as np
@@ -1047,6 +1129,7 @@ class SuperConGroup(BaseGroupData):
             figsize = (max((2.3 if sweep == 'kpoints' else 2.6) * len(selected_materials), 2.3), height)
         if legend is None:
             legend = sweep == 'kpoints'
+        y_limits = _axis_limits(ylim, len(selected_materials))
 
         font_size = kwargs.get('font_size', 9)
         rc_params = {
@@ -1061,8 +1144,9 @@ class SuperConGroup(BaseGroupData):
         }
 
         with plt.rc_context(rc_params):
-            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
-            axes = axes.ravel()
+            fig, axes = _plot_axes(
+                axes, len(selected_materials), plt=plt, figsize=figsize
+            )
 
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -1131,8 +1215,8 @@ class SuperConGroup(BaseGroupData):
                     axis.set_xticks(xticks)
                     axis.xaxis.set_major_locator(FixedLocator(xticks))
                     axis.set_xticklabels([str(tick) for tick in xticks])
-                if ylim is not None:
-                    axis.set_ylim(ylim)
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
 
             axes[0].set_ylabel(r'$T_c$ (K)')
             if legend:
@@ -1159,6 +1243,7 @@ class SuperConGroup(BaseGroupData):
         exclude_degauss=None,
         cmap='OrRd',
         figsize=None,
+        axes=None,
         ylim=(-2, 24),
         yticks=(-2, 24),
         legend=True,
@@ -1178,6 +1263,12 @@ class SuperConGroup(BaseGroupData):
             ``ph_band_structure`` output is plotted.
         materials, degauss_values, exclude_degauss
             Optional filters for the plotted data.
+        ylim
+            A two-value range for every subplot, or one range per selected
+            material/subplot.
+        axes
+            Optional Matplotlib Axes (or iterable of axes), one per selected
+            material.
 
         Returns
         -------
@@ -1220,6 +1311,7 @@ class SuperConGroup(BaseGroupData):
         excluded_degauss = set(as_list(exclude_degauss))
         if figsize is None:
             figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
 
         font_size = kwargs.get('font_size', 9)
         rc_params = {
@@ -1234,8 +1326,9 @@ class SuperConGroup(BaseGroupData):
         }
 
         with plt.rc_context(rc_params):
-            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
-            axes = axes.ravel()
+            fig, axes = _plot_axes(
+                axes, len(selected_materials), plt=plt, figsize=figsize
+            )
 
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -1289,8 +1382,8 @@ class SuperConGroup(BaseGroupData):
                 axis.set_ylabel('')
                 axis.set_yticks([])
                 axis.set_yticklabels([])
-                if ylim is not None:
-                    axis.set_ylim(ylim)
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
 
             if yticks is not None:
                 axes[0].set_yticks(yticks)
@@ -1320,6 +1413,7 @@ class SuperConGroup(BaseGroupData):
         exclude_degauss=None,
         cmap='OrRd',
         figsize=None,
+        axes=None,
         xlim=(0, 1),
         material_xlims=None,
         ylim=(0, 30),
@@ -1338,6 +1432,12 @@ class SuperConGroup(BaseGroupData):
         material_xlims
             Optional mapping from material label to a material-specific
             x-axis limit, useful when one spectrum extends beyond ``xlim``.
+        ylim
+            A two-value range for every subplot, or one range per selected
+            material/subplot.
+        axes
+            Optional Matplotlib Axes (or iterable of axes), one per selected
+            material.
 
         Returns
         -------
@@ -1379,6 +1479,7 @@ class SuperConGroup(BaseGroupData):
         material_xlims = material_xlims or {}
         if figsize is None:
             figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
 
         font_size = kwargs.get('font_size', 9)
         rc_params = {
@@ -1393,8 +1494,9 @@ class SuperConGroup(BaseGroupData):
         }
 
         with plt.rc_context(rc_params):
-            fig, axes = plt.subplots(1, len(selected_materials), figsize=figsize, squeeze=False)
-            axes = axes.ravel()
+            fig, axes = _plot_axes(
+                axes, len(selected_materials), plt=plt, figsize=figsize
+            )
 
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -1455,8 +1557,8 @@ class SuperConGroup(BaseGroupData):
                 axis.set_yticks([])
                 axis.set_yticklabels([])
                 axis.set_xlim(material_xlims.get(material, xlim))
-                if ylim is not None:
-                    axis.set_ylim(ylim)
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
                 axis.grid(True, linestyle='--', alpha=0.6)
 
             axes[0].set_ylabel(r'$\omega$ [meV]')
