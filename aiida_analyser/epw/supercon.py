@@ -849,185 +849,25 @@ class SuperConGroup(BaseGroupData):
         legend=True,
         **kwargs,
     ):
-        """Plot Allen-Dynes Tc against k-point distance for each material.
-
-        The q-point and fine q-point distances are fixed so that each curve
-        shows k-point convergence at one ``degauss`` value.  The data source is
-        :meth:`get_allen_dynes_tc`, whose leaves are AiiDA output-parameter
-        nodes keyed by ``qfpoints_distance``.
-
-        Parameters
-        ----------
-        qpoints_distance, qfpoints_distance
-            Fixed q- and fine-q-point distances to select.
-        materials
-            Optional material name or iterable of material names.  Defaults to
-            all materials with matching data.
-        axes
-            Optional Matplotlib Axes (or iterable of axes), one per selected
-            material.  This permits custom subplot layouts and styling.
-        degauss_values, exclude_degauss
-            Optional degauss inclusion and exclusion filters.
-        cubic_kpoints_scale
-            Use the cubic functional x-axis transformation from the original
-            convergence plotting script.
-        highlight_points
-            Optional iterable of ``(degauss, kpoints_distance)`` pairs to mark
-            with a black star.
-        ylim
-            A two-value y-axis range applied to every subplot, or one such
-            range per selected material/subplot.
-
-        Returns
-        -------
-        tuple
-            The Matplotlib ``(figure, axes)`` pair.
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-        from matplotlib.ticker import FixedLocator
-
-        all_tcs = self.get_allen_dynes_tc()
-        if materials is None:
-            selected_materials = list(all_tcs)
-        elif isinstance(materials, str):
-            selected_materials = [materials]
-        else:
-            selected_materials = list(materials)
-
-        selected_materials = [material for material in selected_materials if material in all_tcs]
-        if not selected_materials:
-            raise ValueError('No Allen-Dynes Tc data matches the requested materials.')
-
-        def as_list(value):
-            if value is None:
-                return []
-            if isinstance(value, (str, bytes)):
-                return [value]
-            try:
-                return list(value)
-            except TypeError:
-                return [value]
-
-        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
-        excluded_degauss = set(as_list(exclude_degauss))
-        if (
-            isinstance(highlight_points, tuple)
-            and len(highlight_points) == 2
-            and not isinstance(highlight_points[0], (list, tuple))
-        ):
-            highlight_points = [highlight_points]
-        highlight_points = {tuple(point) for point in as_list(highlight_points)}
-        palette = colors if colors is not None else ['#e41a1c', '#ff7f00', '#4daf4a', '#377eb8']
-        if not palette:
-            raise ValueError('colors must contain at least one colour.')
-
-        if figsize is None:
-            figsize = (max(2.3 * len(selected_materials), 2.3), 2.1)
-        y_limits = _axis_limits(ylim, len(selected_materials))
-
-        rc_params = {
-            'font.size': kwargs.get('font_size', 9),
-            'axes.titlesize': kwargs.get('title_fontsize', kwargs.get('font_size', 9)),
-            'axes.labelsize': kwargs.get('label_fontsize', kwargs.get('font_size', 9)),
-            'xtick.labelsize': kwargs.get('tick_fontsize', kwargs.get('font_size', 9)),
-            'ytick.labelsize': kwargs.get('tick_fontsize', kwargs.get('font_size', 9)),
-            'legend.fontsize': kwargs.get('legend_fontsize', kwargs.get('font_size', 9)),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
-        def sort_key(value):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return str(value)
-
-        def read_tc(parameters):
-            if hasattr(parameters, 'get_dict'):
-                parameters = parameters.get_dict()
-            if hasattr(parameters, 'get'):
-                return parameters.get('Allen_Dynes_Tc')
-            return None
-
-        with plt.rc_context(rc_params):
-            fig, axes = _plot_axes(
-                axes, len(selected_materials), plt=plt, figsize=figsize
-            )
-
-            for material_index, material in enumerate(selected_materials):
-                axis = axes[material_index]
-                material_data = all_tcs[material]
-                degauss_keys = [
-                    degauss for degauss in material_data
-                    if (allowed_degauss is None or degauss in allowed_degauss)
-                    and degauss not in excluded_degauss
-                ]
-
-                for degauss_index, degauss in enumerate(sorted(degauss_keys, key=sort_key, reverse=True)):
-                    x_values, y_values = [], []
-                    for kpoints_distance, qpoint_data in material_data[degauss].items():
-                        qfpoint_data = qpoint_data.get(qpoints_distance, {})
-                        parameters = qfpoint_data.get(qfpoints_distance)
-                        if parameters is None:
-                            continue
-
-                        tc_value = read_tc(parameters)
-                        if tc_value is None:
-                            continue
-                        x_values.append(kpoints_distance)
-                        y_values.append(tc_value)
-
-                    if not x_values:
-                        continue
-
-                    pairs = sorted(zip(x_values, y_values), key=lambda pair: sort_key(pair[0]), reverse=True)
-                    x_sorted, y_sorted = zip(*pairs)
-                    color = palette[degauss_index % len(palette)]
-                    try:
-                        sigma = f'{float(degauss) * 1000:g}'
-                    except (TypeError, ValueError):
-                        sigma = str(degauss)
-                    axis.scatter(x_sorted, y_sorted, marker='o', s=20, c=color)
-                    axis.plot(x_sorted, y_sorted, label=rf'$\sigma$={sigma} mRy', c=color)
-
-                    for kpoints_distance, tc_value in pairs:
-                        if (degauss, kpoints_distance) in highlight_points:
-                            axis.scatter(kpoints_distance, tc_value, marker='*', s=60, c='black', zorder=20)
-
-                axis.text(
-                    0.05,
-                    0.9,
-                    material.split('-')[-1],
-                    transform=axis.transAxes,
-                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
-                )
-                axis.set_xlabel(r'kpoints distance [$\AA^{-1}$]')
-                if cubic_kpoints_scale:
-                    axis.set_xscale('function', functions=(np.cbrt, lambda value: value**3))
-                if xlim is not None:
-                    axis.set_xlim(xlim)
-                if xticks is not None:
-                    axis.set_xticks(xticks)
-                    axis.xaxis.set_major_locator(FixedLocator(xticks))
-                    axis.set_xticklabels([str(tick) for tick in xticks])
-                if y_limits[material_index] is not None:
-                    axis.set_ylim(y_limits[material_index])
-                axis.grid(True, linestyle='--', alpha=0.6)
-
-            axes[0].set_ylabel(r'$T_c$ (K)')
-            if legend:
-                axes[0].legend(
-                    loc='upper center',
-                    facecolor='white',
-                    bbox_to_anchor=(1.35, 1.0, 0.6, 0.2),
-                    borderaxespad=0,
-                    ncol=kwargs.get('legend_ncol', len(palette)),
-                    framealpha=1.0,
-                    frameon=True,
-                )
-
-        return fig, axes
+        """Compatibility wrapper for k-point Allen-Dynes Tc convergence plots."""
+        return self.plot_allen_dynes_tc_convergence(
+            sweep='kpoints',
+            qpoints_distance=qpoints_distance,
+            qfpoints_distance=qfpoints_distance,
+            materials=materials,
+            degauss_values=degauss_values,
+            exclude_degauss=exclude_degauss,
+            colors=colors,
+            figsize=figsize,
+            axes=axes,
+            xlim=xlim,
+            xticks=xticks,
+            ylim=ylim,
+            cubic_scale=cubic_kpoints_scale,
+            highlight_points=highlight_points,
+            legend=legend,
+            **kwargs,
+        )
 
     def plot_allen_dynes_tc_convergence(
         self,
