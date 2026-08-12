@@ -255,6 +255,17 @@ class BaseGroupData:
         return self._data
 
     @property
+    def materials(self):
+        """Sorted, unique material identifiers contained in this group."""
+        rows = self._data if isinstance(self._data, list) else self._flatten_data()
+        values = {
+            row.get(self.formula_column)
+            for row in rows
+            if row.get(self.formula_column) not in (None, '')
+        }
+        return tuple(sorted(values, key=str))
+
+    @property
     def available_columns(self):
         """Names accepted by the dataframe and table reshaping options."""
         columns = list(self.dataframe_columns)
