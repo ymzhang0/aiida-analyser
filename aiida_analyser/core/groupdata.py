@@ -462,7 +462,83 @@ class BaseGroupData:
                 f'{dataframe.to_html()}</div>'
             ))
             return None
-        raise ValueError("display_mode must be one of 'dataframe', 'all', 'scroll', or 'interactive'")
+        raise ValueError("display_mode must be one of 'dataframe', 'all', 'scroll', 'paged', or 'interactive'")
+
+    @staticmethod
+    def _display_paginated_dataframe(dataframe, *, max_height, page_size):
+        """Return a fixed-height, paginated notebook widget for a dataframe."""
+        try:
+            import ipywidgets as widgets
+            from IPython.display import HTML, display
+        except ImportError as exception:
+            raise ImportError(
+                "display_mode='paged' requires IPython and ipywidgets."
+            ) from exception
+
+        try:
+            page_size = int(page_size)
+        except (TypeError, ValueError) as exception:
+            raise TypeError('page_size must be a positive integer.') from exception
+        if page_size < 1:
+            raise ValueError('page_size must be a positive integer.')
+
+        table_output = widgets.Output(
+            layout=widgets.Layout(
+                height=f'{int(max_height)}px',
+                overflow='auto',
+                border='1px solid #d9d9d9',
+            )
+        )
+        previous_button = widgets.Button(description='Previous', icon='arrow-left')
+        next_button = widgets.Button(description='Next', icon='arrow-right')
+        page_label = widgets.HTML()
+        rows_per_page = widgets.Dropdown(
+            description='Rows:',
+            options=sorted({10, 25, 50, 100, page_size}),
+            value=page_size,
+        )
+        state = {'page': 0}
+
+        def render_page(*_):
+            size = rows_per_page.value
+            page_count = max(1, (len(dataframe) + size - 1) // size)
+            state['page'] = min(state['page'], page_count - 1)
+            start = state['page'] * size
+            page = dataframe.iloc[start:start + size]
+
+            previous_button.disabled = state['page'] == 0
+            next_button.disabled = state['page'] >= page_count - 1
+            page_label.value = (
+                f'<b>Page {state["page"] + 1} / {page_count}</b> '
+                f'({len(dataframe)} rows)'
+            )
+            with table_output:
+                table_output.clear_output(wait=True)
+                if page.empty:
+                    display(HTML('<i>No rows to display.</i>'))
+                else:
+                    display(BaseGroupData._with_multiline_html(page))
+
+        def previous_page(_):
+            state['page'] = max(0, state['page'] - 1)
+            render_page()
+
+        def next_page(_):
+            state['page'] += 1
+            render_page()
+
+        def reset_page(_):
+            state['page'] = 0
+            render_page()
+
+        previous_button.on_click(previous_page)
+        next_button.on_click(next_page)
+        rows_per_page.observe(reset_page, names='value')
+        render_page()
+        return widgets.VBox([
+            widgets.HBox([rows_per_page, previous_button, next_button, page_label]),
+            table_output,
+        ])
 
     @staticmethod
     def _with_multiline_html(dataframe):
@@ -664,6 +740,11 @@ class BaseGroupData:
         or ``values=['status', 'node']`` to retain both.  With ``columns``,
         a values list or tuple combines each row's values in one cell; multiple
         nodes are separated by newlines.
+
+        Set ``display_mode='paged'`` to return an ``ipywidgets`` panel with a
+        fixed-height ``Output`` area and page controls.  Unlike the legacy
+        ``interactive`` mode, this supports flat, hierarchical, and pivoted
+        tables with all ``index``, ``columns``, and ``values`` options.
         """
         import pandas as pd
 
@@ -704,11 +785,24 @@ class BaseGroupData:
                 aggfunc=aggfunc,
                 fill_value=fill_value,
             )
+            if str(display_mode).lower() == 'paged':
+                return self._display_paginated_dataframe(
+                    dataframe,
+                    max_height=max_height,
+                    page_size=page_size,
+                )
             return self._display_dataframe(dataframe, display_mode, max_height)
 
         flattened_list = self._flatten_data()
         if not flattened_list:
-            return pd.DataFrame()
+            dataframe = pd.DataFrame()
+            if str(display_mode).lower() == 'paged':
+                return self._display_paginated_dataframe(
+                    dataframe,
+                    max_height=max_height,
+                    page_size=page_size,
+                )
+            return dataframe
 
         dataframe = pd.DataFrame(flattened_list)
         value_keys = self._table_keys(values, 'values')
@@ -722,16 +816,21 @@ class BaseGroupData:
             columns = 'Plane'
             values = 'Status'
 
-        return self._with_multiline_html(
-            self._reshape_table(
-                dataframe,
-                index=index,
-                columns=columns,
-                values=values,
-                aggfunc=aggfunc,
-                fill_value=fill_value,
-            )
+        dataframe = self._reshape_table(
+            dataframe,
+            index=index,
+            columns=columns,
+            values=values,
+            aggfunc=aggfunc,
+            fill_value=fill_value,
         )
+        if str(display_mode).lower() == 'paged':
+            return self._display_paginated_dataframe(
+                dataframe,
+                max_height=max_height,
+                page_size=page_size,
+            )
+        return self._display_dataframe(dataframe, display_mode, max_height)
 
     def _flatten_data(self):
         """To be implemented by subclasses."""

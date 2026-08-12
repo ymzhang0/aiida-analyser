@@ -161,3 +161,33 @@ def test_get_table_can_pivot_an_arbitrary_key_into_columns():
     assert table.loc[(0.005, 0.10, 0.5, 'EpwPrepWorkChain'), 'mpds-S1612209-RuSbTi'] == '✅ (40579)'
     assert table.loc[(0.005, 0.10, 0.5, 'EpwPrepWorkChain'), 'mpds-S1612210-RuSbZr'] == '✅ (40637)'
     assert table.loc[(0.005, 0.10, '-', 'PwRelaxWorkChain'), 'mpds-S1612210-RuSbZr'] == ''
+
+
+def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
+    captured = {}
+
+    def make_pager(dataframe, *, max_height, page_size):
+        captured['dataframe'] = dataframe
+        captured['max_height'] = max_height
+        captured['page_size'] = page_size
+        return 'pager'
+
+    monkeypatch.setattr(
+        BaseGroupData,
+        '_display_paginated_dataframe',
+        staticmethod(make_pager),
+    )
+
+    result = PivotGroupData().get_table(
+        display_mode='paged',
+        index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
+        columns='Material',
+        values='Status',
+        page_size=10,
+        max_height=400,
+    )
+
+    assert result == 'pager'
+    assert captured['page_size'] == 10
+    assert captured['max_height'] == 400
+    assert captured['dataframe'].index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']

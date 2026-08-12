@@ -59,6 +59,7 @@ dislocation = [
 epw = [
     "aiida-epw",
     "ase",
+    "ipywidgets",
     "matplotlib",
     "numpy",
     "pandas",
