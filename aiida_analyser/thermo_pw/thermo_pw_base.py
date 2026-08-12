@@ -1,7 +1,7 @@
 from aiida import orm
 import numpy
-from ..base import BaseWorkChainAnalyser
-from ..groupdata import BaseGroupData, render_process_node_details
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 from .thermo_pw_calculation import Thermo_pwAnalyser
 

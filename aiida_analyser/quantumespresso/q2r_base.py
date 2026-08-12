@@ -1,5 +1,5 @@
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .q2r_calculation import Q2rAnalyser
 
 class Q2rBaseAnalyser(BaseWorkChainAnalyser):

@@ -1,3 +1,5 @@
+"""Structure-construction helpers."""
+
 from ase.build import bulk
 from aiida.orm import StructureData
 

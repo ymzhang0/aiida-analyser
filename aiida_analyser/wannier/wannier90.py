@@ -1,9 +1,9 @@
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.projwfc_base import ProjwfcBaseAnalyser
 from ..quantumespresso.pw2wannier90_base import Pw2Wannier90BaseAnalyser
 from .wannier90_base import Wannier90BaseAnalyser
-from ..plot import plot_bands
+from ..visualization.plots import plot_bands
 
 class Wannier90Analyser(BaseWorkChainAnalyser):
     """

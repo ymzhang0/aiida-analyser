@@ -1,3 +1,5 @@
+"""Utilities for printing nested data structures."""
+
 from collections.abc import Mapping, Iterable
 from rich import print as rprint
 

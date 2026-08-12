@@ -1,16 +1,16 @@
-from aiida_analyser.plot import plot_bands, plot_epw_interpolated_bands
+from aiida_analyser.visualization.plots import plot_bands, plot_epw_interpolated_bands
 import numpy
 from collections import defaultdict
 import logging
 import warnings
 from aiida import orm
 from ..quantumespresso.ph import check_stability_matdyn_base
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from ..wannier.wannier90 import Wannier90Analyser
 from ..quantumespresso.ph_base import PhBaseAnalyser
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from .epw_base import EpwBaseAnalyser
-from ..groupdata import BaseGroupData, render_process_node_details
+from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 from loguru import logger
 

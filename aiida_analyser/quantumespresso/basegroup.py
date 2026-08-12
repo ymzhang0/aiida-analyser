@@ -1,1 +1,0 @@
-from ..groupdata import BaseGroupData

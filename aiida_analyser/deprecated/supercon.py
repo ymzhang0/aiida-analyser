@@ -5,14 +5,14 @@ from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 import numpy
 from collections import defaultdict
-from ..workchains import clean_workdir
-from ..base import BaseWorkChainAnalyser
+from ..core.workchains import clean_workdir
+from ..core.base import BaseWorkChainAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from ..quantumespresso.pw_bands import PwBandsAnalyser
 from ..epw.epw_prep import EpwPrepAnalyser
 from ..epw.epw_base import EpwBaseAnalyser
-from ..calculators import _calculate_iso_tc, check_convergence
-from ..plot import (
+from ..epw.calculators import _calculate_iso_tc, check_convergence
+from ..visualization.plots import (
     plot_a2f,
     plot_eldos,
     plot_aniso_gap_function,

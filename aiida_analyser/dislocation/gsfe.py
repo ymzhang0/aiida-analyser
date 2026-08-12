@@ -1,11 +1,10 @@
 from collections import defaultdict, deque
 from typing import Callable
 from aiida import orm
-from aiida_analyser.dislocation.gsfe_latest import GSFEAnalyserLatest
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
-from ..base import BaseWorkChainAnalyser
-from .basegroup import BaseGroupData, render_process_node_details
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData, render_process_node_details
 import logging
 from scipy.optimize import curve_fit
 import numpy

@@ -1,5 +1,4 @@
-from aiida import orm
-
+"""Shared helpers for inspecting and cleaning AiiDA work chains."""
 
 from collections import deque
 from io import StringIO

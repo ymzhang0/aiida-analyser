@@ -1,3 +1,5 @@
+"""Physical constants shared by analyser modules."""
+
 import math
 
 H_PLANCK_SI      = 6.62607015E-34

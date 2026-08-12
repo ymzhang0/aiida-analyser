@@ -5,12 +5,12 @@ from aiida import orm
 from aiida.common.links import LinkType
 from aiida.engine import ProcessState
 import numpy
-from ..workchains import clean_workdir
-from ..base import BaseWorkChainAnalyser
+from ..core.workchains import clean_workdir
+from ..core.base import BaseWorkChainAnalyser
 from enum import Enum
 from aiida.tools import delete_nodes
 from ..epw.epw_prep import EpwPrepAnalyser
-from ..plot import (
+from ..visualization.plots import (
     plot_epw_interpolated_bands,
     plot_a2f,
     plot_eldos,

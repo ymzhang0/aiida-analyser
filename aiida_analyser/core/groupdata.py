@@ -1,3 +1,5 @@
+"""Base utilities for collections of AiiDA process nodes."""
+
 from collections import defaultdict
 import inspect
 from loguru import logger

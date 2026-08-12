@@ -1,6 +1,6 @@
 import logging
 
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .pw2wannier90_calculation import Pw2Wannier90Analyser
 
 class Pw2Wannier90BaseAnalyser(BaseWorkChainAnalyser):

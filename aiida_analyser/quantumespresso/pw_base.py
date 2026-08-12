@@ -1,4 +1,4 @@
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .pw_calculation import PwAnalyser
 
 

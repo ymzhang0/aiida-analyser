@@ -1,6 +1,6 @@
 from aiida import orm
 
-from ..constants import THZ_TO_CM
+from ..core.constants import THZ_TO_CM
 
 
 def _get_outgoing_node(node: orm.WorkChainNode, link_label: str):

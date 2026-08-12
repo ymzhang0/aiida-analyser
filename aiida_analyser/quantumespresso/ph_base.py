@@ -3,11 +3,11 @@ from itertools import chain
 import logging
 import warnings
 from loguru import logger
-from ..groupdata import BaseGroupData, render_process_node_details
+from ..core.groupdata import BaseGroupData, render_process_node_details
 
 from aiida import orm
 
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .ph_calculation import PhAnalyser
 from pathlib import Path
 

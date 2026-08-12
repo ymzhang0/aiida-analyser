@@ -1,3 +1,5 @@
+"""Helpers for managing AiiDA groups."""
+
 from aiida import load_profile
 from aiida.orm import QueryBuilder, Group, Node
 from copy import deepcopy

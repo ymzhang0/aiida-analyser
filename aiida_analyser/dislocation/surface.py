@@ -2,8 +2,8 @@ from collections import defaultdict
 from aiida import orm
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
-from ..base import BaseWorkChainAnalyser
-from .basegroup import BaseGroupData
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData
 import logging
 from scipy.optimize import curve_fit
 import numpy

@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, Callable
 from collections import deque
 import itertools
 
-from .logging_utils import get_console, get_logger
+from .logging import get_console, get_logger
 
 
 logger = get_logger(__name__)

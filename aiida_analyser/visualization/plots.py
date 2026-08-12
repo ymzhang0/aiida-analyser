@@ -1,5 +1,5 @@
 # encoding: utf-8
-"""Temporary home for various plotting tools."""
+"""Plotting utilities shared across analyser domains."""
 from aiida import orm
 from typing import Tuple
 from matplotlib import pyplot as plt
@@ -174,7 +174,7 @@ def plot_a2f(
         wlog = output_parameters.get('w_log')
         allen_dynes_tc = output_parameters.get('Allen_Dynes_Tc')
 
-        title = f'$\lambda$ = {lambda_:.2f}\n$\omega_{{log}}$ = {wlog:.2f} \n$T_c^{{AD}}$ = {allen_dynes_tc:.2f} K'
+        title = f'$\\lambda$ = {lambda_:.2f}\n$\\omega_{{log}}$ = {wlog:.2f} \n$T_c^{{AD}}$ = {allen_dynes_tc:.2f} K'
 
         # ax.legend(
         #     title,

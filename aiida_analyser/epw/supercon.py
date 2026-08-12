@@ -5,12 +5,12 @@ from aiida import orm
 import numpy
 from collections import defaultdict
 import warnings
-from ..groupdata import BaseGroupData, render_process_node_details
-from ..base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData, render_process_node_details
+from ..core.base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseAnalyser
-from ..calculators import _calculate_iso_tc, check_convergence
+from .calculators import _calculate_iso_tc, check_convergence
 from ..quantumespresso.ph import check_stability_epw_bands
-from ..plot import (
+from ..visualization.plots import (
     plot_a2f,
     plot_eldos,
     plot_aniso_gap_function,
@@ -1278,7 +1278,7 @@ class SuperConGroup(BaseGroupData):
         import matplotlib.pyplot as plt
         import numpy as np
 
-        from ..plot import plot_bands
+        from ..visualization.plots import plot_bands
 
         all_nodes = self.get_a2f_nodes()
         if materials is None:

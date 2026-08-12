@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from aiida_analyser.groupdata import BaseGroupData
+from aiida_analyser.core.groupdata import BaseGroupData
 
 
 class DummyAnalyser:

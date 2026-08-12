@@ -1,3 +1,5 @@
+"""Dictionary helpers used throughout the package."""
+
 from collections import UserDict
 
 

@@ -1,7 +1,7 @@
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .epw_calculation import EpwAnalyser
-from ..groupdata import BaseGroupData, render_process_node_details
+from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 import logging
 

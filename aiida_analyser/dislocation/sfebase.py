@@ -1,5 +1,5 @@
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from .layer_relax import LayerRelaxAnalyser

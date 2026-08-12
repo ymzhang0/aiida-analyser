@@ -1,6 +1,6 @@
 import logging
 
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .projwfc_calculation import ProjwfcAnalyser
 
 class ProjwfcBaseAnalyser(BaseWorkChainAnalyser):

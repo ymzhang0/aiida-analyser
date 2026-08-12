@@ -1,9 +1,9 @@
-from aiida_analyser.plot import plot_bands, plot_epw_interpolated_bands
+from aiida_analyser.visualization.plots import plot_bands, plot_epw_interpolated_bands
 import numpy
 from collections import defaultdict
 import warnings
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from pathlib import Path
 
 class ScHubbardAnalyser(BaseWorkChainAnalyser):

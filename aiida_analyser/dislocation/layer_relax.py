@@ -1,5 +1,5 @@
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 
 class LayerRelaxAnalyser(BaseWorkChainAnalyser):
     """

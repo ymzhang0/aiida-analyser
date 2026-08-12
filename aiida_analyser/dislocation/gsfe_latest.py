@@ -10,8 +10,8 @@ from scipy.optimize import curve_fit
 
 from aiida import orm
 
-from ..base import BaseWorkChainAnalyser
-from .basegroup import BaseGroupData, render_process_node_details
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData, render_process_node_details
 import logging
 import itertools
 import matplotlib.pyplot as plt

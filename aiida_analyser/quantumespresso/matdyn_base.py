@@ -1,5 +1,5 @@
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .matdyn_calculation import MatdynAnalyser
 
 class MatdynBaseAnalyser(BaseWorkChainAnalyser):

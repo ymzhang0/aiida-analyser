@@ -1,10 +1,10 @@
 from aiida import orm
-from ..base import BaseWorkChainAnalyser
-from .basegroup import BaseGroupData
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData
 from .pw_base import PwBaseAnalyser
 from collections import defaultdict
 import logging
-from ..plot import plot_bands
+from ..visualization.plots import plot_bands
 import itertools
 from pathlib import Path
 

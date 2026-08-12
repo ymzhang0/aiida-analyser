@@ -10,8 +10,8 @@ from scipy.optimize import curve_fit
 
 from aiida import orm
 
-from ..base import BaseWorkChainAnalyser
-from .basegroup import BaseGroupData, render_process_node_details
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import BaseGroupData, render_process_node_details
 import logging
 from loguru import logger
 
@@ -22,7 +22,7 @@ import warnings
 from scipy.optimize import curve_fit, OptimizeWarning
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
-from ..constants import eVA22Jm2
+from ..core.constants import eVA22Jm2
 from aiida_dislocation.tools import (
     get_strukturbericht
 )

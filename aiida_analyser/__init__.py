@@ -13,15 +13,15 @@ _EXTRA_MODULES = {
 }
 
 _EXPORTS = {
-    'NestedDict': ('dict', 'NestedDict', None),
+    'NestedDict': ('core.dict', 'NestedDict', None),
     'move_stashed_folder': ('data', 'move_stashed_folder', None),
     'dislocation': ('dislocation', None, 'dislocation'),
     'quantumespresso': ('quantumespresso', None, None),
     'wannier': ('wannier', None, None),
     'epw': ('epw', None, 'epw'),
-    'Printer': ('printer', 'Printer', None),
-    'ProcessTree': ('base', 'ProcessTree', None),
-    'BaseWorkChainAnalyser': ('base', 'BaseWorkChainAnalyser', None),
+    'Printer': ('core.printer', 'Printer', None),
+    'ProcessTree': ('core.base', 'ProcessTree', None),
+    'BaseWorkChainAnalyser': ('core.base', 'BaseWorkChainAnalyser', None),
     'PwBaseAnalyser': ('quantumespresso.pw_base', 'PwBaseAnalyser', 'quantumespresso'),
     'PwAnalyser': ('quantumespresso.pw_calculation', 'PwAnalyser', 'quantumespresso'),
     'DosAnalyser': ('quantumespresso.dos_calculation', 'DosAnalyser', 'quantumespresso'),
@@ -70,7 +70,7 @@ _EXPORTS = {
     'Thermo_pwAnalyser': ('thermo_pw.thermo_pw_calculation', 'Thermo_pwAnalyser', 'thermo'),
     'Thermo_pwBaseAnalyser': ('thermo_pw.thermo_pw_base', 'Thermo_pwBaseAnalyser', 'thermo'),
     'Thermo_pwBaseGroup': ('thermo_pw.thermo_pw_base', 'Thermo_pwBaseGroup', 'thermo'),
-    'create_structure': ('structure', 'create_structure', 'structure'),
+    'create_structure': ('materials.structures', 'create_structure', 'structure'),
     'deprecated': ('deprecated', None, 'epw'),
     'read_labelinfo': ('wannier.io', 'read_labelinfo', None),
     'load_bandsdata': ('wannier.io', 'load_bandsdata', None),

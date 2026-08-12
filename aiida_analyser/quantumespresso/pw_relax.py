@@ -1,8 +1,8 @@
 from aiida import orm
 import logging
-from ..base import BaseWorkChainAnalyser
+from ..core.base import BaseWorkChainAnalyser
 from .pw_base import PwBaseAnalyser
-from ..groupdata import BaseGroupData, render_process_node_details
+from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 
 from collections import defaultdict

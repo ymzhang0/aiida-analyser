@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ..base import BaseCalculationAnalyser
+from ..core.base import BaseCalculationAnalyser
 
 
 class PwAnalyser(BaseCalculationAnalyser):

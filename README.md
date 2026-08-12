@@ -2,6 +2,12 @@
 
 AiiDA plugin package with workflows for superconductivity research based on the Quantum ESPRESSO software suite and the Electron-Phonon Wannier (EPW) code.
 
+## Project layout
+
+- `aiida_analyser/core/`: shared analyser abstractions, constants, group helpers, logging, and work-chain utilities.
+- `aiida_analyser/quantumespresso/`, `epw/`, `wannier/`, `thermo_pw/`, `dislocation/`, and `hubbard/`: workflow-specific analysers.
+- `aiida_analyser/data/`, `materials/`, and `visualization/`: data loading, structure creation, and plotting helpers.
+
 ## Installation
 
 Install the base package if you only need the common analyser utilities:

@@ -1,4 +1,4 @@
-from ..base import BaseCalculationAnalyser
+from ..core.base import BaseCalculationAnalyser
 
 
 class ProjwfcAnalyser(BaseCalculationAnalyser):
