@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pandas as pd
+
 from aiida_analyser.core.groupdata import BaseGroupData
 
 
@@ -116,8 +118,10 @@ def test_get_table_keeps_status_and_node_pairs_on_separate_lines():
 
     table = data.get_table(index='status', columns='Material', values=('status', 'node'))
 
+    assert type(table) is pd.DataFrame
     assert table.loc['✅', 'Fe2O3'].splitlines() == ['✅ (2)', '✅ (3)']
-    assert '✅ (2)<br>✅ (3)' in table._repr_html_()
+    formatted = BaseGroupData._with_multiline_html(table)
+    assert '✅ (2)<br>✅ (3)' in formatted._repr_html_()
 
 
 def test_iter_group_nodes_filters_process_labels(monkeypatch):

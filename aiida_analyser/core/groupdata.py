@@ -443,10 +443,10 @@ class BaseGroupData:
     @staticmethod
     def _display_dataframe(dataframe, display_mode, max_height):
         """Display a dataframe in notebook-friendly modes, or return it."""
-        dataframe = BaseGroupData._with_multiline_html(dataframe)
         mode = 'dataframe' if display_mode is None else str(display_mode).lower()
         if mode in {'dataframe', 'default'}:
             return dataframe
+        dataframe = BaseGroupData._with_multiline_html(dataframe)
         if mode == 'all':
             import pandas as pd
             from IPython.display import display
@@ -720,7 +720,7 @@ class BaseGroupData:
     ):
         """Return a flat, hierarchical, or pivoted table of group-data rows.
 
-        By default the existing flat PK-indexed table is returned.  ``index``
+        By default a plain ``pandas.DataFrame`` is returned.  ``index``
         can be a key or a sequence of keys to produce a hierarchical
         ``MultiIndex``.  ``columns`` pivots one or more keys into columns and
         ``values`` chooses the cell value(s); it defaults to ``Status`` or
