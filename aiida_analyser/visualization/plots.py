@@ -369,8 +369,8 @@ def create_xticks_bands(bands: orm.BandsData) -> Tuple[list, list]:
             return r'$\Gamma$'
         return label
 
-    labels = bands.attributes['labels']
-    label_numbers = bands.attributes['label_numbers']
+    labels = bands.base.attributes.get('labels')
+    label_numbers = bands.base.attributes.get('label_numbers')
 
     xticks = [label_numbers[0], ]
     xtick_labels = [transform_gamma(labels[0]), ]
