@@ -643,6 +643,137 @@ class EpwPrepGroup(BaseGroupData):
 
         return flattened_list
 
+    def check_structure(self, mode='celldm', quantity='celldm1', formula=None,
+                        ax=None, degauss_values=None, kpoints_distances=None,
+                        qpoints_distances=None, marker='o', legend=True,
+                        **plot_kwargs):
+        """Inspect the input structures used by EPW preparation workchains.
+
+        ``mode='celldm'`` plots one cell parameter against SCF k-point
+        distance.  A curve is drawn for each ``(degauss, qpoints_distance)``
+        pair.  ``quantity`` accepts ``celldm1``--``celldm6`` (or ``a``,
+        ``b``, ``c``, ``alpha``, ``beta``, ``gamma``), using the input
+        structure's ``cell_lengths`` or ``cell_angles``. ``mode='list'``
+        returns a dataframe containing the EPW node, structure UUID, and
+        source provenance for every selected structure.
+        """
+        def as_set(values):
+            if values is None:
+                return None
+            if isinstance(values, (str, bytes)):
+                return {values}
+            try:
+                return set(values)
+            except TypeError:
+                return {values}
+
+        def source_for(node, structure):
+            for candidate in (node, structure):
+                try:
+                    source_db, source_id = candidate.base.extras.get_many(
+                        ('source_db', 'source_id')
+                    )
+                    return f'{source_db}-{source_id}'
+                except Exception:
+                    pass
+            return None
+
+        mode = str(mode).lower()
+        if mode not in {'celldm', 'list'}:
+            raise ValueError("mode must be either 'celldm' or 'list'.")
+
+        allowed_degauss = as_set(degauss_values)
+        allowed_kpoints = as_set(kpoints_distances)
+        allowed_qpoints = as_set(qpoints_distances)
+        rows = []
+        for material, degauss, kpoints_distance, qpoints_distance, node in self._flat_nodes:
+            if formula is not None and material != formula:
+                continue
+            if allowed_degauss is not None and degauss not in allowed_degauss:
+                continue
+            if allowed_kpoints is not None and kpoints_distance not in allowed_kpoints:
+                continue
+            if allowed_qpoints is not None and qpoints_distance not in allowed_qpoints:
+                continue
+            try:
+                structure = node.inputs.structure
+            except (AttributeError, KeyError):
+                logger.warning(f'Input structure is not available for node<{node.pk}>.')
+                continue
+            rows.append({
+                'PK': node.pk,
+                'Material': material,
+                'degauss': degauss,
+                'kpoints_distance_scf': kpoints_distance,
+                'qpoints_distance': qpoints_distance,
+                'structure_pk': getattr(structure, 'pk', None),
+                'structure_uuid': getattr(structure, 'uuid', None),
+                'structure_formula': structure.get_formula() if hasattr(structure, 'get_formula') else None,
+                'source': source_for(node, structure),
+                'structure': structure,
+            })
+
+        if mode == 'list':
+            import pandas as pd
+
+            columns = [
+                'PK', 'Material', 'degauss', 'kpoints_distance_scf',
+                'qpoints_distance', 'structure_pk', 'structure_uuid',
+                'structure_formula', 'source',
+            ]
+            return pd.DataFrame(rows, columns=columns).sort_values(
+                ['Material', 'degauss', 'kpoints_distance_scf', 'qpoints_distance', 'PK'],
+                kind='stable',
+            ).reset_index(drop=True)
+
+        import matplotlib.pyplot as plt
+
+        quantities = {
+            'celldm1': ('cell_lengths', 0, r'$a$ ($\AA$)'),
+            'celldm2': ('cell_lengths', 1, r'$b$ ($\AA$)'),
+            'celldm3': ('cell_lengths', 2, r'$c$ ($\AA$)'),
+            'celldm4': ('cell_angles', 0, r'$\alpha$ (deg)'),
+            'celldm5': ('cell_angles', 1, r'$\beta$ (deg)'),
+            'celldm6': ('cell_angles', 2, r'$\gamma$ (deg)'),
+        }
+        aliases = {'a': 'celldm1', 'b': 'celldm2', 'c': 'celldm3',
+                   'alpha': 'celldm4', 'beta': 'celldm5', 'gamma': 'celldm6'}
+        if isinstance(quantity, int):
+            quantity = f'celldm{quantity}'
+        quantity_key = aliases.get(str(quantity).lower(), str(quantity).lower())
+        if quantity_key not in quantities:
+            raise ValueError("quantity must be one of 'celldm1' through 'celldm6' "
+                             "(or 'a', 'b', 'c', 'alpha', 'beta', 'gamma').")
+        attribute, index, ylabel = quantities[quantity_key]
+
+        values = defaultdict(dict)
+        for row in rows:
+            try:
+                distance = float(row['kpoints_distance_scf'])
+                value = float(getattr(row['structure'], attribute)[index])
+            except (AttributeError, IndexError, TypeError, ValueError):
+                logger.warning(f'Could not read {quantity_key} from structure<{row["structure_uuid"]}>.')
+                continue
+            values[(row['degauss'], row['qpoints_distance'])][distance] = value
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 6))
+        for (degauss, qpoints_distance), points in sorted(values.items(), key=lambda item: str(item[0])):
+            points = dict(sorted(points.items()))
+            ax.plot(list(points), list(points.values()), marker=marker,
+                    label=rf'$\sigma$ = {degauss} Ry, q = {qpoints_distance} $\AA^{{-1}}$',
+                    **plot_kwargs)
+        label_formula = formula if formula is not None else 'EPW structures'
+        ax.set_xlabel(r'SCF k-points distance ($\AA^{-1}$)')
+        ax.set_ylabel(ylabel)
+        ax.set_title(f'{label_formula}: {quantity_key} convergence')
+        ax.grid(True, alpha=0.3)
+        if legend and values:
+            ax.legend()
+        return ax, {key: dict(sorted(value.items())) for key, value in values.items()}
+
+    checkstructure = check_structure
+
     def show_interactive(self):
         """
         Displays an interactive Jupyter table of EpwPrepWorkChain nodes.
