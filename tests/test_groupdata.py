@@ -167,6 +167,19 @@ def test_get_table_can_pivot_an_arbitrary_key_into_columns():
     assert table.loc[(0.005, 0.10, '-', 'PwRelaxWorkChain'), 'mpds-S1612210-RuSbZr'] == ''
 
 
+def test_get_table_can_reset_a_pivoted_multiindex_for_data_viewers():
+    table = PivotGroupData().get_table(
+        index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
+        columns='Material',
+        reset_index=True,
+    )
+
+    assert list(table.columns[:4]) == ['Degauss', 'K_Density', 'Q_Density', 'Type']
+    assert table.columns.name is None
+    assert table.loc[0, 'Degauss'] == 0.005
+    assert table.loc[0, 'mpds-S1612209-RuSbTi'] == '✅ (40579)'
+
+
 def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
     captured = {}
 
