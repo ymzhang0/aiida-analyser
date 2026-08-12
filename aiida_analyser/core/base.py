@@ -19,6 +19,9 @@ from .logging import get_console, get_logger
 logger = get_logger(__name__)
 console = get_console()
 _COPY_TREE_DEPTH: ContextVar[int] = ContextVar('aiida_analyser_copy_tree_depth', default=0)
+_COPY_TREE_INFO_LOGGING_ENABLED: ContextVar[bool] = ContextVar(
+    'aiida_analyser_copy_tree_info_logging_enabled', default=True
+)
 
 
 def _format_node_ref(node: orm.Node) -> str:
@@ -58,19 +61,33 @@ def _copy_tree_logging_scope(
         detail = f'{len(child_labels)} direct children: {_summarize_child_labels(child_labels)}'
 
     try:
-        if depth == 0:
+        if depth == 0 and _COPY_TREE_INFO_LOGGING_ENABLED.get():
             message = f'[bold cyan]extract[/] {node_ref} -> [blue]{resolved_destpath}[/]'
             if detail:
                 message += f' [dim]({detail})[/]'
             logger.info(message)
         yield
-        if depth == 0:
+        if depth == 0 and _COPY_TREE_INFO_LOGGING_ENABLED.get():
             logger.info(f'[green]complete[/] {node_ref}')
     except Exception:
         logger.exception(f'[red]failed[/] extracting {node_ref} -> {resolved_destpath}')
         raise
     finally:
         _COPY_TREE_DEPTH.reset(token)
+
+
+@contextmanager
+def suppress_copy_tree_info_logs():
+    """Temporarily hide successful per-node copy logs.
+
+    Bulk exporters use this while rendering their own progress display. Errors
+    remain logged by :func:`_copy_tree_logging_scope`.
+    """
+    token = _COPY_TREE_INFO_LOGGING_ENABLED.set(False)
+    try:
+        yield
+    finally:
+        _COPY_TREE_INFO_LOGGING_ENABLED.reset(token)
 
 
 @dataclass

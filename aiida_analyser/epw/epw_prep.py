@@ -480,7 +480,21 @@ class EpwPrepConvergenceData:
         plt.tight_layout()
         return fig, axs
 
-    def dump(self, dest:Path, k_dist_list:list = None, degauss_list:list = None, q_dist_list:list = None):
+    def dump(
+        self,
+        dest: Path,
+        k_dist_list: list = None,
+        degauss_list: list = None,
+        q_dist_list: list = None,
+        progress: bool = True,
+    ):
+        """Dump selected EPW preparation work chains with optional progress."""
+        from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+
+        from ..core.base import suppress_copy_tree_info_logs
+        from ..core.logging import get_console
+
+        nodes_and_paths = []
         for material, degauss_dict in self._data.items():
             if degauss_list:
                 degauss_dict = {k: v for k, v in degauss_dict.items() if k in degauss_list}
@@ -492,12 +506,36 @@ class EpwPrepConvergenceData:
                     if q_dist_list:
                         q_dist_data = {k: v for k, v in q_dist_data.items() if k in q_dist_list}
                     for q_dist, epw_dict in q_dist_data.items():
-                        epw_node = epw_dict.get('EpwPrepWorkChain', None)
+                        epw_node = epw_dict.get('EpwPrepWorkChain')
                         if epw_node:
-                            analyser = EpwPrepAnalyser(epw_node)
-                            analyser.copy_tree(
-                                dest / material.split("-")[-1] / f"{degauss}" / f"{k_dist}" / f"{q_dist}" / f"{epw_node.pk}"
+                            relative_path = (
+                                Path(material.split('-')[-1]) / f'{degauss}' / f'{k_dist}'
+                                / f'{q_dist}' / f'{epw_node.pk}'
                             )
+                            nodes_and_paths.append((epw_node, relative_path))
+
+        def dump_node(node, relative_path):
+            try:
+                EpwPrepAnalyser(node).copy_tree(Path(dest) / relative_path)
+            except Exception as exc:
+                logger.warning(f'Failed to dump node {node.pk}: {exc}')
+
+        if not progress:
+            for node, relative_path in nodes_and_paths:
+                dump_node(node, relative_path)
+            return
+
+        with suppress_copy_tree_info_logs(), Progress(
+            TextColumn('[progress.description]{task.description}'),
+            BarColumn(),
+            TextColumn('{task.completed}/{task.total}'),
+            TimeElapsedColumn(),
+            console=get_console(),
+        ) as progress_bar:
+            task = progress_bar.add_task('Dumping EPW preparation trees', total=len(nodes_and_paths))
+            for node, relative_path in nodes_and_paths:
+                dump_node(node, relative_path)
+                progress_bar.advance(task)
 
 class EpwPrepGroup(BaseGroupData):
 

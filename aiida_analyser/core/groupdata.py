@@ -289,27 +289,46 @@ class BaseGroupData:
                 if labels is None or getattr(node, 'process_label', None) in labels:
                     yield node
 
-    def _dump_nodes(self, dest, nodes, analyser_class=None, path_builder=None):
-        """Copy process trees for *nodes* into a destination directory.
-
-        ``path_builder`` receives a node and returns its path relative to
-        ``dest``.  It lets specialised group-data classes keep their semantic
-        directory layout while sharing directory creation and error handling.
-        """
+    def _dump_nodes(self, dest, nodes, analyser_class=None, path_builder=None, progress=True):
+        """Copy process trees for *nodes* into a destination directory."""
         from pathlib import Path
+
+        from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+
+        from .base import suppress_copy_tree_info_logs
+        from .logging import get_console
 
         analyser_class = analyser_class or self.analyser_class
         if analyser_class is None:
             raise ValueError(f'{self.__class__.__name__} does not define an analyser_class.')
 
+        nodes = list(nodes)
         destination = Path(dest)
         destination.mkdir(parents=True, exist_ok=True)
-        for node in nodes:
+
+        def dump_node(node):
             try:
                 relative_path = path_builder(node) if path_builder else Path(str(node.pk))
                 analyser_class(node).copy_tree(destination / relative_path)
             except Exception as exc:
                 logger.warning(f'Failed to dump node {getattr(node, "pk", "N/A")}: {exc}')
+
+        if not progress:
+            for node in nodes:
+                dump_node(node)
+            return
+
+        with suppress_copy_tree_info_logs(), Progress(
+            TextColumn('[progress.description]{task.description}'),
+            BarColumn(),
+            TextColumn('{task.completed}/{task.total}'),
+            TimeElapsedColumn(),
+            console=get_console(),
+        ) as progress_bar:
+            task = progress_bar.add_task('Dumping process trees', total=len(nodes))
+            for node in nodes:
+                dump_node(node)
+                progress_bar.advance(task)
 
     def _iter_flattened_nodes(self):
         """Yield nodes retained by a list-based flattened data representation."""
@@ -327,14 +346,14 @@ class BaseGroupData:
             else:
                 yield nodes
 
-    def dump(self, dest):
+    def dump(self, dest, progress=True):
         """Dump the work-chain nodes retained in flattened group data.
 
         Each flattened row identifies a node analysed by ``analyser_class``.
         Specialised exporters can call :meth:`_dump_nodes` with a custom path
         builder when their directory hierarchy carries domain information.
         """
-        self._dump_nodes(dest, self._iter_flattened_nodes())
+        self._dump_nodes(dest, self._iter_flattened_nodes(), progress=progress)
 
     @staticmethod
     def get_node_formula(node, default='N/A'):
