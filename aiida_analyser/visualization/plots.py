@@ -576,7 +576,7 @@ def plot_epw_interpolated_bands(
 
 def check_wannier_optimize(w90_optimize_workchain, filename=None):
 
-    bands_qe = w90_optimize_workchain.inumpyuts.optimize_reference_bands
+    bands_qe = w90_optimize_workchain.inputs.optimize_reference_bands
     bands_w90 = w90_optimize_workchain.outputs.band_structure
     fermi_qe = bands_qe.creator.outputs.output_parameters.get_dict()['fermi_energy']
     fermi_w90 = w90_optimize_workchain.outputs.nscf.output_parameters.get_dict()['fermi_energy']
@@ -600,10 +600,6 @@ def check_wannier_bands(w90_bands_workchain, bands_workchain_qe, filename=None):
     if filename is not None:
         plt.savefig(filename, dpi=300)
         plt.close()
-
-
-def fitting_function(T, p, delta_zero, Tc):
-    return delta_zero * (1 - (T / Tc) ** p) ** 0.5
 
 
 def find_clusters(temps, delta_nk, threshold):
@@ -642,12 +638,17 @@ def fitting_function(T, p, delta_zero, Tc):
 
 
 # Import gap-plotting and analysis functions from aiida-epw
-from aiida_epw.tools.plot import (
-    plot_max_eigenvalue,
-    _iter_iso_gap_data,
-    gap_iso_imag_temp,
-    plot_anisotropic_gap,
-)
+from aiida_epw.tools.plot import plot_anisotropic_gap
+
+
+def _iter_iso_gap_data(gap_functions):
+    """Yield temperature and gap data from typed and legacy AiiDA nodes."""
+    if hasattr(gap_functions, 'get_itergap_functions'):
+        yield from gap_functions.get_itergap_functions()
+        return
+
+    for array_name, array in gap_functions.get_iterarrays():
+        yield float(array_name.replace('_', '.')), array
 
 def plot_iso_gap_function(
     iso_gap_function,
@@ -669,8 +670,11 @@ def plot_iso_gap_function(
     imag_delta = []
     imag_temp = []
 
-    for temperature, columns in _iter_iso_gap_data(iso_gap_function, source=source):
-        gap = columns["deltaw"][0] * 1000
+    for temperature, data in _iter_iso_gap_data(iso_gap_function):
+        if hasattr(data, 'get'):
+            gap = data['deltaw'][0] * 1000
+        else:
+            gap = numpy.asarray(data)[0, -1] * 1000
         if numpy.isnan(gap):
             continue
         imag_delta.append(gap)  # Convert to meV

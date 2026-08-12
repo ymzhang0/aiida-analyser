@@ -1,4 +1,6 @@
 from aiida_analyser.visualization.plots import plot_bands, plot_epw_interpolated_bands
+from aiida_analyser.visualization._axes import axis_limits as _axis_limits
+from aiida_analyser.visualization._axes import plot_axes as _plot_axes
 import numpy
 from collections import defaultdict
 import logging
@@ -702,6 +704,148 @@ class EpwPrepGroup(BaseGroupData):
             return d
 
         return default_to_regular(nodes)
+
+    def plot_phonon_bands_vs_degauss(
+        self,
+        kpoints_distance=0.15,
+        qpoints_distance=0.5,
+        *,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        cmap='OrRd',
+        figsize=None,
+        axes=None,
+        ylim=(-2, 24),
+        yticks=(-2, 24),
+        legend=True,
+        **kwargs,
+    ):
+        """Plot EPW phonon bands against degauss for each material.
+
+        The k- and q-point distances select an ``EpwPrepWorkChain`` and its
+        ``epw_bands`` child. Set ``kpoints_distance=None`` to select the
+        smallest available k-point distance for each degauss value.
+        """
+        import matplotlib.pyplot as plt
+
+        all_nodes = self.get_epw_bands_nodes()
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No EPW band nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                degauss_keys = [
+                    degauss for degauss in material_data
+                    if (allowed_degauss is None or degauss in allowed_degauss)
+                    and degauss not in excluded_degauss
+                ]
+                degauss_keys = sorted(degauss_keys, key=sort_key, reverse=True)
+                colours = plt.get_cmap(cmap)(numpy.linspace(0.2, 0.8, len(degauss_keys)))
+
+                for colour, degauss in zip(colours, degauss_keys):
+                    kpoint_data = material_data[degauss]
+                    if not kpoint_data:
+                        continue
+                    selected_kpoint_distance = (
+                        min(kpoint_data, key=sort_key)
+                        if kpoints_distance is None else kpoints_distance
+                    )
+                    node = kpoint_data.get(selected_kpoint_distance, {}).get(qpoints_distance)
+                    if node is None:
+                        continue
+                    try:
+                        bands_data = node.outputs.ph_band_structure
+                    except (AttributeError, KeyError):
+                        continue
+
+                    plot_bands(
+                        bands_data,
+                        axis=axis,
+                        color=colour,
+                        ticklabel_fontsize=kwargs.get('tick_fontsize', font_size),
+                        label_fontsize=kwargs.get('label_fontsize', font_size),
+                    )
+                    try:
+                        sigma = f'{float(degauss) * 1000:g}'
+                    except (TypeError, ValueError):
+                        sigma = str(degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=colour)
+
+                axis.text(
+                    0.05,
+                    0.9,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
+
+            if yticks is not None:
+                axes[0].set_yticks(yticks)
+                axes[0].set_yticklabels([str(tick) for tick in yticks])
+            axes[0].set_ylabel('Frequency (meV)')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 1.05, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', 4),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
 
     def plot_elbands(self):
         import matplotlib.pyplot as plt
