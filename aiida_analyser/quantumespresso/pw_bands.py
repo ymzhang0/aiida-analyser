@@ -88,6 +88,9 @@ class PwBandsAnalyser(BaseWorkChainAnalyser):
 
 class PwBandsGroup(BaseGroupData):
 
+    analyser_class = PwBandsAnalyser
+    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
+    
     def __init__(self, groups=None):
         super().__init__(groups)
         # Data structure: Material -> Degauss -> K_Dist -> Node
