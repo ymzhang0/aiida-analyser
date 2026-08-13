@@ -540,7 +540,15 @@ class EpwPrepConvergenceData:
 class EpwPrepGroup(BaseGroupData):
 
     analyser_class = EpwPrepAnalyser
-    dataframe_columns = ('Material', 'degauss', 'kpoints_distance_scf', 'qpoints_distance', 'status')
+    dataframe_columns = (
+        'Material',
+        'degauss',
+        'kpoints_distance_scf',
+        'qpoints_distance',
+        'status',
+        'structure_PK',
+        'structure_incoming',
+    )
 
     def __init__(self, groups=None):
         super().__init__(groups)
@@ -579,9 +587,48 @@ class EpwPrepGroup(BaseGroupData):
             except Exception as e:
                 logging.error(f'Node<{node.pk}> processing failed: {e}')
 
+    @staticmethod
+    def _get_structure_provenance(node):
+        """Return the input structure PK and its incoming provenance links.
+
+        A structure can have more than one incoming link.  Each source is
+        rendered on a separate line so the value remains readable in regular,
+        paged, and HTML dataframe views.
+        """
+        try:
+            structure = node.inputs.structure
+        except Exception:
+            return 'N/A', 'N/A'
+
+        structure_pk = getattr(structure, 'pk', 'N/A')
+        try:
+            incoming_links = structure.base.links.get_incoming().all()
+        except Exception:
+            return structure_pk, 'N/A'
+
+        sources = []
+        for link in incoming_links:
+            source_node = getattr(link, 'node', None)
+            if source_node is None:
+                continue
+            source_type = (
+                getattr(source_node, 'process_label', None)
+                or getattr(source_node, 'node_type', None)
+                or source_node.__class__.__name__
+            )
+            source = f'{source_type}<{getattr(source_node, "pk", "N/A")}>'
+            link_label = getattr(link, 'link_label', None)
+            if link_label:
+                source += f' [{link_label}]'
+            if source not in sources:
+                sources.append(source)
+
+        return structure_pk, '\n'.join(sources) if sources else 'N/A'
+
     def _flatten_data(self):
         flattened_list = []
         for formula, degauss, kpoints_distance_scf, qpoints_distance, node in self._flat_nodes:
+            structure_pk, structure_incoming = self._get_structure_provenance(node)
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
@@ -589,6 +636,8 @@ class EpwPrepGroup(BaseGroupData):
                 'kpoints_distance_scf': kpoints_distance_scf,
                 'qpoints_distance': qpoints_distance,
                 'status': self.get_status_string(node),
+                'structure_PK': structure_pk,
+                'structure_incoming': structure_incoming,
                 'node': node,
             })
 
