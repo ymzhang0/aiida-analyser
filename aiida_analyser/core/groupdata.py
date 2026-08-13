@@ -357,6 +357,44 @@ class BaseGroupData:
             else:
                 yield nodes
 
+    def select_nodes_by_extras(self, **criteria):
+        """Return nodes whose extras match every supplied value.
+
+        The search considers nodes retained in the group's flattened data.
+        With no criteria, all retained nodes whose extras can be read are
+        returned.
+        """
+        rows = self._data if isinstance(self._data, list) else self._flatten_data()
+        selected_nodes = []
+        for row in rows:
+            node = row.get('node')
+            if node is None:
+                continue
+            try:
+                extras = node.base.extras.all
+            except Exception as exception:
+                logger.warning(
+                    f'Could not read extras from node<{getattr(node, "pk", "N/A")}>: {exception}'
+                )
+                continue
+            if all(extras.get(key) == value for key, value in criteria.items()):
+                selected_nodes.append(node)
+        return selected_nodes
+
+    def select_node_by_extras(self, **criteria):
+        """Return exactly one node whose extras match the supplied criteria.
+
+        Raises:
+            ValueError: If the criteria match zero or more than one node.
+        """
+        selected_nodes = self.select_nodes_by_extras(**criteria)
+        if len(selected_nodes) != 1:
+            raise ValueError(
+                f'Expected one node in {self.__class__.__name__} for extras {criteria!r}; '
+                f'found {len(selected_nodes)}.'
+            )
+        return selected_nodes[0]
+
     def dump(self, dest, progress=True):
         """Dump the work-chain nodes retained in flattened group data.
 

@@ -132,41 +132,6 @@ class PwRelaxGroup(BaseGroupData):
 
         return flattened_list
 
-    def select_nodes_by_extras(self, **criteria):
-        """Return workchain nodes whose extras match every supplied value.
-
-        The search is limited to the ``PwRelaxWorkChain`` nodes loaded from
-        this group's configured AiiDA groups.  With no criteria, all loaded
-        nodes are returned.
-        """
-        selected_nodes = []
-        for row in self._data:
-            node = row.get('node')
-            if node is None:
-                continue
-            try:
-                extras = node.base.extras.all
-            except Exception as exception:
-                logger.warning(f'Could not read extras from node<{node.pk}>: {exception}')
-                continue
-            if all(extras.get(key) == value for key, value in criteria.items()):
-                selected_nodes.append(node)
-        return selected_nodes
-
-    def select_node_by_extras(self, **criteria):
-        """Return exactly one matching workchain node.
-
-        Raises:
-            ValueError: If the criteria match zero or more than one node.
-        """
-        selected_nodes = self.select_nodes_by_extras(**criteria)
-        if len(selected_nodes) != 1:
-            raise ValueError(
-                f'Expected one PwRelaxWorkChain node for extras {criteria!r}; '
-                f'found {len(selected_nodes)}.'
-            )
-        return selected_nodes[0]
-
     def plot_structure_convergence(self, quantity='celldm1', formula=None, ax=None,
                                    degauss_values=None, kpoints_distances=None,
                                    marker='o', legend=True, **plot_kwargs):
