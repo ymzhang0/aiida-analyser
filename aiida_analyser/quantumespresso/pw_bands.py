@@ -4,8 +4,6 @@ from .pw_base import PwBaseAnalyser
 from collections import defaultdict
 import logging
 from ..visualization.plots import plot_bands
-import itertools
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -138,72 +136,122 @@ class PwBandsGroup(BaseGroupData):
                         })
         return flattened_list
 
-    def plot_bands(self, axs=None, formula=None, kpoints_distances=None, degausses=None, with_soc=None, destpath=None, **kwargs):
-        """Plot bands for different k-points on a single axis."""
+    @staticmethod
+    def _selection(values):
+        """Normalise a scalar or iterable plot filter to a set."""
+        if values is None:
+            return None
+        if isinstance(values, (str, bytes)) or not hasattr(values, '__iter__'):
+            return {values}
+        return set(values)
+
+    @staticmethod
+    def _soc_label(with_soc):
+        """Return a concise display label for the SOC setting."""
+        if with_soc is True or with_soc == 'with SOC':
+            return 'with SOC'
+        if with_soc is False or with_soc == 'without SOC':
+            return 'without SOC'
+        return 'SOC unknown'
+
+    def _iter_band_comparisons(self, *, formula=None, degausses=None,
+                               kpoints_distances=None, with_soc=None):
+        """Yield one latest successful band node per parameter combination."""
+        formulas = self._selection(formula)
+        allowed_degauss = self._selection(degausses)
+        allowed_kpoints = self._selection(kpoints_distances)
+        allowed_soc = self._selection(with_soc)
+
+        for material in sorted(self._nested_data, key=str):
+            if formulas is not None and material not in formulas:
+                continue
+            for degauss in sorted(self._nested_data[material], key=str):
+                if allowed_degauss is not None and degauss not in allowed_degauss:
+                    continue
+                for kpoints_distance in sorted(self._nested_data[material][degauss], key=str):
+                    if allowed_kpoints is not None and kpoints_distance not in allowed_kpoints:
+                        continue
+                    nodes_by_soc = {}
+                    for node, soc_setting in self._nested_data[material][degauss][kpoints_distance]:
+                        if not getattr(node, 'is_finished_ok', False):
+                            continue
+                        if allowed_soc is not None and soc_setting not in allowed_soc:
+                            continue
+                        previous = nodes_by_soc.get(soc_setting)
+                        if previous is None or getattr(node, 'pk', -1) > getattr(previous, 'pk', -1):
+                            nodes_by_soc[soc_setting] = node
+                    for soc_setting, node in sorted(nodes_by_soc.items(), key=lambda item: str(item[0])):
+                        yield material, degauss, kpoints_distance, soc_setting, node
+
+    def plot_bands(self, axs=None, formula=None, kpoints_distances=None,
+                   degausses=None, with_soc=None, destpath=None, **kwargs):
+        """Compare finished bands for selected degauss and k-point distances.
+
+        Every material is drawn on a separate axis.  Each line set corresponds
+        to one ``(degauss, kpoints_distance, with_soc)`` combination; if the
+        group contains reruns with identical settings, only the highest-PK
+        finished node is shown.
+        """
         import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
+        import numpy as np
 
         legend_fontsize = kwargs.pop('legend_fontsize', 12)
         title_fontsize = kwargs.pop('title_fontsize', 16)
-        structures = sorted([s for s in self._nested_data if s is not None], key=lambda x: str(x))
+        legend = kwargs.pop('legend', True)
+        linewidth = kwargs.pop('lw', 1.5)
+        colour_cycle = kwargs.pop('colours', plt.rcParams['axes.prop_cycle'].by_key()['color'])
+        if not colour_cycle:
+            raise ValueError('colours must contain at least one matplotlib colour.')
+        comparisons = list(self._iter_band_comparisons(
+            formula=formula,
+            degausses=degausses,
+            kpoints_distances=kpoints_distances,
+            with_soc=with_soc,
+        ))
+        structures = sorted({material for material, *_ in comparisons}, key=str)
 
         if not structures:
-            return None
-
-        n_cols = len(structures)
+            selected = f' for formula {formula!r}' if formula is not None else ''
+            raise ValueError(
+                f'No finished PwBandsWorkChain nodes match the requested comparison{selected}.'
+            )
 
         created_axes = axs is None
         if axs is None:
-            fig, axs = plt.subplots(1, n_cols, figsize=(5 * n_cols, 4), squeeze=False)
+            _, axs = plt.subplots(1, len(structures), figsize=(6 * len(structures), 5), squeeze=False)
+        flat_axes = list(np.asarray(axs, dtype=object).flat)
+        if len(flat_axes) < len(structures):
+            raise ValueError(f'Expected at least {len(structures)} axes, received {len(flat_axes)}.')
 
-        for i, struct in enumerate(structures):
-                
-            base_colors = itertools.cycle([
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-            ])
-            markers = itertools.cycle(['o', 's', 'v', '^', '<', '>', '8', 'p', '*', 'h', 'H', 'D', 'd', 'P', 'X'])
+        comparisons_by_material = {material: [] for material in structures}
+        for comparison in comparisons:
+            comparisons_by_material[comparison[0]].append(comparison)
 
-            ax = axs[0, i]
+        for axis, material in zip(flat_axes, structures):
+            material_comparisons = comparisons_by_material[material]
+            for colour_index, (_, degauss, kpoints_distance, soc_setting, node) in enumerate(material_comparisons):
+                soc_label = self._soc_label(soc_setting)
+                logger.info(
+                    'Plotting node<%s> for %s: degauss=%s, kpoints_distance=%s, %s',
+                    node.pk, material, degauss, kpoints_distance, soc_label,
+                )
+                PwBandsAnalyser(node).plot_bands(
+                    axis=axis,
+                    label=rf'$\sigma$={degauss} Ry, $|k|$={kpoints_distance} $\AA^{{-1}}$, {soc_label}',
+                    color=colour_cycle[colour_index % len(colour_cycle)],
+                    linestyle='-',
+                    lw=linewidth,
+                    **kwargs,
+                )
+            axis.set_title(f'${material}$', fontsize=title_fontsize)
+            axis.grid(axis='y', alpha=0.2)
+            if legend:
+                axis.legend(loc='upper left', fontsize=legend_fontsize)
 
-            mat_dict = self._nested_data[struct]
-
-            for degauss, k_dist_dict in mat_dict.items():
-                for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc in node_list:
-                        if node and node.is_finished_ok:
-                            color = next(base_colors)
-                            soc_label = 'with SOC' if with_soc is True else 'without SOC' if with_soc is False else 'SOC unknown'
-                            logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {soc_label}")
-                            analyser = PwBandsAnalyser(node)
-                            analyser.plot_bands(
-                                axis=ax,
-                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {soc_label}',
-                                color=color,
-                                # marker=marker,
-                                linestyle='-',
-                                lw=kwargs.pop('lw', 1.5),
-                                **kwargs
-                        )
-            ax.set_title(f"${struct}$", fontsize=title_fontsize)
-            ax.legend(loc='upper left', fontsize=legend_fontsize)
-            
-        for ax in axs[0, 1:]:
-            ax.set_ylabel('')
-
+        for axis in flat_axes[1:len(structures)]:
+            axis.set_ylabel('')
 
         if destpath and created_axes:
             plt.tight_layout()
             plt.savefig(destpath)
         return axs
-
-    def dump(self, destpath: Path):
-        """Dump the bands to a folder."""
-        for struct, mat_dict in self._nested_data.items():
-            for degauss, k_dist_dict in mat_dict.items():
-                for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc in node_list:
-                        if node and node.is_finished_ok:
-                            logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc}")
-                            analyser = PwBandsAnalyser(node)
-                            analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / str(with_soc).replace(' ', '_'))

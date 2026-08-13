@@ -72,3 +72,45 @@ def test_pw_bands_group_uses_the_standard_flat_table_schema():
     )
 
     assert table.loc[(0.01, 0.15), 'Si'] == '(11) ✅'
+
+
+def test_pw_bands_group_selects_latest_finished_parameter_combinations():
+    first = make_node(1)
+    latest = make_node(2)
+    failed = make_node(3)
+    failed.is_finished_ok = False
+    group = PwBandsGroup.__new__(PwBandsGroup)
+    group._nested_data = {
+        'Si': {
+            0.01: {0.15: [(first, False), (latest, False), (failed, True)]},
+            0.02: {0.15: [(make_node(4), True)]},
+        },
+        'Ge': {0.01: {0.15: [(make_node(5), False)]}},
+    }
+
+    comparisons = list(group._iter_band_comparisons(
+        formula='Si', degausses=[0.01], kpoints_distances=[0.15], with_soc=False,
+    ))
+
+    assert comparisons == [('Si', 0.01, 0.15, False, latest)]
+
+
+def test_pw_bands_group_dump_uses_the_base_progress_implementation(tmp_path):
+    node = make_node(11)
+    group = PwBandsGroup.__new__(PwBandsGroup)
+    group._data = [{'node': node}]
+    captured = {}
+
+    def capture_dump(destination, nodes, analyser_class=None, path_builder=None, progress=True):
+        captured['destination'] = destination
+        captured['nodes'] = list(nodes)
+        captured['progress'] = progress
+
+    group._dump_nodes = capture_dump
+    group.dump(tmp_path, progress=False)
+
+    assert captured == {
+        'destination': tmp_path,
+        'nodes': [node],
+        'progress': False,
+    }
