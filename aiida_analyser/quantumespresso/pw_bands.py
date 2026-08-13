@@ -109,7 +109,11 @@ class PwBandsGroup(BaseGroupData):
                 kpoints_distance = extras.get(
                     'kpoints_distance_scf', extras.get('kpoints_distance', 'unknown')
                 )
-                with_soc = extras.get('with_soc', 'unknown')
+                # Historical PW bands data did not always store ``with_soc``.
+                # Those calculations were treated as non-SOC before the
+                # flattened table schema was introduced, so preserve that
+                # interpretation for filtering and plotting.
+                with_soc = extras.get('with_soc', False)
 
                 logging.info(f"Processing node<{node.pk}> for {formula}")
                 self._nested_data[formula][degauss][kpoints_distance].append((node, with_soc))
@@ -175,6 +179,11 @@ class PwBandsGroup(BaseGroupData):
                     for node, soc_setting in self._nested_data[material][degauss][kpoints_distance]:
                         if not getattr(node, 'is_finished_ok', False):
                             continue
+                        # Groups constructed with the previous table schema
+                        # used ``'unknown'`` for a missing SOC extra.  Keep
+                        # those in-memory objects usable as non-SOC data.
+                        if soc_setting == 'unknown':
+                            soc_setting = False
                         if allowed_soc is not None and soc_setting not in allowed_soc:
                             continue
                         previous = nodes_by_soc.get(soc_setting)

@@ -95,6 +95,26 @@ def test_pw_bands_group_selects_latest_finished_parameter_combinations():
     assert comparisons == [('Si', 0.01, 0.15, False, latest)]
 
 
+def test_pw_bands_group_treats_missing_soc_extra_as_false(monkeypatch):
+    node = make_node(11, formula='Si', degauss=0.02, kpoints_distance_scf=0.15)
+    node.process_label = 'PwBandsWorkChain'
+    monkeypatch.setattr('aiida.orm.load_group', lambda _: SimpleNamespace(nodes=[node]))
+
+    group = PwBandsGroup(['bands'])
+
+    assert group._data[0]['with_soc'] is False
+
+
+def test_pw_bands_group_accepts_legacy_unknown_soc_as_non_soc():
+    node = make_node(11)
+    group = PwBandsGroup.__new__(PwBandsGroup)
+    group._nested_data = {'Si': {0.02: {0.15: [(node, 'unknown')]}}}
+
+    comparisons = list(group._iter_band_comparisons(with_soc=False))
+
+    assert comparisons == [('Si', 0.02, 0.15, False, node)]
+
+
 def test_pw_bands_group_dump_uses_the_base_progress_implementation(tmp_path):
     node = make_node(11)
     group = PwBandsGroup.__new__(PwBandsGroup)
