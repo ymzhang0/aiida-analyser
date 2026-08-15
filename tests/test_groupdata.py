@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 
 from aiida_analyser.core.groupdata import BaseGroupData
@@ -146,7 +147,10 @@ def test_dump_uses_flattened_nodes(tmp_path):
 
 
 def test_get_table_can_create_a_hierarchical_index():
-    table = PivotGroupData().get_table(index=['Degauss', 'K_Density', 'Type'])
+    table = PivotGroupData().get_table(
+        index=['Degauss', 'K_Density', 'Type'],
+        reset_index=False,
+    )
 
     assert table.index.names == ['Degauss', 'K_Density', 'Type']
     assert table.loc[(0.005, 0.10, 'EpwPrepWorkChain'), 'Material'].tolist() == [
@@ -159,6 +163,7 @@ def test_get_table_can_pivot_an_arbitrary_key_into_columns():
     table = PivotGroupData().get_table(
         index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
         columns='Material',
+        reset_index=False,
     )
 
     assert table.index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']
@@ -178,6 +183,26 @@ def test_get_table_can_reset_a_pivoted_multiindex_for_data_viewers():
     assert table.columns.name is None
     assert table.loc[0, 'Degauss'] == 0.005
     assert table.loc[0, 'mpds-S1612209-RuSbTi'] == '✅ (40579)'
+
+
+def test_get_table_normalises_numpy_floats_and_expands_multiindex():
+    data = PivotGroupData()
+    for row in data._data:
+        row['Degauss'] = np.float64(row['Degauss'])
+        row['K_Density'] = np.float64(row['K_Density'])
+        if row['Q_Density'] != '-':
+            row['Q_Density'] = np.float64(row['Q_Density'])
+
+    table = data.get_table(
+        index=['Degauss', 'K_Density', 'Q_Density'],
+        columns='Material',
+    )
+
+    assert list(table.columns[:3]) == ['Degauss', 'K_Density', 'Q_Density']
+    assert not isinstance(table.index, pd.MultiIndex)
+    assert type(table.loc[0, 'Degauss']) is float
+    assert type(table.loc[0, 'K_Density']) is float
+    assert type(table.loc[0, 'Q_Density']) is float
 
 
 def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
@@ -200,6 +225,7 @@ def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
         index=['Degauss', 'K_Density', 'Q_Density', 'Type'],
         columns='Material',
         values='Status',
+        reset_index=False,
         page_size=10,
         max_height=400,
     )

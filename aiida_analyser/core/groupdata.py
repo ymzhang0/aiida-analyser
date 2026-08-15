@@ -477,6 +477,7 @@ class BaseGroupData:
                     logger.warning(f"Error filtering node {item.get('PK', 'N/A')}: {exc}")
             rows = filtered_rows
 
+        rows = self._normalise_table_rows(rows)
         dataframe = pd.DataFrame(rows)
         value_keys = self._table_keys(values, 'values')
         if 'node' in dataframe:
@@ -665,12 +666,38 @@ class BaseGroupData:
         return keys
 
     @staticmethod
+    def _normalise_table_rows(rows):
+        """Convert NumPy float scalars in source rows before dataframe reshaping."""
+        import numpy as np
+
+        def normalise(value):
+            if isinstance(value, np.floating):
+                return float(value)
+            if isinstance(value, tuple):
+                return tuple(normalise(item) for item in value)
+            if isinstance(value, list):
+                return [normalise(item) for item in value]
+            return value
+
+        return [
+            {key: normalise(value) for key, value in row.items()}
+            for row in rows
+        ]
+
+    @staticmethod
     def _reset_table_index(dataframe):
         """Make a reshaped table convenient for external dataframe viewers."""
         import pandas as pd
+        import numpy as np
 
+        index_names = dataframe.index.names
         if not isinstance(dataframe.index, pd.RangeIndex):
             dataframe = dataframe.reset_index()
+        for name in index_names:
+            if name is not None and name in dataframe:
+                dataframe[name] = dataframe[name].map(
+                    lambda value: float(value) if isinstance(value, np.floating) else value
+                ).astype(object)
         if dataframe.columns.nlevels == 1:
             dataframe.columns.name = None
         else:
@@ -798,7 +825,7 @@ class BaseGroupData:
         values=None,
         aggfunc='first',
         fill_value='',
-        reset_index=False,
+        reset_index=None,
     ):
         """Return a flat, hierarchical, or pivoted table of group-data rows.
 
@@ -823,10 +850,10 @@ class BaseGroupData:
         a values list or tuple combines each row's values in one cell; multiple
         nodes are separated by newlines.
 
-        Set ``reset_index=True`` to convert a hierarchical index back into
-        ordinary data columns.  This is useful for external viewers such as
-        VS Code Data Wrangler, which render pandas ``MultiIndex`` values as
-        tuples rather than separate columns.
+        MultiIndex results are converted to ordinary data columns by default,
+        so external viewers such as VS Code Data Wrangler do not render them
+        as tuple values. Set ``reset_index=False`` to keep a hierarchical
+        index, or ``reset_index=True`` to reset any non-default index.
 
         Set ``display_mode='paged'`` to return an ``ipywidgets`` panel with a
         fixed-height ``Output`` area and page controls.  Unlike the legacy
@@ -872,7 +899,9 @@ class BaseGroupData:
                 aggfunc=aggfunc,
                 fill_value=fill_value,
             )
-            if reset_index:
+            if reset_index is True or (
+                reset_index is None and isinstance(dataframe.index, pd.MultiIndex)
+            ):
                 dataframe = self._reset_table_index(dataframe)
             if str(display_mode).lower() == 'paged':
                 return self._display_paginated_dataframe(
@@ -882,7 +911,7 @@ class BaseGroupData:
                 )
             return self._display_dataframe(dataframe, display_mode, max_height)
 
-        flattened_list = self._flatten_data()
+        flattened_list = self._normalise_table_rows(self._flatten_data())
         if not flattened_list:
             dataframe = pd.DataFrame()
             if str(display_mode).lower() == 'paged':
@@ -913,7 +942,9 @@ class BaseGroupData:
             aggfunc=aggfunc,
             fill_value=fill_value,
         )
-        if reset_index:
+        if reset_index is True or (
+            reset_index is None and isinstance(dataframe.index, pd.MultiIndex)
+        ):
             dataframe = self._reset_table_index(dataframe)
         if str(display_mode).lower() == 'paged':
             return self._display_paginated_dataframe(
