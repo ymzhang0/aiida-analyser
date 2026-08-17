@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from aiida_analyser.core.groupdata import BaseGroupData, DegaussKGroup
+from aiida_analyser.core.groupdata import BaseGroupData, DegaussKGroup, DegaussKQGroup
 
 
 class DummyAnalyser:
@@ -233,6 +233,7 @@ def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
     assert result == 'pager'
     assert captured['page_size'] == 10
     assert captured['max_height'] == 400
+    assert captured['dataframe'].index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']
 
 
 class DummyDegaussKGroup(DegaussKGroup):
@@ -282,4 +283,25 @@ def test_degauss_k_group_can_keep_reruns():
     )
 
     assert [node.pk for node in group._nested_data['HfRuSb'][0.02][0.3]] == [10, 11]
-    assert captured['dataframe'].index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']
+
+
+class DummyDegaussKQGroup(DegaussKQGroup):
+    process_label = 'DummyDegaussKQWorkChain'
+
+    def __init__(self, nodes):
+        self._nodes = nodes
+        super().__init__()
+
+    def iter_group_nodes(self, process_labels=None):
+        assert process_labels == self.process_label
+        yield from self._nodes
+
+
+def test_degauss_k_q_group_keeps_qpoint_in_the_table_and_grid():
+    node = _dummy_degauss_k_node(10)
+    node.process_label = 'DummyDegaussKQWorkChain'
+    node.base.extras.all['qpoints_distance'] = 0.5
+    group = DummyDegaussKQGroup([node])
+
+    assert group.get_table().loc[10, 'qpoints_distance'] == 0.5
+    assert group._nested_data['HfRuSb'][0.02][0.3][0.5].pk == 10

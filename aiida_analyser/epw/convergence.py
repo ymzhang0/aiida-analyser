@@ -5,7 +5,7 @@ import logging
 
 import numpy
 
-from aiida_analyser.core.groupdata import BaseGroupData, render_process_node_details
+from aiida_analyser.core.groupdata import DegaussKQGroup, render_process_node_details
 from aiida_analyser.visualization._axes import axis_limits as _axis_limits
 from aiida_analyser.visualization._axes import plot_axes as _plot_axes
 from aiida_analyser.visualization.plots import plot_bands
@@ -78,7 +78,7 @@ def phonon_bands_output(node):
     return None
 
 
-class EpwDegaussKQGroup(BaseGroupData):
+class EpwDegaussKQGroup(DegaussKQGroup):
     """Base class for EPW convergence scans indexed by degauss, k, and q.
 
     Subclasses only declare their process label and, if necessary, override
@@ -90,41 +90,11 @@ class EpwDegaussKQGroup(BaseGroupData):
         'formula', 'source_db', 'source_id', 'kpoints_distance_scf',
         'degauss', 'qpoints_distance',
     )
+    kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
     dataframe_columns = (
         'Material', 'degauss', 'kpoints_distance_scf', 'qpoints_distance',
         'status', 'structure_PK', 'structure_incoming', 'node',
     )
-
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        self._nested_data = defaultdict(
-            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: None)))
-        )
-        self._flat_nodes = []
-        self.get_data()
-        self._data = self._flatten_data()
-
-    @classmethod
-    def check_protocol(cls, node):
-        if cls.process_label is not None and node.process_label != cls.process_label:
-            raise ValueError(f'Node<{node.pk}> is not a {cls.process_label}.')
-        extras = node.base.extras.all
-        for key in cls.required_extras:
-            if key not in extras:
-                logger.debug('Extra %s is not found in node<%s>.', key, node.pk)
-
-    def get_data(self):
-        if self.process_label is None:
-            raise NotImplementedError(f'{self.__class__.__name__} must set process_label.')
-        for node in self.iter_group_nodes(self.process_label):
-            try:
-                self.check_protocol(node)
-                formula = self.get_node_formula(node)
-                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
-                self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
-                self._flat_nodes.append((formula, degauss, kpoints_distance, qpoints_distance, node))
-            except Exception as exception:
-                logger.warning('Node<%s> processing failed: %s', getattr(node, 'pk', 'N/A'), exception)
 
     @staticmethod
     def _get_structure_provenance(node):
@@ -155,22 +125,15 @@ class EpwDegaussKQGroup(BaseGroupData):
                 sources.append(source)
         return structure_pk, '\n'.join(sources) if sources else 'N/A'
 
-    def _flatten_data(self):
-        rows = []
-        for formula, degauss, kpoints_distance, qpoints_distance, node in self._flat_nodes:
-            structure_pk, structure_incoming = self._get_structure_provenance(node)
-            rows.append({
-                'PK': node.pk,
-                'Material': formula,
-                'degauss': degauss,
-                'kpoints_distance_scf': kpoints_distance,
-                'qpoints_distance': qpoints_distance,
-                'status': self.get_status_string(node),
-                'structure_PK': structure_pk,
-                'structure_incoming': structure_incoming,
-                'node': node,
-            })
-        return rows
+    def _row_from_parameters(self, formula, degauss, kpoints_distance, qpoints_distance, node):
+        row = super()._row_from_parameters(
+            formula, degauss, kpoints_distance, qpoints_distance, node,
+        )
+        structure_pk, structure_incoming = self._get_structure_provenance(node)
+        row['kpoints_distance_scf'] = row.pop('kpoints_distance')
+        row['structure_PK'] = structure_pk
+        row['structure_incoming'] = structure_incoming
+        return row
 
     def show_interactive(self):
         """Display a shared, compact EPW node selector and detail view."""

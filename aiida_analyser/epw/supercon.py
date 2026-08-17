@@ -5,7 +5,7 @@ from aiida import orm
 import numpy
 from collections import defaultdict
 import warnings
-from ..core.groupdata import BaseGroupData, render_process_node_details
+from ..core.groupdata import DegaussKQGroup, render_process_node_details
 from ..core.base import BaseWorkChainAnalyser
 from .epw_base import EpwBaseAnalyser
 from .calculators import _calculate_iso_tc, check_convergence
@@ -39,23 +39,6 @@ def _get_a2f_arraydata(workchain: orm.WorkChainNode):
     if 'a2f' in workchain.outputs:
         return workchain.outputs.a2f
     return None
-
-def _safe_get_extras(node):
-    extras = node.base.extras.all
-    
-    # Degauss
-    degauss = extras.get('degauss', 'unknown')
-    
-    # K-point distance (can be stored as 'kpoints_distance_scf' or 'kpoints_distance')
-    kpoints_distance = extras.get('kpoints_distance_scf', None)
-    if kpoints_distance is None:
-        kpoints_distance = extras.get('kpoints_distance', 'unknown')
-        
-    # Q-point distance
-    qpoints_distance = extras.get('qpoints_distance', 'unknown')
-    
-    return degauss, kpoints_distance, qpoints_distance
-
 
 class SuperConAnalyser(BaseWorkChainAnalyser):
     """
@@ -526,9 +509,12 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             print(f"Computer: {node.computer.label if node.computer else 'Local'}")
             print(f"Job ID (Scheduler): {node.get_job_id()}")
             
-class SuperConGroup(BaseGroupData):
+class SuperConGroup(DegaussKQGroup):
 
     analyser_class = SuperConAnalyser
+    process_label = 'SuperConWorkChain'
+    required_extras = ('formula', 'source_db', 'source_id', 'degauss', 'qpoints_distance')
+    kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
     dataframe_columns = (
         'Material',
         'degauss',
@@ -537,29 +523,6 @@ class SuperConGroup(BaseGroupData):
         'parent_epw',
         'status',
     )
-
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        self._flat_nodes = []
-        self.get_data()
-        self._data = self._flatten_data()
-
-    def get_data(self):
-        """Collect SuperCon work chains into the flat representation source."""
-        for node in self.iter_group_nodes('SuperConWorkChain'):
-            try:
-                self.check_protocol(node)
-                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
-                self._flat_nodes.append((
-                    self._material_label(node),
-                    degauss,
-                    kpoints_distance,
-                    qpoints_distance,
-                    self._parent_epw_pk(node),
-                    node,
-                ))
-            except Exception as exc:
-                logging.error(f'Node<{node.pk}> processing failed: {exc}')
 
     @staticmethod
     def _extract_degauss_k_q(node):
@@ -587,10 +550,10 @@ class SuperConGroup(BaseGroupData):
                 )
         return True
 
-    def _material_label(self, node):
+    def _material_label(self, node, extras=None):
         """Return the historical source-qualified material label when available."""
         try:
-            extras = node.base.extras.all
+            extras = node.base.extras.all if extras is None else extras
             return f"{extras['source_db']}-{extras['source_id']}-{extras['formula']}"
         except (AttributeError, KeyError, TypeError):
             return self.get_node_formula(node)
@@ -604,21 +567,12 @@ class SuperConGroup(BaseGroupData):
         except (AttributeError, KeyError):
             return None
 
-    def _flatten_data(self):
-        flattened_list = []
-        for formula, degauss, kpoints_distance, qpoints_distance, parent_epw, node in self._flat_nodes:
-            flattened_list.append({
-                'PK': node.pk,
-                'Material': formula,
-                'status': self.get_status_string(node),
-                'degauss': degauss,
-                'kpoints_distance': kpoints_distance,
-                'qpoints_distance': qpoints_distance,
-                'parent_epw': parent_epw,
-                'node': node,
-            })
-
-        return flattened_list
+    def _row_from_parameters(self, formula, degauss, kpoints_distance, qpoints_distance, node):
+        row = super()._row_from_parameters(
+            formula, degauss, kpoints_distance, qpoints_distance, node,
+        )
+        row['parent_epw'] = self._parent_epw_pk(node)
+        return row
 
     def get_parallel_plot(self, target_metric='tc'):
         """

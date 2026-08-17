@@ -1036,3 +1036,65 @@ class DegaussKGroup(BaseGroupData):
             }
             for formula, degauss, kpoints_distance, node in self._flat_nodes
         ]
+
+
+class DegaussKQGroup(DegaussKGroup):
+    """Base collection for convergence scans over degauss, k, and q grids."""
+
+    qpoint_extra_key = 'qpoints_distance'
+    required_extras = DegaussKGroup.required_extras + (qpoint_extra_key,)
+    dataframe_columns = (
+        'Material', 'degauss', 'kpoints_distance', 'qpoints_distance', 'status',
+    )
+
+    def __init__(self, groups=None):
+        BaseGroupData.__init__(self, groups)
+        if self.process_label is None:
+            raise NotImplementedError(f'{self.__class__.__name__} must set process_label.')
+        leaf = list if self.keep_duplicate_nodes else (lambda: None)
+        self._nested_data = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(leaf)))
+        )
+        self._flat_nodes = []
+        self.get_data()
+        self._data = self._flatten_data()
+
+    @classmethod
+    def _convergence_extras(cls, node):
+        extras, degauss, kpoints_distance = super()._convergence_extras(node)
+        return extras, degauss, kpoints_distance, extras.get(cls.qpoint_extra_key, 'unknown')
+
+    def _material_label(self, node, extras):
+        return self.get_node_formula(node, default=extras.get('formula', 'N/A'))
+
+    def get_data(self):
+        for node in self.iter_group_nodes(self.process_label):
+            try:
+                self.check_protocol(node)
+                extras, degauss, kpoints_distance, qpoints_distance = self._convergence_extras(node)
+                formula = self._material_label(node, extras)
+                slot = self._nested_data[formula][degauss][kpoints_distance][qpoints_distance]
+                if self.keep_duplicate_nodes:
+                    slot.append(node)
+                else:
+                    self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, qpoints_distance, node))
+            except Exception as exception:
+                logger.warning(f'Node<{getattr(node, "pk", "N/A")}> processing failed: {exception}')
+
+    def _row_from_parameters(self, formula, degauss, kpoints_distance, qpoints_distance, node):
+        return {
+            'PK': node.pk,
+            'Material': formula,
+            'degauss': degauss,
+            'kpoints_distance': kpoints_distance,
+            'qpoints_distance': qpoints_distance,
+            'status': self.get_status_string(node),
+            'node': node,
+        }
+
+    def _flatten_data(self):
+        return [
+            self._row_from_parameters(formula, degauss, kpoints_distance, qpoints_distance, node)
+            for formula, degauss, kpoints_distance, qpoints_distance, node in self._flat_nodes
+        ]
