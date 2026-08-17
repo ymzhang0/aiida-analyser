@@ -77,6 +77,13 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
         ]
 
     @property
+    def seekpath_structure_analysis(self):
+        try:
+            return self.process_tree.seekpath_structure_analysis
+        except AttributeError:
+            return None
+
+    @property
     def scf(self):
         try:
             return self.process_tree.scf
