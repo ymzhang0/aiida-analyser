@@ -548,6 +548,7 @@ class EpwPrepGroup(BaseGroupData):
         'status',
         'structure_PK',
         'structure_incoming',
+        'node'
     )
 
     def __init__(self, groups=None):

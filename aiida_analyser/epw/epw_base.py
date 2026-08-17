@@ -4,12 +4,32 @@ from .epw_calculation import EpwAnalyser
 from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 import logging
+from collections import defaultdict
+from aiida_analyser.visualization.plots import plot_bands, plot_epw_interpolated_bands
+from aiida_analyser.visualization._axes import axis_limits as _axis_limits
+from aiida_analyser.visualization._axes import plot_axes as _plot_axes
+import numpy
 
+def _safe_get_extras(node):
+    extras = node.base.extras.all
+    
+    # Degauss
+    degauss = extras.get('degauss', 'unknown')
+    
+    # K-point distance (can be stored as 'kpoints_distance_scf' or 'kpoints_distance')
+    kpoints_distance = extras.get('kpoints_distance_scf', None)
+    if kpoints_distance is None:
+        kpoints_distance = extras.get('kpoints_distance', 'unknown')
+        
+    # Q-point distance
+    qpoints_distance = extras.get('qpoints_distance', 'unknown')
+    
+    return degauss, kpoints_distance, qpoints_distance
+    
 class EpwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwBaseWorkChain.
     """
-
     def copy_tree(self, destpath):
         """Copy the tree by delegating each direct EpwCalculation child."""
         return self._copy_tree_for_direct_children(
@@ -50,62 +70,110 @@ class EpwBaseGroup(BaseGroupData):
     """
 
     analyser_class = EpwBaseAnalyser
-
+    dataframe_columns = (
+        'Material',
+        'degauss',
+        'kpoints_distance_scf',
+        'qpoints_distance',
+        'status',
+        'structure_PK',
+        'structure_incoming',
+        'node'
+    )
     def __init__(self, groups=None):
         super().__init__(groups)
+        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> Node
+        self._nested_data = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: None
+                    )
+                )
+            )
+        )
+        self._flat_nodes = []
+        self.get_data()
         self._data = self._flatten_data()
 
+    @staticmethod
+    def check_protocol(node):
+        extras = node.base.extras.all
+        if node.process_label in ['EpwBaseWorkChain']:
+            for key in ['formula', 'source_db', 'source_id', 'kpoints_distance_scf', 'degauss', 'qpoints_distance']:
+                if key not in extras:
+                    logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
+                
+        return True
+
+    @staticmethod
+    def _get_structure_provenance(node):
+        """Return the input structure PK and its incoming provenance links.
+
+        A structure can have more than one incoming link.  Each source is
+        rendered on a separate line so the value remains readable in regular,
+        paged, and HTML dataframe views.
+        """
+        try:
+            structure = node.inputs.structure
+        except Exception:
+            return 'N/A', 'N/A'
+
+        structure_pk = getattr(structure, 'pk', 'N/A')
+        try:
+            incoming_links = structure.base.links.get_incoming().all()
+        except Exception:
+            return structure_pk, 'N/A'
+
+        sources = []
+        for link in incoming_links:
+            source_node = getattr(link, 'node', None)
+            if source_node is None:
+                continue
+            source_type = (
+                getattr(source_node, 'process_label', None)
+                or getattr(source_node, 'node_type', None)
+                or source_node.__class__.__name__
+            )
+            source = f'{source_type}<{getattr(source_node, "pk", "N/A")}>'
+            link_label = getattr(link, 'link_label', None)
+            if link_label:
+                source += f' [{link_label}]'
+            if source not in sources:
+                sources.append(source)
+
+        return structure_pk, '\n'.join(sources) if sources else 'N/A'
+
+
+    def get_data(self):
+        for node in self.iter_group_nodes('EpwBaseWorkChain'):
+            formula = self.get_node_formula(node)
+            try:
+                self.check_protocol(node)
+                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
+                self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, qpoints_distance, node))
+            except Exception as e:
+                logging.error(f'Node<{node.pk}> processing failed: {e}')
+
+
     def _flatten_data(self):
-        from aiida import orm
         flattened_list = []
-
-        if not self._groups:
-            return flattened_list
-
-        qb = orm.QueryBuilder()
-        qb.append(orm.Group, filters={'label': {'in': self._groups}}, tag='group')
-        qb.append(orm.ProcessNode, with_group='group', filters={'attributes.process_label': 'EpwBaseWorkChain'})
-
-        for r in qb.all():
-            node = r[0]
-            # Material
-            formula = 'N/A'
-            if 'structure' in node.inputs:
-                try:
-                    formula = node.inputs.structure.get_formula()
-                except Exception:
-                    pass
-            if formula == 'N/A' and 'formula' in node.base.extras:
-                formula = node.base.extras.get('formula')
-
-            # Emojified Status
-            status_emoji = self.get_status_string(node)
-
+        for formula, degauss, kpoints_distance_scf, qpoints_distance, node in self._flat_nodes:
+            structure_pk, structure_incoming = self._get_structure_provenance(node)
             flattened_list.append({
                 'PK': node.pk,
                 'Material': formula,
-                'status': status_emoji,
+                'degauss': degauss,
+                'kpoints_distance_scf': kpoints_distance_scf,
+                'qpoints_distance': qpoints_distance,
+                'status': self.get_status_string(node),
+                'structure_PK': structure_pk,
+                'structure_incoming': structure_incoming,
                 'node': node,
             })
 
         return flattened_list
-
-    def get_table(self):
-        import pandas as pd
-        flattened_list = self._flatten_data()
-        if not flattened_list:
-            return pd.DataFrame()
-        df = pd.DataFrame(flattened_list)
-        if 'node' in df.columns:
-            df = df.drop(columns=['node'])
-        return df.set_index('PK') if 'PK' in df.columns else df
-
-    def show(self):
-        """Display the table as a rendered Markdown table in Jupyter Notebooks."""
-        import pandas as pd
-        from IPython.display import display, Markdown
-        df = self.get_table()
-        display(Markdown(df.to_markdown()))
 
     def show_interactive(self):
         """
@@ -117,15 +185,15 @@ class EpwBaseGroup(BaseGroupData):
         from IPython.display import display
         import pandas as pd
         
-        df = self.get_table()
-        if df.empty:
+        flat_data = self._data
+        if not flat_data:
             print("No data available to display.")
             return
 
-        # Ensure index elements are python ints
-        df.index = df.index.map(int)
+        df = pd.DataFrame(flat_data)
+        df.index = df['PK'].map(int)
 
-        node_map = {int(item['PK']): item['node'] for item in self._data if item['node'] is not None}
+        node_map = {int(item['PK']): item['node'] for item in flat_data if item['node'] is not None}
         
         details_output = widgets.Output()
         
@@ -210,11 +278,11 @@ class EpwBaseGroup(BaseGroupData):
             
         table_body = widgets.VBox(rows, layout=widgets.Layout(max_height='400px', overflow_y='auto', border='1px solid #ecf0f1', border_top='none', border_radius='0 0 4px 4px'))
         
-        table_container = widgets.VBox([headers, table_body], layout=widgets.Layout(width='55%'))
+        table_container = widgets.VBox([headers, table_body], layout=widgets.Layout(width='62%'))
         
         details_container = widgets.VBox([
             details_output
-        ], layout=widgets.Layout(width='43%', margin='0 0 0 2%'))
+        ], layout=widgets.Layout(width='36%', margin='0 0 0 2%'))
         
         main_layout = widgets.HBox([table_container, details_container], layout=widgets.Layout(width='100%'))
         
@@ -222,3 +290,174 @@ class EpwBaseGroup(BaseGroupData):
             select_row(df.index[0])
             
         display(main_layout)
+
+    def get_epw_bands_nodes(self):
+        """
+        Get epw bands node.
+        """
+        # Structure: Material -> Degauss -> K_Dist -> Q_Dist -> AllenDynesTc
+        nodes = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: None
+                    )
+                )
+            )
+        )
+        for material, degauss_dict in self._nested_data.items():
+            for degauss, k_dist_dict in degauss_dict.items():
+                for k_dist, q_dist_dict in k_dist_dict.items():
+                    for q_dist, node in q_dist_dict.items():
+                        if node:
+                            nodes[material][degauss][k_dist][q_dist] = node
+        
+        # Convert nested defaultdict to regular dict for cleaner output
+        def default_to_regular(d):
+            if isinstance(d, defaultdict):
+                d = {k: default_to_regular(v) for k, v in d.items()}
+            return d
+
+        return default_to_regular(nodes)
+
+    def plot_phonon_bands_vs_degauss(
+        self,
+        kpoints_distance=0.15,
+        qpoints_distance=0.5,
+        *,
+        materials=None,
+        degauss_values=None,
+        exclude_degauss=None,
+        cmap='OrRd',
+        figsize=None,
+        axes=None,
+        ylim=(-2, 24),
+        yticks=(-2, 24),
+        legend=True,
+        **kwargs,
+    ):
+        """Plot EPW phonon bands against degauss for each material.
+
+        The k- and q-point distances select an ``EpwPrepWorkChain`` and its
+        ``epw_bands`` child. Set ``kpoints_distance=None`` to select the
+        smallest available k-point distance for each degauss value.
+        """
+        import matplotlib.pyplot as plt
+
+        all_nodes = self._nested_data
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No EPW band nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
+        excluded_degauss = set(as_list(exclude_degauss))
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                degauss_keys = [
+                    degauss for degauss in material_data
+                    if (allowed_degauss is None or degauss in allowed_degauss)
+                    and degauss not in excluded_degauss
+                ]
+                degauss_keys = sorted(degauss_keys, key=sort_key, reverse=True)
+                colours = plt.get_cmap(cmap)(numpy.linspace(0.2, 0.8, len(degauss_keys)))
+
+                for colour, degauss in zip(colours, degauss_keys):
+                    kpoint_data = material_data[degauss]
+                    if not kpoint_data:
+                        continue
+                    selected_kpoint_distance = (
+                        min(kpoint_data, key=sort_key)
+                        if kpoints_distance is None else kpoints_distance
+                    )
+                    node = kpoint_data.get(selected_kpoint_distance, {}).get(qpoints_distance)
+                    if node is None:
+                        continue
+                    try:
+                        bands_data = node.outputs.ph_band_structure
+                    except (AttributeError, KeyError):
+                        continue
+
+                    plot_bands(
+                        bands_data,
+                        axis=axis,
+                        color=colour,
+                        ticklabel_fontsize=kwargs.get('tick_fontsize', font_size),
+                        label_fontsize=kwargs.get('label_fontsize', font_size),
+                    )
+                    try:
+                        sigma = f'{float(degauss) * 1000:g}'
+                    except (TypeError, ValueError):
+                        sigma = str(degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=colour)
+
+                axis.text(
+                    0.05,
+                    0.9,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
+
+            if yticks is not None:
+                axes[0].set_yticks(yticks)
+                axes[0].set_yticklabels([str(tick) for tick in yticks])
+            axes[0].set_ylabel('Frequency (meV)')
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 1.05, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', 4),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
