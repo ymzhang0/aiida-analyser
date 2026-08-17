@@ -1,11 +1,6 @@
-from aiida import orm
-import logging
 from ..core.base import BaseWorkChainAnalyser
 from .pw_base import PwBaseAnalyser
-from ..core.groupdata import BaseGroupData, render_process_node_details
-from pathlib import Path
-
-from collections import defaultdict
+from ..core.groupdata import DegaussKGroup
 from loguru import logger
 
 class PwRelaxAnalyser(BaseWorkChainAnalyser):
@@ -51,73 +46,11 @@ class PwRelaxAnalyser(BaseWorkChainAnalyser):
 
         return self._get_state_from_subprocesses(subprocesses)
 
-
-def _safe_get_extras(node):
-    extras = node.base.extras.all
-    
-    # Degauss
-    degauss = extras.get('degauss', 'unknown')
-    # K-point distance (can be stored as 'kpoints_distance_scf' or 'kpoints_distance')
-
-    kpoints_distance = extras.get('kpoints_distance', None)
-    return degauss, kpoints_distance
-
-
-class PwRelaxGroup(BaseGroupData):
+class PwRelaxGroup(DegaussKGroup):
 
     analyser_class = PwRelaxAnalyser
-    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
-
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> [Node, ...]
-        self._nested_data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    list
-                )
-            )
-        )
-        self.get_data()
-        self._data = self._flatten_data()
-
-    @staticmethod
-    def check_protocol(node):
-        extras = node.base.extras.all
-        if node.process_label in ['PwRelaxWorkChain']:
-            for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss']:
-                if key not in extras:
-                    logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
-                
-        return True
-
-    def get_data(self):
-        for node in self.iter_group_nodes('PwRelaxWorkChain'):
-            formula = self.get_node_formula(node)
-            try:
-                self.check_protocol(node)
-                degauss, kpoints_distance = _safe_get_extras(node)
-                self._nested_data[formula][degauss][kpoints_distance].append(node)
-            except Exception as e:
-                logging.error(f'Node<{node.pk}> processing failed: {e}')
-
-    def _flatten_data(self):
-
-        flattened_list = []
-        for formula, degauss_data in self._nested_data.items():
-            for degauss, kpoints_data in degauss_data.items():
-                for kpoints_distance, nodes in kpoints_data.items():
-                    for node in nodes:
-                        flattened_list.append({
-                            'PK': node.pk,
-                            'Material': formula,
-                            'degauss': degauss,
-                            'kpoints_distance': kpoints_distance,
-                            'status': self.get_status_string(node),
-                            'node': node,
-                        })
-
-        return flattened_list
+    process_label = 'PwRelaxWorkChain'
+    keep_duplicate_nodes = True
 
     def plot_structure_convergence(self, quantity='celldm1', formula=None, ax=None,
                                    degauss_values=None, kpoints_distances=None,

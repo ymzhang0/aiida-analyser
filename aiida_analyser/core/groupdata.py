@@ -957,3 +957,82 @@ class BaseGroupData:
     def _flatten_data(self):
         """To be implemented by subclasses."""
         raise NotImplementedError
+
+
+class DegaussKGroup(BaseGroupData):
+    """Base collection for convergence scans over degauss and k-point distance.
+
+    The class centralises the persisted metadata contract while leaving output
+    interpretation and plotting to domain subclasses.  Set
+    :attr:`keep_duplicate_nodes` for workflows where reruns are meaningful.
+    """
+
+    process_label = None
+    analyser_class = None
+    keep_duplicate_nodes = False
+    required_extras = ('formula', 'source_db', 'source_id', 'degauss')
+    kpoint_extra_keys = ('kpoints_distance', 'kpoints_distance_scf')
+    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
+
+    def __init__(self, groups=None):
+        super().__init__(groups)
+        if self.process_label is None:
+            raise NotImplementedError(f'{self.__class__.__name__} must set process_label.')
+        leaf = list if self.keep_duplicate_nodes else (lambda: None)
+        self._nested_data = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(leaf))
+        )
+        self._flat_nodes = []
+        self.get_data()
+        self._data = self._flatten_data()
+
+    @classmethod
+    def check_protocol(cls, node):
+        if node.process_label != cls.process_label:
+            raise ValueError(f'Node<{node.pk}> is not a {cls.process_label}.')
+        extras = node.base.extras.all
+        for key in cls.required_extras:
+            if key not in extras:
+                logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
+        if not any(key in extras for key in cls.kpoint_extra_keys):
+            logger.debug(
+                f'None of {cls.kpoint_extra_keys!r} is found in node<{node.pk}>',
+                stacklevel=2,
+            )
+
+    @classmethod
+    def _convergence_extras(cls, node):
+        extras = node.base.extras.all
+        kpoints_distance = next(
+            (extras[key] for key in cls.kpoint_extra_keys if key in extras),
+            'unknown',
+        )
+        return extras, extras.get('degauss', 'unknown'), kpoints_distance
+
+    def get_data(self):
+        for node in self.iter_group_nodes(self.process_label):
+            try:
+                self.check_protocol(node)
+                extras, degauss, kpoints_distance = self._convergence_extras(node)
+                formula = self.get_node_formula(node, default=extras.get('formula', 'N/A'))
+                slot = self._nested_data[formula][degauss][kpoints_distance]
+                if self.keep_duplicate_nodes:
+                    slot.append(node)
+                else:
+                    self._nested_data[formula][degauss][kpoints_distance] = node
+                self._flat_nodes.append((formula, degauss, kpoints_distance, node))
+            except Exception as exception:
+                logger.warning(f'Node<{getattr(node, "pk", "N/A")}> processing failed: {exception}')
+
+    def _flatten_data(self):
+        return [
+            {
+                'PK': node.pk,
+                'Material': formula,
+                'degauss': degauss,
+                'kpoints_distance': kpoints_distance,
+                'status': self.get_status_string(node),
+                'node': node,
+            }
+            for formula, degauss, kpoints_distance, node in self._flat_nodes
+        ]

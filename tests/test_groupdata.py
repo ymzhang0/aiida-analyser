@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from aiida_analyser.core.groupdata import BaseGroupData
+from aiida_analyser.core.groupdata import BaseGroupData, DegaussKGroup
 
 
 class DummyAnalyser:
@@ -233,4 +233,53 @@ def test_get_table_paged_mode_supports_pivoted_tables(monkeypatch):
     assert result == 'pager'
     assert captured['page_size'] == 10
     assert captured['max_height'] == 400
+
+
+class DummyDegaussKGroup(DegaussKGroup):
+    process_label = 'DummyDegaussKWorkChain'
+
+    def __init__(self, nodes, *, keep_duplicates=False):
+        self._nodes = nodes
+        self.keep_duplicate_nodes = keep_duplicates
+        super().__init__()
+
+    def iter_group_nodes(self, process_labels=None):
+        assert process_labels == self.process_label
+        yield from self._nodes
+
+
+def _dummy_degauss_k_node(pk, *, degauss=0.02, kpoints_distance=0.3):
+    return SimpleNamespace(
+        pk=pk,
+        process_label='DummyDegaussKWorkChain',
+        base=SimpleNamespace(extras=SimpleNamespace(all={
+            'formula': 'HfRuSb',
+            'source_db': 'test',
+            'source_id': '1',
+            'degauss': degauss,
+            'kpoints_distance': kpoints_distance,
+        })),
+        inputs=SimpleNamespace(structure=SimpleNamespace(get_formula=lambda: 'HfRuSb')),
+        is_terminated=True,
+        is_finished_ok=True,
+        is_failed=False,
+        is_excepted=False,
+        is_killed=False,
+    )
+
+
+def test_degauss_k_group_builds_flat_and_nested_views():
+    group = DummyDegaussKGroup([_dummy_degauss_k_node(10)])
+
+    assert group.get_table().loc[10, 'kpoints_distance'] == 0.3
+    assert group._nested_data['HfRuSb'][0.02][0.3].pk == 10
+
+
+def test_degauss_k_group_can_keep_reruns():
+    group = DummyDegaussKGroup(
+        [_dummy_degauss_k_node(10), _dummy_degauss_k_node(11)],
+        keep_duplicates=True,
+    )
+
+    assert [node.pk for node in group._nested_data['HfRuSb'][0.02][0.3]] == [10, 11]
     assert captured['dataframe'].index.names == ['Degauss', 'K_Density', 'Q_Density', 'Type']

@@ -1,14 +1,9 @@
-from collections import defaultdict
 from itertools import chain
 import logging
-import warnings
 from loguru import logger
-from ..core.groupdata import BaseGroupData, render_process_node_details
-
-from aiida import orm
+from ..core.groupdata import DegaussKGroup
 
 from ..core.base import BaseWorkChainAnalyser
-from pathlib import Path
 
 class PhBaseAnalyser(BaseWorkChainAnalyser):
     """
@@ -180,57 +175,9 @@ class PhBaseAnalyser(BaseWorkChainAnalyser):
         return message
 
 
-class PhBaseGroup(BaseGroupData):
+class PhBaseGroup(DegaussKGroup):
     analyser_class = PhBaseAnalyser
-    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'status')
-
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        self._nested_data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    lambda: None
-                )
-            )
-        )
-        self._flat_nodes = []
-        self.get_data()
-        self._data = self._flatten_data()
-    
-    def check_protocol(self, node):
-        if node.process_label not in ['PhBaseWorkChain']:
-            raise ValueError(f'Node<{node.pk}> is not a PhBaseWorkChain')
-        extras = node.base.extras.all
-        for key in ['formula', 'source_db', 'source_id', 'kpoints_distance', 'degauss', ]:
-            if key not in extras:
-                logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
-
-    def get_data(self):
-        for node in self.iter_group_nodes('PhBaseWorkChain'):
-            try:
-                extras = node.base.extras.all
-                self.check_protocol(node)
-                formula = self.get_node_formula(node, default=extras.get('formula', 'N/A'))
-                degauss = extras.get('degauss', 'unknown')
-                kpoints_distance = extras.get('kpoints_distance', 'unknown')
-                self._nested_data[formula][degauss][kpoints_distance] = node
-                self._flat_nodes.append((formula, degauss, kpoints_distance, node))
-            except Exception as e:
-                logging.error(f'Node<{node.pk}> processing failed: {e}')
-
-    def _flatten_data(self):
-        flattened_list = []
-        for formula, degauss, kpoints_distance, node in self._flat_nodes:
-            flattened_list.append({
-                'PK': node.pk,
-                'Material': formula,
-                'degauss': degauss,
-                'kpoints_distance': kpoints_distance,
-                'status': self.get_status_string(node),
-                'node': node,
-            })
-
-        return flattened_list
+    process_label = 'PhBaseWorkChain'
 
     def plot_convergence(self):
         import re

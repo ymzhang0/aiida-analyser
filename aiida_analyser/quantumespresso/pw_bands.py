@@ -1,7 +1,6 @@
 from ..core.base import BaseWorkChainAnalyser
-from ..core.groupdata import BaseGroupData
+from ..core.groupdata import DegaussKGroup
 from .pw_base import PwBaseAnalyser
-from collections import defaultdict
 import logging
 from ..visualization.plots import plot_bands
 
@@ -70,42 +69,23 @@ class PwBandsAnalyser(BaseWorkChainAnalyser):
         )
 
 
-class PwBandsGroup(BaseGroupData):
+class PwBandsGroup(DegaussKGroup):
 
     analyser_class = PwBandsAnalyser
+    process_label = 'PwBandsWorkChain'
+    keep_duplicate_nodes = True
+    kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
     dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'with_soc', 'status')
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Node
-        self._nested_data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    list
-                )
-            )
-        )
-        self.get_data()
-        self._data = self._flatten_data()
 
-    def get_data(self):
-        for node in self.iter_group_nodes('PwBandsWorkChain'):
-            try:
-                extras = node.base.extras.all
-                formula = self.get_node_formula(node)
-                degauss = extras.get('degauss', 'unknown')
-                kpoints_distance = extras.get(
-                    'kpoints_distance_scf', extras.get('kpoints_distance', 'unknown')
-                )
-                # Historical PW bands data did not always store ``with_soc``.
-                # Those calculations were treated as non-SOC before the
-                # flattened table schema was introduced, so preserve that
-                # interpretation for filtering and plotting.
-                with_soc = extras.get('with_soc', False)
-
-                logging.info(f"Processing node<{node.pk}> for {formula}")
-                self._nested_data[formula][degauss][kpoints_distance].append((node, with_soc))
-            except Exception as exception:
-                logging.warning(f'Node<{node.pk}> processing failed: {exception}')
+    @staticmethod
+    def _node_and_soc(candidate):
+        """Read SOC from a current node or the legacy ``(node, soc)`` tuple."""
+        if isinstance(candidate, tuple):
+            return candidate
+        try:
+            return candidate, candidate.base.extras.all.get('with_soc', False)
+        except (AttributeError, KeyError):
+            return candidate, False
 
     def _flatten_data(self):
         flattened_list = []
@@ -115,7 +95,8 @@ class PwBandsGroup(BaseGroupData):
         for formula, degausses in self._nested_data.items():
             for degauss, k_dists in degausses.items():
                 for k_dist, nodes in k_dists.items():
-                    for node, with_soc in nodes:
+                    for candidate in nodes:
+                        node, with_soc = self._node_and_soc(candidate)
                         flattened_list.append({
                             'PK': node.pk,
                             'Material': formula,
@@ -163,7 +144,8 @@ class PwBandsGroup(BaseGroupData):
                     if allowed_kpoints is not None and kpoints_distance not in allowed_kpoints:
                         continue
                     nodes_by_soc = {}
-                    for node, soc_setting in self._nested_data[material][degauss][kpoints_distance]:
+                    for candidate in self._nested_data[material][degauss][kpoints_distance]:
+                        node, soc_setting = self._node_and_soc(candidate)
                         if not getattr(node, 'is_finished_ok', False):
                             continue
                         # Groups constructed with the previous table schema
