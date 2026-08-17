@@ -14,6 +14,7 @@ from collections import deque
 import itertools
 
 from .logging import get_console, get_logger
+from .analyser_registry import resolve_analyser
 
 
 logger = get_logger(__name__)
@@ -617,8 +618,17 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         self,
         destpath: Path,
         ):
-        """Copy the tree of the workchain to the destination directory."""
-        self.process_tree.copy_tree(destpath)
+        """Copy only direct child trees with registered specialised analysers."""
+        return self._copy_tree_for_direct_children(destpath, self.resolve_child_analyser)
+
+    @staticmethod
+    def resolve_child_analyser(_child_name: str, child: ProcessTree):
+        """Resolve a direct child's analyser from its persisted process metadata.
+
+        Subclasses may override this for the rare cases where a call-link label
+        has domain meaning.  An unregistered child is intentionally skipped.
+        """
+        return resolve_analyser(child.node)
 
     def _copy_tree_for_direct_children(
         self,
@@ -628,8 +638,9 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """
         Copy the tree by delegating each direct child to its own analyser.
 
-        If ``analyser_resolver`` returns ``None`` for a child, fall back to the
-        legacy tree copy for that direct subtree.
+        If ``analyser_resolver`` returns ``None`` for a child, skip it.  This
+        prevents an unknown workflow from being recursively treated as a known
+        process tree.
         """
         with _copy_tree_logging_scope(self.node, destpath, list(self.process_tree.children.keys())):
             destpath.mkdir(parents=True, exist_ok=True)
@@ -638,7 +649,11 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                 analyser_class = analyser_resolver(child_name, child_tree)
 
                 if analyser_class is None:
-                    ProcessTree._copy_tree(child_tree, destpath)
+                    logger.debug(
+                        'Skipping unregistered child %s of %s during extraction.',
+                        _format_node_ref(child_tree.node),
+                        self.node_ref,
+                    )
                     continue
 
                 analyser = analyser_class(child_tree.node)
@@ -652,8 +667,8 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """
         Collect calcjob remote paths by delegating each direct child to its own analyser.
 
-        If ``analyser_resolver`` returns ``None`` for a child, fall back to the
-        legacy recursive ProcessTree traversal for that subtree.
+        If ``analyser_resolver`` returns ``None`` for a child, skip it.  This
+        keeps remote-path discovery consistent with extraction.
         """
         flat_paths = {}
 
@@ -661,9 +676,13 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
             analyser_class = analyser_resolver(child_name, child_tree)
 
             if analyser_class is None:
-                child_paths = self._get_calcjob_paths(child_tree)
-            else:
-                child_paths = analyser_class(child_tree.node).get_calcjob_paths()
+                logger.debug(
+                    'Skipping unregistered child %s of %s during path discovery.',
+                    _format_node_ref(child_tree.node),
+                    self.node_ref,
+                )
+                continue
+            child_paths = analyser_class(child_tree.node).get_calcjob_paths()
 
             for relative_path, remote_path in child_paths.items():
                 full_label = self._join_relative_path(child_name, relative_path)

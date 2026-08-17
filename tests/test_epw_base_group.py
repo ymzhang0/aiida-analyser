@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import pytest
 
-from aiida_analyser.epw import epw_base
+from aiida_analyser.epw import convergence
 from aiida_analyser.epw.epw_base import EpwBaseGroup
 
 
@@ -24,7 +24,7 @@ def test_plot_phonon_bands_uses_child_output_and_matches_numeric_extras(monkeypa
         plotted.append(bands_data)
         axis.plot([0, 1], [0, 1])
 
-    monkeypatch.setattr(epw_base, 'plot_bands', fake_plot_bands)
+    monkeypatch.setattr(convergence, 'plot_bands', fake_plot_bands)
 
     fig, _ = group.plot_phonon_bands_vs_degauss(
         kpoints_distance=0.3,

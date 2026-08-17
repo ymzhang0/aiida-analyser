@@ -12,7 +12,7 @@ from ..wannier.wannier90 import Wannier90Analyser
 from ..quantumespresso.ph_base import PhBaseAnalyser
 from ..quantumespresso.pw_base import PwBaseAnalyser
 from .epw_base import EpwBaseAnalyser
-from ..core.groupdata import BaseGroupData, render_process_node_details
+from .convergence import EpwDegaussKQGroup, _safe_get_extras
 from pathlib import Path
 from loguru import logger
 
@@ -24,60 +24,10 @@ def _get_a2f_arraydata(workchain: orm.WorkChainNode):
         return workchain.outputs.a2f
     return None
 
-def _safe_get_extras(node):
-    extras = node.base.extras.all
-    
-    # Degauss
-    degauss = extras.get('degauss', 'unknown')
-    
-    # K-point distance (can be stored as 'kpoints_distance_scf' or 'kpoints_distance')
-    kpoints_distance = extras.get('kpoints_distance_scf', None)
-    if kpoints_distance is None:
-        kpoints_distance = extras.get('kpoints_distance', 'unknown')
-        
-    # Q-point distance
-    qpoints_distance = extras.get('qpoints_distance', 'unknown')
-    
-    return degauss, kpoints_distance, qpoints_distance
-
 class EpwPrepAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwPrepWorkChain.
     """
-
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct child to its own analyser."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'PhBaseWorkChain':
-                return PhBaseAnalyser
-            if process_label == 'EpwBaseWorkChain':
-                return EpwBaseAnalyser
-            if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
-                return Wannier90Analyser
-            return None
-
-        return self._copy_tree_for_direct_children(destpath, _resolve)
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct child to its analyser."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'PhBaseWorkChain':
-                return PhBaseAnalyser
-            if process_label == 'EpwBaseWorkChain':
-                return EpwBaseAnalyser
-            if process_label in {'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain'}:
-                return Wannier90Analyser
-            return None
-
-        return self._get_calcjob_paths_for_direct_children(_resolve)
 
     @property
     def w90_intp(self):
@@ -537,112 +487,14 @@ class EpwPrepConvergenceData:
                 dump_node(node, relative_path)
                 progress_bar.advance(task)
 
-class EpwPrepGroup(BaseGroupData):
+class EpwPrepGroup(EpwDegaussKQGroup):
 
     analyser_class = EpwPrepAnalyser
-    dataframe_columns = (
-        'Material',
-        'degauss',
-        'kpoints_distance_scf',
-        'qpoints_distance',
-        'status',
-        'structure_PK',
-        'structure_incoming',
-        'node'
-    )
+    process_label = 'EpwPrepWorkChain'
 
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Q_Dist -> Node
-        self._nested_data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    lambda: defaultdict(
-                        lambda: None
-                    )
-                )
-            )
-        )
-        self._flat_nodes = []
-        self.get_data()
-        self._data = self._flatten_data()
-
-    @staticmethod
-    def check_protocol(node):
-        extras = node.base.extras.all
-        if node.process_label in ['EpwPrepWorkChain']:
-            for key in ['formula', 'source_db', 'source_id', 'kpoints_distance_scf', 'degauss', 'qpoints_distance']:
-                if key not in extras:
-                    logger.debug(f'Extra {key} is not found in node<{node.pk}>', stacklevel=2)
-                
-        return True
-
-    def get_data(self):
-        for node in self.iter_group_nodes('EpwPrepWorkChain'):
-            formula = self.get_node_formula(node)
-            try:
-                self.check_protocol(node)
-                degauss, kpoints_distance, qpoints_distance = _safe_get_extras(node)
-                self._nested_data[formula][degauss][kpoints_distance][qpoints_distance] = node
-                self._flat_nodes.append((formula, degauss, kpoints_distance, qpoints_distance, node))
-            except Exception as e:
-                logging.error(f'Node<{node.pk}> processing failed: {e}')
-
-    @staticmethod
-    def _get_structure_provenance(node):
-        """Return the input structure PK and its incoming provenance links.
-
-        A structure can have more than one incoming link.  Each source is
-        rendered on a separate line so the value remains readable in regular,
-        paged, and HTML dataframe views.
-        """
-        try:
-            structure = node.inputs.structure
-        except Exception:
-            return 'N/A', 'N/A'
-
-        structure_pk = getattr(structure, 'pk', 'N/A')
-        try:
-            incoming_links = structure.base.links.get_incoming().all()
-        except Exception:
-            return structure_pk, 'N/A'
-
-        sources = []
-        for link in incoming_links:
-            source_node = getattr(link, 'node', None)
-            if source_node is None:
-                continue
-            source_type = (
-                getattr(source_node, 'process_label', None)
-                or getattr(source_node, 'node_type', None)
-                or source_node.__class__.__name__
-            )
-            source = f'{source_type}<{getattr(source_node, "pk", "N/A")}>'
-            link_label = getattr(link, 'link_label', None)
-            if link_label:
-                source += f' [{link_label}]'
-            if source not in sources:
-                sources.append(source)
-
-        return structure_pk, '\n'.join(sources) if sources else 'N/A'
-
-    def _flatten_data(self):
-        flattened_list = []
-        for formula, degauss, kpoints_distance_scf, qpoints_distance, node in self._flat_nodes:
-            structure_pk, structure_incoming = self._get_structure_provenance(node)
-            flattened_list.append({
-                'PK': node.pk,
-                'Material': formula,
-                'degauss': degauss,
-                'kpoints_distance_scf': kpoints_distance_scf,
-                'qpoints_distance': qpoints_distance,
-                'status': self.get_status_string(node),
-                'structure_PK': structure_pk,
-                'structure_incoming': structure_incoming,
-                'node': node,
-            })
-
-        return flattened_list
+    def _band_node_for_workchain(self, node):
+        """The prep workflow stores interpolated bands in ``epw_bands``."""
+        return EpwPrepAnalyser(node).epw_bands
 
     def check_structure(self, mode='celldm', quantity='celldm1', formula=None,
                         ax=None, degauss_values=None, kpoints_distances=None,
@@ -775,7 +627,7 @@ class EpwPrepGroup(BaseGroupData):
 
     checkstructure = check_structure
 
-    def show_interactive(self):
+    def _legacy_show_interactive(self):
         """
         Displays an interactive Jupyter table of EpwPrepWorkChain nodes.
         Clicking on a row triggers a Python callback to highlight that row
@@ -891,7 +743,7 @@ class EpwPrepGroup(BaseGroupData):
             
         display(main_layout)
 
-    def get_epw_bands_nodes(self):
+    def _legacy_get_epw_bands_nodes(self):
         """
         Get epw bands node.
         """
@@ -924,7 +776,7 @@ class EpwPrepGroup(BaseGroupData):
 
         return default_to_regular(nodes)
 
-    def plot_phonon_bands_vs_degauss(
+    def _legacy_plot_phonon_bands_vs_degauss(
         self,
         kpoints_distance=0.15,
         qpoints_distance=0.5,
