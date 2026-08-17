@@ -83,6 +83,11 @@ _register(
     process_labels=('PwCalculation',),
 )
 _register(
+    'aiida_analyser.quantumespresso.dos_calculation:DosAnalyser',
+    process_types=('aiida.calculations:quantumespresso.dos',),
+    process_labels=('DosCalculation',),
+)
+_register(
     'aiida_analyser.quantumespresso.pw_base:PwBaseAnalyser',
     process_types=('aiida.workflows:quantumespresso.pw.base',),
     process_labels=('PwBaseWorkChain',),
@@ -94,6 +99,10 @@ _register(
 _register(
     'aiida_analyser.quantumespresso.pw_bands:PwBandsAnalyser',
     process_labels=('PwBandsWorkChain',),
+)
+_register(
+    'aiida_analyser.quantumespresso.pdos:PdosAnalyser',
+    process_labels=('PdosWorkChain',),
 )
 _register(
     'aiida_analyser.quantumespresso.ph_calculation:PhAnalyser',

@@ -543,8 +543,8 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         return flat_paths
 
     def get_calcjob_paths(self):
-        """Get the remote paths of the all CalcJobNodes in the process tree."""
-        return self._get_calcjob_paths(self.process_tree)
+        """Get paths only from direct children with registered analysers."""
+        return self._get_calcjob_paths_for_direct_children(self.resolve_child_analyser)
 
     @staticmethod
     def _join_relative_path(child_name: str, relative_path: str) -> str:

@@ -6,19 +6,6 @@ class LayerRelaxAnalyser(BaseWorkChainAnalyser):
     Analyser for the LayerRelaxWorkChain.
     """
 
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct PwRelaxWorkChain child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: PwRelaxAnalyser if child.node.process_label == 'PwRelaxWorkChain' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct PwRelaxWorkChain child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PwRelaxAnalyser if child.node.process_label == 'PwRelaxWorkChain' else None,
-        )
-
     def get_state(self):
         """Get the state of the workchain."""
         subprocesses = [

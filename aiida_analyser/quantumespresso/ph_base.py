@@ -8,26 +8,12 @@ from ..core.groupdata import BaseGroupData, render_process_node_details
 from aiida import orm
 
 from ..core.base import BaseWorkChainAnalyser
-from .ph_calculation import PhAnalyser
 from pathlib import Path
 
 class PhBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
     """
-
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct PhCalculation child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: PhAnalyser if child.node.process_label == 'PhCalculation' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct PhCalculation child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PhAnalyser if child.node.process_label == 'PhCalculation' else None,
-        )
 
     def merge_output_parameters(self):
         """Merge the output parameters of the workchain."""

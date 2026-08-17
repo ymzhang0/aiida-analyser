@@ -16,39 +16,6 @@ class PdosAnalyser(BaseWorkChainAnalyser):
     Analyser for the PdosWorkChain.
     """
 
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating direct PwBase children and copying direct calcjobs locally."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'DosCalculation':
-                return DosAnalyser
-            if process_label == 'ProjwfcCalculation':
-                return ProjwfcAnalyser
-            return None
-
-        return self._copy_tree_for_direct_children(
-            destpath,
-            _resolve,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct child to its analyser."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'DosCalculation':
-                return DosAnalyser
-            if process_label == 'ProjwfcCalculation':
-                return ProjwfcAnalyser
-            return None
-
-        return self._get_calcjob_paths_for_direct_children(_resolve)
-
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()

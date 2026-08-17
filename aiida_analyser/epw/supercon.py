@@ -62,19 +62,6 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
     Analyser for the EpwSuperConWorkChain.
     """
 
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct EpwBaseWorkChain child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: EpwBaseAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct EpwBaseWorkChain child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: EpwBaseAnalyser if child.node.process_label == 'EpwBaseWorkChain' else None,
-        )
-
 
     @property
     def structure(self):

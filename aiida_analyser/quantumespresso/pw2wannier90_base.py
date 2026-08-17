@@ -1,26 +1,12 @@
 import logging
 
 from ..core.base import BaseWorkChainAnalyser
-from .pw2wannier90_calculation import Pw2Wannier90Analyser
 
 class Pw2Wannier90BaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the Pw2Wannier90BaseWorkChain.
     This analyser handles a single Pw2Wannier90 base workchain.
     """
-
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct Pw2wannier90Calculation child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: Pw2Wannier90Analyser if child.node.process_label == 'Pw2wannier90Calculation' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct Pw2wannier90Calculation child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: Pw2Wannier90Analyser if child.node.process_label == 'Pw2wannier90Calculation' else None,
-        )
 
     def get_source(self):
         """Get the source of the workchain."""

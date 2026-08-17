@@ -51,19 +51,6 @@ class PwRelaxAnalyser(BaseWorkChainAnalyser):
 
         return self._get_state_from_subprocesses(subprocesses)
 
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct PwBaseWorkChain child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct PwBaseWorkChain child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PwBaseAnalyser if child.node.process_label == 'PwBaseWorkChain' else None,
-        )
-
 
 def _safe_get_extras(node):
     extras = node.base.extras.all

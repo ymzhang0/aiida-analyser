@@ -3,19 +3,11 @@ import numpy
 from ..core.base import BaseWorkChainAnalyser
 from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
-from .thermo_pw_calculation import Thermo_pwAnalyser
 
 class Thermo_pwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the Thermo_pwBaseWorkChain.
     """
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct calcjob to its analyser."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: Thermo_pwAnalyser if child.node.process_label == 'Thermo_pwCalculation' else None,
-        )
-
     def get_source(self):
         """Get the source of the workchain."""
         source = super().get_source()

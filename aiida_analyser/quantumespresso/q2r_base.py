@@ -1,24 +1,10 @@
 from aiida import orm
 from ..core.base import BaseWorkChainAnalyser
-from .q2r_calculation import Q2rAnalyser
 
 class Q2rBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the Q2rBaseWorkChain.
     """
-
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct Q2rCalculation child."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: Q2rAnalyser if child.node.process_label == 'Q2rCalculation' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct Q2rCalculation child."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: Q2rAnalyser if child.node.process_label == 'Q2rCalculation' else None,
-        )
 
     def get_source(self):
         """Get the source of the workchain."""

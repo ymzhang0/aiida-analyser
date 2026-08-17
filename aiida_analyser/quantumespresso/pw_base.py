@@ -1,24 +1,10 @@
 from ..core.base import BaseWorkChainAnalyser
-from .pw_calculation import PwAnalyser
 
 
 class PwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the PwBaseWorkChain.
     """
-
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct calcjob to its analyser."""
-        return self._copy_tree_for_direct_children(
-            destpath,
-            lambda _, child: PwAnalyser if child.node.process_label == 'PwCalculation' else None,
-        )
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct calcjob to its analyser."""
-        return self._get_calcjob_paths_for_direct_children(
-            lambda _, child: PwAnalyser if child.node.process_label == 'PwCalculation' else None,
-        )
 
     def get_source(self):
         """Get the source of the workchain."""
