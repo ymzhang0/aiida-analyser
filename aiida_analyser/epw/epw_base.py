@@ -10,6 +10,9 @@ from aiida_analyser.visualization._axes import axis_limits as _axis_limits
 from aiida_analyser.visualization._axes import plot_axes as _plot_axes
 import numpy
 
+
+logger = logging.getLogger(__name__)
+
 def _safe_get_extras(node):
     extras = node.base.extras.all
     
@@ -25,7 +28,67 @@ def _safe_get_extras(node):
     qpoints_distance = extras.get('qpoints_distance', 'unknown')
     
     return degauss, kpoints_distance, qpoints_distance
-    
+
+
+def _matching_key(mapping, requested):
+    """Return a key from ``mapping`` that matches a user-supplied value.
+
+    AiiDA extras can be persisted as either strings or floats.  Matching only
+    by dictionary lookup makes e.g. ``0.3`` fail to select ``'0.3'`` (or a
+    float carrying a tiny serialisation error), even though the table displays
+    the same value.
+    """
+    for key in mapping:
+        if key == requested:
+            return key
+        try:
+            if numpy.isclose(float(key), float(requested), rtol=0, atol=1e-10):
+                return key
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _output_by_label(outputs, label):
+    """Read an AiiDA output namespace without assuming its concrete type."""
+    try:
+        return getattr(outputs, label)
+    except (AttributeError, KeyError):
+        pass
+    try:
+        return outputs[label]
+    except (KeyError, TypeError):
+        return None
+
+
+def _phonon_bands_output(node):
+    """Find a phonon-band output on an EPW workchain or one of its children."""
+    seen = set()
+    pending = [node]
+    while pending:
+        candidate = pending.pop(0)
+        identifier = getattr(candidate, 'uuid', None) or getattr(candidate, 'pk', None) or id(candidate)
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+
+        outputs = getattr(candidate, 'outputs', None)
+        if outputs is not None:
+            bands = _output_by_label(outputs, 'ph_band_structure')
+            if bands is None:
+                output_bands = _output_by_label(outputs, 'bands')
+                if output_bands is not None:
+                    bands = _output_by_label(output_bands, 'ph_band_structure')
+            if bands is not None:
+                return bands
+
+        try:
+            pending.extend(candidate.called)
+        except (AttributeError, TypeError):
+            continue
+    return None
+
+
 class EpwBaseAnalyser(BaseWorkChainAnalyser):
     """
     Analyser for the EpwBaseWorkChain.
@@ -409,14 +472,24 @@ class EpwBaseGroup(BaseGroupData):
                         continue
                     selected_kpoint_distance = (
                         min(kpoint_data, key=sort_key)
-                        if kpoints_distance is None else kpoints_distance
+                        if kpoints_distance is None
+                        else _matching_key(kpoint_data, kpoints_distance)
                     )
-                    node = kpoint_data.get(selected_kpoint_distance, {}).get(qpoints_distance)
+                    if selected_kpoint_distance is None:
+                        continue
+                    qpoint_data = kpoint_data[selected_kpoint_distance]
+                    selected_qpoint_distance = _matching_key(qpoint_data, qpoints_distance)
+                    if selected_qpoint_distance is None:
+                        continue
+                    node = qpoint_data[selected_qpoint_distance]
                     if node is None:
                         continue
-                    try:
-                        bands_data = node.outputs.ph_band_structure
-                    except (AttributeError, KeyError):
+                    bands_data = _phonon_bands_output(node)
+                    if bands_data is None:
+                        logger.warning(
+                            'No ph_band_structure output found for EpwBaseWorkChain<%s> or its children.',
+                            getattr(node, 'pk', 'unknown'),
+                        )
                         continue
 
                     plot_bands(
@@ -459,5 +532,19 @@ class EpwBaseGroup(BaseGroupData):
                     framealpha=1.0,
                     frameon=True,
                 )
+
+        if not any(axis.lines for axis in axes):
+            available = [
+                (material, degauss, kpoint, qpoint)
+                for material, degauss_data in all_nodes.items()
+                for degauss, kpoint_data in degauss_data.items()
+                for kpoint, qpoint_data in kpoint_data.items()
+                for qpoint in qpoint_data
+            ]
+            raise ValueError(
+                'No phonon bands could be plotted for '
+                f'kpoints_distance={kpoints_distance!r}, qpoints_distance={qpoints_distance!r}. '
+                f'Available (material, degauss, kpoints_distance, qpoints_distance): {available!r}'
+            )
 
         return fig, axes
