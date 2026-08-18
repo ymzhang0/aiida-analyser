@@ -99,6 +99,10 @@ class PdosAnalyser(BaseWorkChainAnalyser):
 
 
 class PdosGroup(BaseGroupData):
+    analyser_class = PdosAnalyser
+    process_label = 'PdosWorkChain'    
+    kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
+    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'with_soc', 'status')
 
     def __init__(self, groups=None):
         super().__init__(groups)
