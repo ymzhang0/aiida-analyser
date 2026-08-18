@@ -306,3 +306,131 @@ class EpwDegaussKQGroup(DegaussKQGroup):
                 f'Available (material, degauss, kpoints_distance, qpoints_distance): {available!r}'
             )
         return fig, axes
+
+    def plot_phonon_bands_vs_kpoints(
+        self, degauss=0.02, qpoints_distance=0.5, *, materials=None,
+        kpoints_values=None, exclude_kpoints=None, cmap='OrRd', figsize=None,
+        axes=None, ylim=(-2, 24), yticks=(-2, 24), legend=True, **kwargs,
+    ):
+        """Plot EPW phonon bands against k-point distance for each material.
+
+        The degauss and q-point distances select a convergence slice, while
+        every available k-point distance in that slice is overlaid.  Use
+        ``kpoints_values`` and ``exclude_kpoints`` to select a subset.
+        """
+        import matplotlib.pyplot as plt
+
+        all_nodes = self.get_epw_bands_nodes()
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No EPW band nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        def matches_any(value, requested_values):
+            return any(_matching_key({value: None}, requested) is not None for requested in requested_values)
+
+        allowed_kpoints = as_list(kpoints_values) if kpoints_values is not None else None
+        excluded_kpoints = as_list(exclude_kpoints)
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        plotted = 0
+        with plt.rc_context(rc_params):
+            fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                selected_degauss = _matching_key(material_data, degauss)
+                if selected_degauss is None:
+                    continue
+                kpoint_data = material_data[selected_degauss]
+                kpoint_keys = [
+                    kpoint for kpoint in kpoint_data
+                    if (allowed_kpoints is None or matches_any(kpoint, allowed_kpoints))
+                    and not matches_any(kpoint, excluded_kpoints)
+                ]
+                kpoint_keys = sorted(kpoint_keys, key=sort_key, reverse=True)
+                colours = plt.get_cmap(cmap)(numpy.linspace(0.2, 0.8, len(kpoint_keys)))
+                for colour, kpoint in zip(colours, kpoint_keys):
+                    qpoint_data = kpoint_data[kpoint]
+                    selected_qpoint = _matching_key(qpoint_data, qpoints_distance)
+                    if selected_qpoint is None:
+                        continue
+                    node = qpoint_data[selected_qpoint]
+                    bands_data = phonon_bands_output(node)
+                    if bands_data is None:
+                        logger.warning('No ph_band_structure output found for node<%s>.', getattr(node, 'pk', 'N/A'))
+                        continue
+                    plot_bands(
+                        bands_data, axis=axis, color=colour,
+                        ticklabel_fontsize=kwargs.get('tick_fontsize', font_size),
+                        label_fontsize=kwargs.get('label_fontsize', font_size),
+                    )
+                    try:
+                        distance = f'{float(kpoint):g}'
+                    except (TypeError, ValueError):
+                        distance = str(kpoint)
+                    axis.plot([], [], label=rf'$d_k$={distance} $\AA^{{-1}}$', color=colour)
+                    plotted += 1
+                axis.text(0.05, 0.9, material.split('-')[-1], transform=axis.transAxes,
+                          bbox={'facecolor': 'white', 'edgecolor': 'none'})
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
+            if yticks is not None:
+                axes[0].set_yticks(yticks)
+                axes[0].set_yticklabels([str(tick) for tick in yticks])
+            axes[0].set_ylabel('Frequency (meV)')
+            if legend and plotted:
+                axes[0].legend(loc='upper center', facecolor='white', bbox_to_anchor=(1.35, 1.05, 0.6, 0.2),
+                               borderaxespad=0, ncol=kwargs.get('legend_ncol', 4), framealpha=1.0, frameon=True)
+
+        if not plotted:
+            available = [
+                (material, degauss_value, kpoint, qpoint)
+                for material, degauss_data in all_nodes.items()
+                for degauss_value, kpoint_data in degauss_data.items()
+                for kpoint, qpoint_data in kpoint_data.items()
+                for qpoint in qpoint_data
+            ]
+            raise ValueError(
+                'No phonon bands could be plotted for '
+                f'degauss={degauss!r}, qpoints_distance={qpoints_distance!r}. '
+                f'Available (material, degauss, kpoints_distance, qpoints_distance): {available!r}'
+            )
+        return fig, axes
