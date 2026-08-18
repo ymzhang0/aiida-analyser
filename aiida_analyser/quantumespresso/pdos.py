@@ -1,15 +1,13 @@
-from aiida import orm
-from pathlib import Path
-from ..core.base import BaseWorkChainAnalyser
-from ..core.groupdata import BaseGroupData
-from .dos_calculation import DosAnalyser
-from .pw_base import PwBaseAnalyser
-from .projwfc_calculation import ProjwfcAnalyser
-from collections import defaultdict
 import logging
-import itertools
+
+from ..core.base import BaseWorkChainAnalyser
+from ..core.groupdata import DegaussKGroup
+from .dos_calculation import DosAnalyser
+from .projwfc_calculation import ProjwfcAnalyser
+from .pw_base import PwBaseAnalyser
 
 logger = logging.getLogger(__name__)
+
 
 class PdosAnalyser(BaseWorkChainAnalyser):
     """
@@ -93,168 +91,183 @@ class PdosAnalyser(BaseWorkChainAnalyser):
         ax.set_yticklabels([-2, 0, 2], fontsize=ticklabel_fontsize)
         ax.set_ylabel(r"Energy (eV)", fontsize=label_fontsize)
 
-
         if axis is None:
             return plt
 
 
-class PdosGroup(BaseGroupData):
+class PdosGroup(DegaussKGroup):
+    """Collection of PDOS work chains across degauss and k-point scans."""
+
     analyser_class = PdosAnalyser
-    process_label = 'PdosWorkChain'    
+    process_label = 'PdosWorkChain'
+    keep_duplicate_nodes = True
     kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
-    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'with_soc', 'status')
+    dataframe_columns = (
+        'Material', 'degauss', 'kpoints_distance', 'with_soc', 'with_hubbard_u', 'status',
+    )
 
-    def __init__(self, groups=None):
-        super().__init__(groups)
-        # Data structure: Material -> Degauss -> K_Dist -> Node
-        self._data = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    lambda: None
-                )
-            )
-        )
-        self.get_data()
+    @staticmethod
+    def _setting_value(value):
+        """Normalise the labels stored by older PdosGroup instances."""
+        if value in ('with SOC', 'with Hubbard U'):
+            return True
+        if value in ('without SOC', 'without Hubbard U', 'SOC unknown', 'Hubbard U unknown', 'unknown'):
+            return False
+        return value
 
-    @property
-    def groups(self):
-        return self._groups
-
-    @property
-    def data(self):
-        return self._data
-
-    def get_data(self):
-        for grpname in self._groups:
-            group = orm.load_group(grpname)
-            for node in group.nodes:
-                try:
-                    process_label = node.process_label
-                    extras = node.base.extras.all
-                    formula = extras.get('formula')
-                    degauss = extras.get('degauss')
-                    kpoints_distance = extras.get('kpoints_distance_scf')
-                    try:
-                        with_soc = "with SOC" if extras.get('with_soc') else "without SOC"
-                    except KeyError:
-                        with_soc = 'SOC unknown'
-                    try:
-                        with_hubbard_u = "with Hubbard U" if extras.get('with_hubbard_u') else "without Hubbard U"
-                    except KeyError:
-                        with_hubbard_u = 'Hubbard U unknown'
-                    logging.info(f"Processing node<{node.pk}> for {formula}")
-
-
-                    # Structure: StructureType -> Formula -> Plane -> Process -> Layers -> K_Dist -> Node
-                    if process_label in ['PdosWorkChain']:
-                        if self._data.get(formula, {}).get(degauss, {}).get(kpoints_distance) is None:
-                            self._data[formula][degauss][kpoints_distance] = [(node, with_soc, with_hubbard_u)]
-                        else:
-                            self._data[formula][degauss][kpoints_distance].append((node, with_soc, with_hubbard_u))
-
-                except Exception as e:
-                    logging.warning(f'Node<{node.pk}> processing failed: {e}')
-                    continue
+    @classmethod
+    def _node_settings(cls, candidate):
+        """Read SOC and Hubbard-U from a node or the legacy tuple format."""
+        if isinstance(candidate, tuple):
+            node, with_soc, with_hubbard_u = candidate
+            return node, cls._setting_value(with_soc), cls._setting_value(with_hubbard_u)
+        try:
+            extras = candidate.base.extras.all
+            return candidate, extras.get('with_soc', False), extras.get('with_hubbard_u', False)
+        except (AttributeError, KeyError):
+            return candidate, False, False
 
     def _flatten_data(self):
         flattened_list = []
-
-        # Iterate over the nested dictionary:
-        # Formula -> Degauss -> K_Dist -> Process -> Node
-        for formula, degausses in self._data.items():
+        for formula, degausses in self._nested_data.items():
             for degauss, k_dists in degausses.items():
                 for k_dist, nodes in k_dists.items():
-                    for node, with_soc, with_hubbard_u in nodes:
+                    for candidate in nodes:
+                        node, with_soc, with_hubbard_u = self._node_settings(candidate)
                         flattened_list.append({
+                            'PK': node.pk,
                             'Material': formula,
-                            'Degauss': degauss,
-                            'K_Dist': k_dist,
-                            'With SOC': with_soc,
-                            'With Hubbard U': with_hubbard_u,
-                            'Status': self.get_status_string(node) + f' {node.pk}' if node else 'N/A',
+                            'degauss': degauss,
+                            'kpoints_distance': k_dist,
+                            'with_soc': with_soc,
+                            'with_hubbard_u': with_hubbard_u,
+                            'status': self.get_status_string(node),
+                            'node': node,
                         })
         return flattened_list
 
+    @staticmethod
+    def _selection(values):
+        """Normalise a scalar or iterable plot filter to a set."""
+        if values is None:
+            return None
+        if isinstance(values, (str, bytes)) or not hasattr(values, '__iter__'):
+            return {values}
+        return set(values)
 
-    def plot_pdos(self, axs=None, formula=None, kpoints_distances=None, degausses=None, with_soc=None, destpath=None, **kwargs):
-        """Plot GSFE curves for different k-points on a single axis."""
+    @staticmethod
+    def _setting_label(setting, name):
+        """Return a concise display label for SOC or Hubbard-U."""
+        if setting is True:
+            return f'with {name}'
+        if setting is False:
+            return f'without {name}'
+        return f'{name} unknown'
+
+    def _iter_pdos_comparisons(self, *, formula=None, degausses=None,
+                               kpoints_distances=None, with_soc=None, with_hubbard_u=None):
+        """Yield the latest successful PDOS node for each parameter combination."""
+        formulas = self._selection(formula)
+        allowed_degauss = self._selection(degausses)
+        allowed_kpoints = self._selection(kpoints_distances)
+        allowed_soc = self._selection(with_soc)
+        allowed_hubbard_u = self._selection(with_hubbard_u)
+
+        for material in sorted(self._nested_data, key=str):
+            if formulas is not None and material not in formulas:
+                continue
+            for degauss in sorted(self._nested_data[material], key=str):
+                if allowed_degauss is not None and degauss not in allowed_degauss:
+                    continue
+                for kpoints_distance in sorted(self._nested_data[material][degauss], key=str):
+                    if allowed_kpoints is not None and kpoints_distance not in allowed_kpoints:
+                        continue
+                    nodes_by_settings = {}
+                    for candidate in self._nested_data[material][degauss][kpoints_distance]:
+                        node, soc_setting, hubbard_u_setting = self._node_settings(candidate)
+                        if not getattr(node, 'is_finished_ok', False):
+                            continue
+                        if allowed_soc is not None and soc_setting not in allowed_soc:
+                            continue
+                        if allowed_hubbard_u is not None and hubbard_u_setting not in allowed_hubbard_u:
+                            continue
+                        settings = (soc_setting, hubbard_u_setting)
+                        previous = nodes_by_settings.get(settings)
+                        if previous is None or getattr(node, 'pk', -1) > getattr(previous, 'pk', -1):
+                            nodes_by_settings[settings] = node
+                    for (soc_setting, hubbard_u_setting), node in sorted(
+                        nodes_by_settings.items(), key=lambda item: str(item[0])
+                    ):
+                        yield material, degauss, kpoints_distance, soc_setting, hubbard_u_setting, node
+
+    def plot_pdos(self, axs=None, formula=None, kpoints_distances=None,
+                  degausses=None, with_soc=None, with_hubbard_u=None, destpath=None, **kwargs):
+        """Compare finished PDOS results for the selected convergence settings."""
         import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
+        import numpy as np
 
         legend_fontsize = kwargs.pop('legend_fontsize', 12)
         title_fontsize = kwargs.pop('title_fontsize', 16)
-        legend_bbox_to_anchor = kwargs.pop('legend_bbox_to_anchor', (1.0, 1.0, 0.6, 0.2))
-        structures = sorted([s for s in self.data.keys() if s is not None], key=lambda x: str(x))
-
+        legend = kwargs.pop('legend', True)
+        linewidth = kwargs.pop('lw', 1.5)
+        colour_cycle = kwargs.pop('colours', plt.rcParams['axes.prop_cycle'].by_key()['color'])
+        if not colour_cycle:
+            raise ValueError('colours must contain at least one matplotlib colour.')
+        comparisons = list(self._iter_pdos_comparisons(
+            formula=formula,
+            degausses=degausses,
+            kpoints_distances=kpoints_distances,
+            with_soc=with_soc,
+            with_hubbard_u=with_hubbard_u,
+        ))
+        structures = sorted({material for material, *_ in comparisons}, key=str)
         if not structures:
-            return None
-
-        n_cols = len(structures)
+            selected = f' for formula {formula!r}' if formula is not None else ''
+            raise ValueError(
+                f'No finished PdosWorkChain nodes match the requested comparison{selected}.'
+            )
 
         created_axes = axs is None
         if axs is None:
-            fig, axs = plt.subplots(1, n_cols, figsize=(2 * n_cols, 4), squeeze=False)
+            _, axs = plt.subplots(1, len(structures), figsize=(6 * len(structures), 5), squeeze=False)
+        flat_axes = list(np.asarray(axs, dtype=object).flat)
+        if len(flat_axes) < len(structures):
+            raise ValueError(f'Expected at least {len(structures)} axes, received {len(flat_axes)}.')
 
-        for i, struct in enumerate(structures):
-                
-            base_colors = itertools.cycle([
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-            ])
-            markers = itertools.cycle(['o', 's', 'v', '^', '<', '>', '8', 'p', '*', 'h', 'H', 'D', 'd', 'P', 'X'])
+        comparisons_by_material = {material: [] for material in structures}
+        for comparison in comparisons:
+            comparisons_by_material[comparison[0]].append(comparison)
 
-            ax = axs[0, i]
+        for axis, material in zip(flat_axes, structures):
+            for colour_index, (_, degauss, kpoints_distance, soc_setting, hubbard_u_setting, node) in enumerate(
+                comparisons_by_material[material]
+            ):
+                soc_label = self._setting_label(soc_setting, 'SOC')
+                hubbard_u_label = self._setting_label(hubbard_u_setting, 'Hubbard U')
+                logger.info(
+                    'Plotting node<%s> for %s: degauss=%s, kpoints_distance=%s, %s, %s',
+                    node.pk, material, degauss, kpoints_distance, soc_label, hubbard_u_label,
+                )
+                PdosAnalyser(node).plot_pdos(
+                    axis=axis,
+                    label=(
+                        rf'$\sigma$={degauss} Ry, $|k|$={kpoints_distance} '
+                        rf'$\AA^{{-1}}$, {soc_label}, {hubbard_u_label}'
+                    ),
+                    color=colour_cycle[colour_index % len(colour_cycle)],
+                    linestyle='-',
+                    lw=linewidth,
+                    **kwargs,
+                )
+            axis.set_title(f'${material}$', fontsize=title_fontsize)
+            axis.grid(axis='y', alpha=0.2)
+            if legend:
+                axis.legend(loc='upper left', fontsize=legend_fontsize)
 
-            mat_dict = self.data[struct]
-
-            for degauss, k_dist_dict in mat_dict.items():
-                for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc, with_hubbard_u in node_list:
-                        if node and node.is_finished_ok:
-                            color = next(base_colors)
-                            logging.info(f"Fitting node<{node.pk}> for {formula} {degauss} {k_dist} {with_soc} {with_hubbard_u}")
-                            analyser = PdosAnalyser(node)
-                            analyser.plot_pdos(
-                                axis=ax,
-                                label=rf'$\sigma = {degauss}$ Ry, |k| = {k_dist} Å$^{{-1}}$, {with_soc}, {with_hubbard_u}',
-                                color=color,
-                                # marker=marker,
-                                linestyle='-',
-                                lw=kwargs.pop('lw', 1.5),
-                                **kwargs
-                        )
-            ax.set_title(f"${struct}$", fontsize=title_fontsize)
-        
-        # axs[0, 0].legend(loc='upper left', fontsize=legend_fontsize)
-        axs[0, 0].legend(loc='upper right', 
-                facecolor='white', 
-                fontsize=legend_fontsize,
-                bbox_to_anchor=legend_bbox_to_anchor, # (x, y, width, height)
-                # mode="expand",                 
-                borderaxespad=0, 
-                ncol=1,
-                framealpha=1.0, 
-                frameon=True)
-
-        for ax in axs[0, 1:]:
-            ax.set_ylabel('')
-
+        for axis in flat_axes[1:len(structures)]:
+            axis.set_ylabel('')
 
         if destpath and created_axes:
             plt.tight_layout()
             plt.savefig(destpath)
-        return axs    
-
-    def dump(self, destpath: Path):
-        """Dump the pdos to a folder."""
-        if isinstance(destpath, str):
-            destpath = Path(destpath)
-        destpath.mkdir(parents=True, exist_ok=True)
-        for struct, mat_dict in self.data.items():
-            for degauss, k_dist_dict in mat_dict.items():
-                for k_dist, node_list in k_dist_dict.items():
-                    for node, with_soc, with_hubbard_u in node_list:
-                        if node and node.is_finished_ok:
-                            logging.info(f"Copying node<{node.pk}> for {struct} {degauss} {k_dist} {with_soc.replace(' ', '-')} {with_hubbard_u.replace(' ', '-')}")
-                            analyser = PdosAnalyser(node)
-                            analyser.copy_tree(destpath / struct / str(degauss) / str(k_dist) / with_soc.replace(' ', '-') / with_hubbard_u.replace(' ', '-'))
+        return axs
