@@ -40,6 +40,7 @@ _EXPORTS = {
     'Pw2Wannier90BaseAnalyser': ('quantumespresso.pw2wannier90_base', 'Pw2Wannier90BaseAnalyser', 'quantumespresso'),
     'Wannier90Analyser': ('wannier.wannier90', 'Wannier90Analyser', 'wannier'),
     'Wannier90BaseAnalyser': ('wannier.wannier90_base', 'Wannier90BaseAnalyser', 'wannier'),
+    'Wannier90CalculationAnalyser': ('wannier.wannier90_calculation', 'Wannier90CalculationAnalyser', 'wannier'),
     'PhBaseAnalyser': ('quantumespresso.ph_base', 'PhBaseAnalyser', 'quantumespresso'),
     'PhBaseGroup': ('quantumespresso.ph_base', 'PhBaseGroup', 'quantumespresso'),
     'Q2rBaseAnalyser': ('quantumespresso.q2r_base', 'Q2rBaseAnalyser', 'quantumespresso'),

@@ -117,11 +117,12 @@ _register(
 _register(
     'aiida_analyser.quantumespresso.pw2wannier90_calculation:Pw2Wannier90Analyser',
     process_types=('aiida.calculations:quantumespresso.pw2wannier90',),
-    process_labels=('Pw2wannier90Calculation',),
+    process_labels=('Pw2wannier90Calculation', 'Pw2Wannier90Calculation'),
 )
 _register(
     'aiida_analyser.quantumespresso.pw2wannier90_base:Pw2Wannier90BaseAnalyser',
-    process_labels=('Pw2Wannier90BaseWorkChain',),
+    process_types=('aiida.workflows:quantumespresso.pw2wannier90.base',),
+    process_labels=('Pw2Wannier90BaseWorkChain', 'Pw2wannier90BaseWorkChain'),
 )
 _register(
     'aiida_analyser.quantumespresso.projwfc_calculation:ProjwfcAnalyser',
@@ -156,12 +157,34 @@ _register('aiida_analyser.epw.epw_calculation:EpwAnalyser', process_labels=('Epw
 _register('aiida_analyser.epw.epw_base:EpwBaseAnalyser', process_labels=('EpwBaseWorkChain',))
 _register('aiida_analyser.epw.epw_prep:EpwPrepAnalyser', process_labels=('EpwPrepWorkChain',))
 _register('aiida_analyser.epw.supercon:SuperConAnalyser', process_labels=('SuperConWorkChain',))
-_register('aiida_analyser.wannier.wannier90:Wannier90Analyser', process_labels=(
-    'Wannier90BandsWorkChain', 'Wannier90OptimizeWorkChain',
-))
-_register('aiida_analyser.wannier.wannier90_base:Wannier90BaseAnalyser', process_labels=(
-    'Wannier90BaseWorkChain',
-))
+_register(
+    'aiida_analyser.wannier.wannier90_calculation:Wannier90CalculationAnalyser',
+    process_types=('aiida.calculations:wannier90.wannier90',),
+    process_labels=('Wannier90Calculation',),
+)
+_register(
+    'aiida_analyser.wannier.wannier90:Wannier90Analyser',
+    process_types=(
+        'aiida.workflows:wannier90_workflows.wannier90',
+        'aiida.workflows:wannier90_workflows.bands',
+        'aiida.workflows:wannier90_workflows.optimize',
+    ),
+    process_labels=(
+        'Wannier90WorkChain',
+        'Wannier90BandsWorkChain',
+        'Wannier90OptimizeWorkChain',
+    ),
+)
+_register(
+    'aiida_analyser.wannier.wannier90_base:Wannier90BaseAnalyser',
+    process_types=(
+        'aiida.workflows:wannier90_workflows.base',
+        'aiida.workflows:wannier90.base',
+    ),
+    process_labels=(
+        'Wannier90BaseWorkChain',
+    ),
+)
 _register('aiida_analyser.thermo_pw.thermo_pw_calculation:Thermo_pwAnalyser', process_labels=(
     'Thermo_pwCalculation',
 ))

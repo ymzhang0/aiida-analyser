@@ -1,9 +1,11 @@
+from ..core.analyser_registry import resolve_analyser
 from ..core.base import BaseWorkChainAnalyser
-from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.projwfc_base import ProjwfcBaseAnalyser
+from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw2wannier90_base import Pw2Wannier90BaseAnalyser
-from .wannier90_base import Wannier90BaseAnalyser
 from ..visualization.plots import plot_bands
+from .wannier90_base import Wannier90BaseAnalyser
+
 
 class Wannier90Analyser(BaseWorkChainAnalyser):
     """
@@ -18,52 +20,16 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
     - Wannier90BaseAnalyser for wannier90_pp, wannier90
     """
 
-    def copy_tree(self, destpath):
-        """Copy the tree by delegating each direct child to its own analyser."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'ProjwfcBaseWorkChain':
-                return ProjwfcBaseAnalyser
-            if process_label == 'Pw2Wannier90BaseWorkChain':
-                return Pw2Wannier90BaseAnalyser
-            if process_label == 'Wannier90BaseWorkChain':
-                return Wannier90BaseAnalyser
-            return None
-
-        return self._copy_tree_for_direct_children(destpath, _resolve)
-
-    def get_calcjob_paths(self):
-        """Get calcjob remote paths by delegating each direct child to its analyser."""
-        def _resolve(_, child):
-            process_label = child.node.process_label
-
-            if process_label == 'PwBaseWorkChain':
-                return PwBaseAnalyser
-            if process_label == 'ProjwfcBaseWorkChain':
-                return ProjwfcBaseAnalyser
-            if process_label == 'Pw2Wannier90BaseWorkChain':
-                return Pw2Wannier90BaseAnalyser
-            if process_label == 'Wannier90BaseWorkChain':
-                return Wannier90BaseAnalyser
-            return None
-
-        return self._get_calcjob_paths_for_direct_children(_resolve)
-
     def _get_wannier90_pp_labels(self):
         return self._get_child_labels(
             labels=('wannier90_pp',),
             prefixes=('wannier90_pp_',),
-            process_label='Wannier90BaseWorkChain',
         )
 
     def _get_pw2wannier90_labels(self):
         return self._get_child_labels(
             labels=('pw2wannier90',),
             prefixes=('pw2wannier90_',),
-            process_label='Pw2Wannier90BaseWorkChain',
         )
 
     def _get_wannier90_run_labels(self):
@@ -71,7 +37,6 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
             label for label in self._get_child_labels(
                 labels=('wannier90',),
                 prefixes=('wannier90_',),
-                process_label='Wannier90BaseWorkChain',
             )
             if label not in set(self._get_wannier90_pp_labels())
         ]
@@ -139,30 +104,36 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
         subprocesses = []
         required_subprocesses = []
 
-        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseAnalyser))
+        for label in self._get_child_labels(labels=('scf',)):
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or PwBaseAnalyser
+            subprocesses.append((label, analyser_cls))
             required_subprocesses.append(label)
 
-        for label in self._get_child_labels(labels=('nscf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseAnalyser))
+        for label in self._get_child_labels(labels=('nscf',)):
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or PwBaseAnalyser
+            subprocesses.append((label, analyser_cls))
             required_subprocesses.append(label)
 
-        for label in self._get_child_labels(labels=('projwfc',), process_label='ProjwfcBaseWorkChain'):
-            subprocesses.append((label, ProjwfcBaseAnalyser))
+        for label in self._get_child_labels(labels=('projwfc',)):
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or ProjwfcBaseAnalyser
+            subprocesses.append((label, analyser_cls))
 
         wannier90_pp_labels = self._get_wannier90_pp_labels()
         for label in wannier90_pp_labels:
-            subprocesses.append((label, Wannier90BaseAnalyser))
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or Wannier90BaseAnalyser
+            subprocesses.append((label, analyser_cls))
             required_subprocesses.append(label)
 
         pw2wannier90_labels = self._get_pw2wannier90_labels()
         for label in pw2wannier90_labels:
-            subprocesses.append((label, Pw2Wannier90BaseAnalyser))
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or Pw2Wannier90BaseAnalyser
+            subprocesses.append((label, analyser_cls))
             required_subprocesses.append(label)
 
         wannier90_labels = self._get_wannier90_run_labels()
         for label in wannier90_labels:
-            subprocesses.append((label, Wannier90BaseAnalyser))
+            analyser_cls = resolve_analyser(self.process_tree[label].node) or Wannier90BaseAnalyser
+            subprocesses.append((label, analyser_cls))
             required_subprocesses.append(label)
 
         return self._get_state_from_subprocesses(
