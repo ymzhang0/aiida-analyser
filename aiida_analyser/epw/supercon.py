@@ -725,6 +725,8 @@ class SuperConGroup(DegaussKQGroup):
         cubic_kpoints_scale=True,
         highlight_points=None,
         legend=True,
+        xlabel=None,
+        ylabel=None,
         **kwargs,
     ):
         """Compatibility wrapper for k-point Allen-Dynes Tc convergence plots."""
@@ -744,6 +746,8 @@ class SuperConGroup(DegaussKQGroup):
             cubic_scale=cubic_kpoints_scale,
             highlight_points=highlight_points,
             legend=legend,
+            xlabel=xlabel,
+            ylabel=ylabel,
             **kwargs,
         )
 
@@ -767,6 +771,8 @@ class SuperConGroup(DegaussKQGroup):
         cubic_scale=True,
         highlight_points=None,
         legend=None,
+        xlabel=None,
+        ylabel=None,
         **kwargs,
     ):
         """Plot Allen-Dynes Tc convergence by k-point or q-point distance.
@@ -904,7 +910,9 @@ class SuperConGroup(DegaussKQGroup):
                         0.05, 0.9, material.split('-')[-1], transform=axis.transAxes,
                         bbox={'facecolor': 'white', 'edgecolor': 'none'},
                     )
-                    axis.set_xlabel(r'kpoints distance [$\AA^{-1}$]')
+                    axis.set_xlabel(
+                        xlabel if xlabel is not None else kwargs.get('xlabel', r'$\Delta_{\mathbf{k}}$ [$\AA^{-1}$]')
+                    )
                 else:
                     points = []
                     qpoint_data = material_data.get(degauss, {}).get(kpoints_distance, {})
@@ -920,7 +928,9 @@ class SuperConGroup(DegaussKQGroup):
                         0.7, 0.9, material.split('-')[-1], transform=axis.transAxes,
                         bbox={'facecolor': 'white', 'edgecolor': 'none'},
                     )
-                    axis.set_xlabel(kwargs.get('xlabel', r'$\Delta_{\mathbf{k}}$ [$\AA^{-1}$]'))
+                    axis.set_xlabel(
+                        xlabel if xlabel is not None else kwargs.get('xlabel', r'$\Delta_{\mathbf{q}}$ [$\AA^{-1}$]')
+                    )
 
                 axis.grid(True, linestyle='--', alpha=0.6)
                 if cubic_scale:
@@ -936,7 +946,9 @@ class SuperConGroup(DegaussKQGroup):
                 if y_limits[material_index] is not None:
                     axis.set_ylim(y_limits[material_index])
 
-            axes[0].set_ylabel(r'$T_c$ (K)')
+            axes[0].set_ylabel(
+                ylabel if ylabel is not None else kwargs.get('ylabel', r'$T_c$ (K)')
+            )
             if legend:
                 axes[0].legend(
                     loc='upper center',
