@@ -34,11 +34,32 @@ def _iter_calcjob_trees(process_tree):
 
 def _get_a2f_arraydata(workchain: orm.WorkChainNode):
     """Return whichever A2F output is available on an EPW workchain."""
-    if 'a2f_data' in workchain.outputs:
-        return workchain.outputs.a2f_data
-    if 'a2f' in workchain.outputs:
-        return workchain.outputs.a2f
+    outputs = getattr(workchain, 'outputs', None)
+    if outputs is None:
+        return None
+    for attr in ('a2f_data', 'a2f'):
+        if hasattr(outputs, attr):
+            return getattr(outputs, attr)
+        try:
+            if attr in outputs:
+                return outputs[attr]
+        except (TypeError, KeyError):
+            pass
     return None
+
+
+def _matching_key(mapping, requested):
+    """Find a parameter-grid key using exact or tolerant numeric matching."""
+    for key in mapping:
+        if key == requested:
+            return key
+        try:
+            if numpy.isclose(float(key), float(requested), rtol=0, atol=1e-10):
+                return key
+        except (TypeError, ValueError):
+            continue
+    return None
+
 
 class SuperConAnalyser(BaseWorkChainAnalyser):
     """
@@ -979,6 +1000,8 @@ class SuperConGroup(DegaussKQGroup):
         material_xlims=None,
         ylim=(0, 30),
         legend=True,
+        xlabel=None,
+        ylabel=None,
         **kwargs,
     ):
         """Plot α²F spectra at fixed k-, q-, and fine-q-point distances.
@@ -999,6 +1022,10 @@ class SuperConGroup(DegaussKQGroup):
         axes
             Optional Matplotlib Axes (or iterable of axes), one per selected
             material.
+        xlabel
+            Custom label for the x-axis (defaults to r'$\\alpha^2 F$').
+        ylabel
+            Custom label for the y-axis (defaults to r'$\\omega$ [meV]').
 
         Returns
         -------
@@ -1035,8 +1062,11 @@ class SuperConGroup(DegaussKQGroup):
             except (TypeError, ValueError):
                 return str(value)
 
-        allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
-        excluded_degauss = set(as_list(exclude_degauss))
+        def matches_any(value, requested_values):
+            return any(_matching_key({value: None}, requested) is not None for requested in requested_values)
+
+        allowed_degauss = as_list(degauss_values) if degauss_values is not None else None
+        excluded_degauss = as_list(exclude_degauss)
         material_xlims = material_xlims or {}
         if figsize is None:
             figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
@@ -1064,8 +1094,8 @@ class SuperConGroup(DegaussKQGroup):
                 material_data = all_nodes[material]
                 degauss_keys = [
                     degauss for degauss in material_data
-                    if (allowed_degauss is None or degauss in allowed_degauss)
-                    and degauss not in excluded_degauss
+                    if (allowed_degauss is None or matches_any(degauss, allowed_degauss))
+                    and not matches_any(degauss, excluded_degauss)
                 ]
                 degauss_keys = sorted(degauss_keys, key=sort_key, reverse=True)
                 colors = plt.get_cmap(cmap)(np.linspace(0.2, 0.8, len(degauss_keys)))
@@ -1076,11 +1106,25 @@ class SuperConGroup(DegaussKQGroup):
                         continue
                     selected_kpoint_distance = (
                         min(kpoint_data, key=sort_key)
-                        if kpoints_distance is None else kpoints_distance
+                        if kpoints_distance is None else _matching_key(kpoint_data, kpoints_distance)
                     )
-                    qpoint_data = kpoint_data.get(selected_kpoint_distance, {})
-                    qfpoint_data = qpoint_data.get(qpoints_distance, {})
-                    node = qfpoint_data.get(qfpoints_distance)
+                    if selected_kpoint_distance is None or selected_kpoint_distance not in kpoint_data:
+                        continue
+                    qpoint_data = kpoint_data[selected_kpoint_distance]
+                    selected_qpoint_distance = (
+                        min(qpoint_data, key=sort_key)
+                        if qpoints_distance is None else _matching_key(qpoint_data, qpoints_distance)
+                    )
+                    if selected_qpoint_distance is None or selected_qpoint_distance not in qpoint_data:
+                        continue
+                    qfpoint_data = qpoint_data[selected_qpoint_distance]
+                    selected_qfpoint_distance = (
+                        min(qfpoint_data, key=sort_key)
+                        if qfpoints_distance is None else _matching_key(qfpoint_data, qfpoints_distance)
+                    )
+                    if selected_qfpoint_distance is None or selected_qfpoint_distance not in qfpoint_data:
+                        continue
+                    node = qfpoint_data.get(selected_qfpoint_distance)
                     if node is None:
                         continue
 
@@ -1113,7 +1157,9 @@ class SuperConGroup(DegaussKQGroup):
                     transform=axis.transAxes,
                     bbox={'facecolor': 'white', 'edgecolor': 'none'},
                 )
-                axis.set_xlabel(r'$\alpha^2 F$')
+                axis.set_xlabel(
+                    xlabel if xlabel is not None else kwargs.get('xlabel', r'$\alpha^2 F$')
+                )
                 axis.set_ylabel('')
                 axis.set_yticks([])
                 axis.set_yticklabels([])
@@ -1122,7 +1168,226 @@ class SuperConGroup(DegaussKQGroup):
                     axis.set_ylim(y_limits[material_index])
                 axis.grid(True, linestyle='--', alpha=0.6)
 
-            axes[0].set_ylabel(r'$\omega$ [meV]')
+            axes[0].set_ylabel(
+                ylabel if ylabel is not None else kwargs.get('ylabel', r'$\omega$ [meV]')
+            )
+            if legend:
+                axes[0].legend(
+                    loc='upper center',
+                    facecolor='white',
+                    bbox_to_anchor=(1.35, 0.9, 0.6, 0.2),
+                    borderaxespad=0,
+                    ncol=kwargs.get('legend_ncol', 4),
+                    framealpha=1.0,
+                    frameon=True,
+                )
+
+        return fig, axes
+
+
+    def plot_a2f_vs_kpoints(
+        self,
+        degauss=0.02,
+        qpoints_distance=0.5,
+        qfpoints_distance=0.07,
+        *,
+        materials=None,
+        kpoints_values=None,
+        exclude_kpoints=None,
+        cmap='OrRd',
+        figsize=None,
+        axes=None,
+        xlim=(0, 1),
+        material_xlims=None,
+        ylim=(0, 30),
+        legend=True,
+        xlabel=None,
+        ylabel=None,
+        **kwargs,
+    ):
+        """Plot α²F spectra at fixed degauss, q-, and fine-q-point distances across k-point distances.
+
+        Each material receives one subplot and its spectra are overlaid by
+        k-point distance.  Set ``degauss=None`` to select the smallest
+        available smearing value for each material.  Use ``kpoints_values``
+        and ``exclude_kpoints`` to select a subset of k-point distances.
+
+        Parameters
+        ----------
+        degauss
+            Smearing value. Set to ``None`` to select the smallest available
+            degauss value for each material.
+        qpoints_distance
+            Fixed q-point distance.
+        qfpoints_distance
+            Fixed fine q-point distance.
+        materials
+            Optional material name or list of material names to include.
+        kpoints_values
+            Optional whitelist of k-point distances to plot.
+        exclude_kpoints
+            Optional blacklist of k-point distances to ignore.
+        cmap
+            Matplotlib colormap name used to generate colors across k-point distances.
+        figsize
+            Matplotlib figure size tuple.
+        axes
+            Optional Matplotlib Axes (or iterable of axes), one per selected material.
+        xlim
+            Default x-axis limits for the α²F spectra.
+        material_xlims
+            Optional mapping from material label to a material-specific x-axis limit.
+        ylim
+            A two-value range for every subplot, or one range per selected material/subplot.
+        legend
+            Whether to display a legend.
+        xlabel
+            Custom label for the x-axis (defaults to r'$\\alpha^2 F$').
+        ylabel
+            Custom label for the y-axis (defaults to r'$\\omega$ [meV]').
+
+        Returns
+        -------
+        tuple
+            The Matplotlib ``(figure, axes)`` pair.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        all_nodes = self.get_a2f_nodes()
+        if materials is None:
+            selected_materials = list(all_nodes)
+        elif isinstance(materials, str):
+            selected_materials = [materials]
+        else:
+            selected_materials = list(materials)
+        selected_materials = [material for material in selected_materials if material in all_nodes]
+        if not selected_materials:
+            raise ValueError('No A2F nodes match the requested materials.')
+
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, (str, bytes)):
+                return [value]
+            try:
+                return list(value)
+            except TypeError:
+                return [value]
+
+        def sort_key(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        def matches_any(value, requested_values):
+            return any(_matching_key({value: None}, requested) is not None for requested in requested_values)
+
+        allowed_kpoints = as_list(kpoints_values) if kpoints_values is not None else None
+        excluded_kpoints = as_list(exclude_kpoints)
+        material_xlims = material_xlims or {}
+        if figsize is None:
+            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+        y_limits = _axis_limits(ylim, len(selected_materials))
+
+        font_size = kwargs.get('font_size', 9)
+        rc_params = {
+            'font.size': font_size,
+            'axes.titlesize': kwargs.get('title_fontsize', font_size),
+            'axes.labelsize': kwargs.get('label_fontsize', font_size),
+            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
+            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
+            'font.family': 'serif',
+            'font.serif': ['STIXGeneral'],
+        }
+
+        with plt.rc_context(rc_params):
+            fig, axes = _plot_axes(
+                axes, len(selected_materials), plt=plt, figsize=figsize
+            )
+
+            for material_index, material in enumerate(selected_materials):
+                axis = axes[material_index]
+                material_data = all_nodes[material]
+                selected_degauss = (
+                    min(material_data, key=sort_key)
+                    if degauss is None else _matching_key(material_data, degauss)
+                )
+                if selected_degauss is None or selected_degauss not in material_data:
+                    continue
+                kpoint_data = material_data[selected_degauss]
+                kpoint_keys = [
+                    kpoint for kpoint in kpoint_data
+                    if (allowed_kpoints is None or matches_any(kpoint, allowed_kpoints))
+                    and not matches_any(kpoint, excluded_kpoints)
+                ]
+                kpoint_keys = sorted(kpoint_keys, key=sort_key, reverse=True)
+                colors = plt.get_cmap(cmap)(np.linspace(0.2, 0.8, len(kpoint_keys)))
+
+                for color, kpoint in zip(colors, kpoint_keys):
+                    qpoint_data = kpoint_data[kpoint]
+                    selected_qpoint = (
+                        min(qpoint_data, key=sort_key)
+                        if qpoints_distance is None else _matching_key(qpoint_data, qpoints_distance)
+                    )
+                    if selected_qpoint is None or selected_qpoint not in qpoint_data:
+                        continue
+                    qfpoint_data = qpoint_data[selected_qpoint]
+                    selected_qfpoint = (
+                        min(qfpoint_data, key=sort_key)
+                        if qfpoints_distance is None else _matching_key(qfpoint_data, qfpoints_distance)
+                    )
+                    if selected_qfpoint is None or selected_qfpoint not in qfpoint_data:
+                        continue
+                    node = qfpoint_data.get(selected_qfpoint)
+                    if node is None:
+                        continue
+
+                    a2f_data = _get_a2f_arraydata(node)
+                    try:
+                        output_parameters = node.outputs.output_parameters
+                    except AttributeError:
+                        output_parameters = None
+                    if a2f_data is None or output_parameters is None:
+                        continue
+
+                    plot_a2f(
+                        a2f_arraydata=a2f_data,
+                        output_parameters=output_parameters,
+                        axis=axis,
+                        label1=None,
+                        label2=None,
+                        color=color,
+                    )
+                    try:
+                        distance = f'{float(kpoint):g}'
+                    except (TypeError, ValueError):
+                        distance = str(kpoint)
+                    axis.plot([], [], label=rf'$d_k$={distance} $\AA^{{-1}}$', color=color)
+
+                axis.text(
+                    0.07,
+                    0.95,
+                    material.split('-')[-1],
+                    transform=axis.transAxes,
+                    bbox={'facecolor': 'white', 'edgecolor': 'none'},
+                )
+                axis.set_xlabel(
+                    xlabel if xlabel is not None else kwargs.get('xlabel', r'$\alpha^2 F$')
+                )
+                axis.set_ylabel('')
+                axis.set_yticks([])
+                axis.set_yticklabels([])
+                axis.set_xlim(material_xlims.get(material, xlim))
+                if y_limits[material_index] is not None:
+                    axis.set_ylim(y_limits[material_index])
+                axis.grid(True, linestyle='--', alpha=0.6)
+
+            axes[0].set_ylabel(
+                ylabel if ylabel is not None else kwargs.get('ylabel', r'$\omega$ [meV]')
+            )
             if legend:
                 axes[0].legend(
                     loc='upper center',
