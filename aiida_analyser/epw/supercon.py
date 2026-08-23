@@ -920,7 +920,7 @@ class SuperConGroup(DegaussKQGroup):
                         0.7, 0.9, material.split('-')[-1], transform=axis.transAxes,
                         bbox={'facecolor': 'white', 'edgecolor': 'none'},
                     )
-                    axis.set_xlabel(r'qpoints distance [$\AA^{-1}$]')
+                    axis.set_xlabel(kwargs.get('xlabel', r'$\Delta_{\mathbf{k}}$ [$\AA^{-1}$]'))
 
                 axis.grid(True, linestyle='--', alpha=0.6)
                 if cubic_scale:
