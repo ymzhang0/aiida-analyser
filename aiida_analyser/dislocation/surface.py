@@ -4,6 +4,8 @@ from ..quantumespresso.pw_base import PwBaseAnalyser
 from ..quantumespresso.pw_relax import PwRelaxAnalyser
 from ..core.base import BaseWorkChainAnalyser
 from ..core.groupdata import BaseGroupData
+from ..visualization.convergence import configure_kpoint_distance_axis
+from ..visualization.style import figure_size, styled_plot
 import logging
 from scipy.optimize import curve_fit
 import numpy
@@ -408,7 +410,12 @@ class SurfaceEnergyGroup(BaseGroupData):
             plt.savefig(destpath)
         return ax
 
-    def plot_kpoints_convergence(self, structure_type, formula, gliding_plane, spacing, n_repeats=None, ax=None, kpoints_distances=None, **kwargs):
+    @styled_plot
+    def plot_kpoints_convergence(
+        self, structure_type, formula, gliding_plane, spacing, n_repeats=None,
+        ax=None, kpoints_distances=None, xlim=None, xticks=None, xlabel=None,
+        cubic_scale=True, **kwargs,
+    ):
         """Plot surface energies for different k-points on a single axis."""
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
@@ -423,7 +430,7 @@ class SurfaceEnergyGroup(BaseGroupData):
             return rf"${latex_formula}$"
 
         if ax is None:
-            _, ax = plt.subplots(figsize=(8, 6))
+            _, ax = plt.subplots(figsize=figure_size())
 
         struct_data = self._data.get(structure_type, {})
         formula_data = struct_data.get(formula, {})
@@ -458,18 +465,6 @@ class SurfaceEnergyGroup(BaseGroupData):
                 if node_data and spacing in node_data:
                     surface_energies.append([k_dist, node_data[spacing]])
         
-        # def forward(x):
-        #     x = numpy.array(x, dtype=float)
-        #     with numpy.errstate(divide='ignore', invalid='ignore'):
-        #         return numpy.where(x == 0, numpy.inf, 1.0 / (x ** 3))
-
-        # def inverse(x):
-        #     x = numpy.array(x, dtype=float)
-        #     with numpy.errstate(divide='ignore', invalid='ignore'):
-        #         return numpy.where(x == 0, numpy.inf, numpy.sign(x) * (numpy.abs(x) ** (-1.0/3.0)))
-
-        # ax.set_xscale('function', functions=(forward, inverse))
-
         surface_energies = numpy.array(surface_energies)
         if surface_energies.size > 0:
             if use_mJ:
@@ -480,7 +475,9 @@ class SurfaceEnergyGroup(BaseGroupData):
             
         ax.set_title(f"K-points Convergence for {formula_to_latex(formula)} ({gliding_plane})")
         ax.set_ylabel(r'$\gamma^{surface}$' + (' (mJ/m$^2$)' if use_mJ else r' (J/m$^2$)'))
-        ax.set_xlabel(r'K-points distance (1/Å) [scaled as $1/d^3$]')
+        configure_kpoint_distance_axis(
+            ax, xlim=xlim, xticks=xticks, xlabel=xlabel, cubic_scale=cubic_scale,
+        )
         ax.legend()
         ax.grid(True, alpha=0.3)
 

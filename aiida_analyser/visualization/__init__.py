@@ -1,4 +1,13 @@
 """Visualisation helpers for analyser results."""
+from .convergence import KPOINT_DISTANCE_LABEL, configure_kpoint_distance_axis
+from .style import (
+    DEFAULT_FIGURE_HEIGHT,
+    DEFAULT_FIGURE_WIDTH,
+    DEFAULT_FONT_SIZE,
+    figure_size,
+    plot_style,
+    styled_plot,
+)
 from .plots import (
     check_wannier_bands,
     check_wannier_optimize,
@@ -17,6 +26,11 @@ from .plots import (
 )
 
 __all__ = [
+    'KPOINT_DISTANCE_LABEL',
+    'configure_kpoint_distance_axis',
+    'DEFAULT_FIGURE_HEIGHT',
+    'DEFAULT_FIGURE_WIDTH',
+    'DEFAULT_FONT_SIZE',
     'check_wannier_bands',
     'check_wannier_optimize',
     'create_xticklabels',
@@ -31,4 +45,7 @@ __all__ = [
     'plot_epw_interpolated_bands',
     'plot_iso_gap_function',
     'plot_phdos',
+    'figure_size',
+    'plot_style',
+    'styled_plot',
 ]

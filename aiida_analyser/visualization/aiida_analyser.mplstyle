@@ -1,0 +1,27 @@
+# Shared publication/presentation style for aiida-analyser plots.
+font.family: serif
+font.serif: STIXGeneral, DejaVu Serif
+font.size: 10
+mathtext.fontset: stix
+mathtext.default: regular
+
+figure.figsize: 4.8, 3.2
+figure.dpi: 100
+savefig.dpi: 300
+savefig.bbox: tight
+
+axes.titlesize: 10
+axes.labelsize: 10
+axes.linewidth: 0.8
+axes.unicode_minus: True
+
+xtick.labelsize: 10
+ytick.labelsize: 10
+xtick.direction: in
+ytick.direction: in
+xtick.major.width: 0.8
+ytick.major.width: 0.8
+
+legend.fontsize: 10
+legend.frameon: False
+lines.linewidth: 1.2

@@ -5,6 +5,7 @@ import pytest
 
 from aiida_analyser.epw import supercon
 from aiida_analyser.epw.supercon import SuperConGroup
+from aiida_analyser.visualization.convergence import KPOINT_DISTANCE_LABEL
 
 
 def _make_node(pk=1):
@@ -96,7 +97,9 @@ def test_plot_allen_dynes_tc_convergence_xlabel():
         qpoints_distance=0.5,
         qfpoints_distance=0.05,
     )
-    assert r'\Delta_{\mathbf{k}}' in axes1[0].get_xlabel()
+    assert axes1[0].get_xlabel() == KPOINT_DISTANCE_LABEL
+    assert axes1[0].get_xscale() == 'function'
+    assert axes1[0].get_xlim()[0] > axes1[0].get_xlim()[1]
     plt.close(fig1)
 
     fig2, axes2 = group.plot_allen_dynes_tc_convergence(
@@ -105,6 +108,10 @@ def test_plot_allen_dynes_tc_convergence_xlabel():
         kpoints_distance=0.15,
         qfpoints_distance=0.05,
     )
+    assert r'\Delta_{\mathbf{q}}' in axes2[0].get_xlabel()
+    plt.close(fig2)
+
+
 def test_plot_a2f_vs_kpoints_exclude_and_defaults(monkeypatch):
     node1 = _make_node(1)
     node2 = _make_node(2)

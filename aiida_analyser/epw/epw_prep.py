@@ -1,6 +1,8 @@
 from aiida_analyser.visualization.plots import plot_bands, plot_epw_interpolated_bands
 from aiida_analyser.visualization._axes import axis_limits as _axis_limits
 from aiida_analyser.visualization._axes import plot_axes as _plot_axes
+from aiida_analyser.visualization.convergence import configure_kpoint_distance_axis
+from aiida_analyser.visualization.style import DEFAULT_FONT_SIZE, figure_size, plot_style, styled_plot
 import numpy
 from collections import defaultdict
 import logging
@@ -271,6 +273,7 @@ class EpwPrepConvergenceData:
 
         return default_to_regular(nodes)
 
+    @styled_plot
     def plot_elbands(self):
         import matplotlib.pyplot as plt
 
@@ -280,7 +283,7 @@ class EpwPrepConvergenceData:
             print("No data to plot.")
             return
 
-        fig, axs = plt.subplots(2, num_materials, figsize=(24, 4*num_materials), squeeze=False)
+        fig, axs = plt.subplots(2, num_materials, figsize=figure_size(columns=num_materials, rows=2), squeeze=False)
         # axs = axs.flatten()
 
         for i, material in enumerate(materials):
@@ -323,6 +326,7 @@ class EpwPrepConvergenceData:
         fig.tight_layout()
 
 
+    @styled_plot
     def plot_a2f(
         self,
         axis = None,
@@ -350,7 +354,7 @@ class EpwPrepConvergenceData:
 
         fig, axs = plt.subplots(
             num_k_dens, num_materials, 
-            figsize=(5*num_materials, 4*num_k_dens),
+            figsize=figure_size(columns=num_materials, rows=num_k_dens),
             squeeze=False 
         )
 
@@ -496,9 +500,11 @@ class EpwPrepGroup(EpwDegaussKQGroup):
         """The prep workflow stores interpolated bands in ``epw_bands``."""
         return EpwPrepAnalyser(node).epw_bands
 
+    @styled_plot
     def check_structure(self, mode='celldm', quantity='celldm1', formula=None,
                         ax=None, degauss_values=None, kpoints_distances=None,
                         qpoints_distances=None, marker='o', legend=True,
+                        xlim=None, xticks=None, xlabel=None, cubic_scale=True,
                         **plot_kwargs):
         """Inspect the input structures used by EPW preparation workchains.
 
@@ -610,20 +616,22 @@ class EpwPrepGroup(EpwDegaussKQGroup):
             values[(row['degauss'], row['qpoints_distance'])][distance] = value
 
         if ax is None:
-            _, ax = plt.subplots(figsize=(8, 6))
+            _, ax = plt.subplots(figsize=figure_size())
         for (degauss, qpoints_distance), points in sorted(values.items(), key=lambda item: str(item[0])):
-            points = dict(sorted(points.items()))
+            points = dict(sorted(points.items(), reverse=True))
             ax.plot(list(points), list(points.values()), marker=marker,
                     label=rf'$\sigma$ = {degauss} Ry, q = {qpoints_distance} $\AA^{{-1}}$',
                     **plot_kwargs)
         label_formula = formula if formula is not None else 'EPW structures'
-        ax.set_xlabel(r'SCF k-points distance ($\AA^{-1}$)')
+        configure_kpoint_distance_axis(
+            ax, xlim=xlim, xticks=xticks, xlabel=xlabel, cubic_scale=cubic_scale,
+        )
         ax.set_ylabel(ylabel)
         ax.set_title(f'{label_formula}: {quantity_key} convergence')
         ax.grid(True, alpha=0.3)
         if legend and values:
             ax.legend()
-        return ax, {key: dict(sorted(value.items())) for key, value in values.items()}
+        return ax, {key: dict(sorted(value.items(), reverse=True)) for key, value in values.items()}
 
     checkstructure = check_structure
 
@@ -830,22 +838,17 @@ class EpwPrepGroup(EpwDegaussKQGroup):
         allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
         excluded_degauss = set(as_list(exclude_degauss))
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
 
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
-        with plt.rc_context(rc_params):
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
 
             for material_index, material in enumerate(selected_materials):
@@ -918,6 +921,7 @@ class EpwPrepGroup(EpwDegaussKQGroup):
 
         return fig, axes
 
+    @styled_plot
     def plot_elbands(self):
         import matplotlib.pyplot as plt
 
@@ -927,7 +931,7 @@ class EpwPrepGroup(EpwDegaussKQGroup):
             print("No data to plot.")
             return
 
-        fig, axs = plt.subplots(2, num_materials, figsize=(24, 4*num_materials), squeeze=False)
+        fig, axs = plt.subplots(2, num_materials, figsize=figure_size(columns=num_materials, rows=2), squeeze=False)
         # axs = axs.flatten()
 
         for i, material in enumerate(materials):
@@ -963,6 +967,7 @@ class EpwPrepGroup(EpwDegaussKQGroup):
 
         fig.tight_layout()
 
+    @styled_plot
     def plot_a2f(
         self,
         axis = None,
@@ -990,7 +995,7 @@ class EpwPrepGroup(EpwDegaussKQGroup):
 
         fig, axs = plt.subplots(
             num_k_dens, num_materials, 
-            figsize=(5*num_materials, 4*num_k_dens),
+            figsize=figure_size(columns=num_materials, rows=num_k_dens),
             squeeze=False 
         )
 

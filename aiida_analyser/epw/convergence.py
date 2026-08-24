@@ -9,6 +9,7 @@ from aiida_analyser.core.groupdata import DegaussKQGroup, render_process_node_de
 from aiida_analyser.visualization._axes import axis_limits as _axis_limits
 from aiida_analyser.visualization._axes import plot_axes as _plot_axes
 from aiida_analyser.visualization.plots import plot_bands
+from aiida_analyser.visualization.style import DEFAULT_FONT_SIZE, figure_size, plot_style
 
 
 logger = logging.getLogger(__name__)
@@ -225,22 +226,17 @@ class EpwDegaussKQGroup(DegaussKQGroup):
         allowed_degauss = set(as_list(degauss_values)) if degauss_values is not None else None
         excluded_degauss = set(as_list(exclude_degauss))
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
         plotted = 0
-        with plt.rc_context(rc_params):
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -353,22 +349,17 @@ class EpwDegaussKQGroup(DegaussKQGroup):
         allowed_kpoints = as_list(kpoints_values) if kpoints_values is not None else None
         excluded_kpoints = as_list(exclude_kpoints)
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
         plotted = 0
-        with plt.rc_context(rc_params):
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]
@@ -481,22 +472,17 @@ class EpwDegaussKQGroup(DegaussKQGroup):
         allowed_qpoints = as_list(qpoints_values) if qpoints_values is not None else None
         excluded_qpoints = as_list(exclude_qpoints)
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
         plotted = 0
-        with plt.rc_context(rc_params):
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(axes, len(selected_materials), plt=plt, figsize=figsize)
             for material_index, material in enumerate(selected_materials):
                 axis = axes[material_index]

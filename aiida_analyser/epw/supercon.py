@@ -19,6 +19,8 @@ from ..visualization.plots import (
 )
 from ..visualization._axes import axis_limits as _axis_limits
 from ..visualization._axes import plot_axes as _plot_axes
+from ..visualization.convergence import configure_kpoint_distance_axis
+from ..visualization.style import DEFAULT_FONT_SIZE, figure_size, plot_style, styled_plot
 
 
 def _iter_calcjob_trees(process_tree):
@@ -304,15 +306,17 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
 
     @staticmethod
     def _set_plot_defaults(**kwargs):
-        import matplotlib.pyplot as plt
-        fontsize = kwargs.get('font_size', kwargs.get('label_fontsize', 18))
-        plt.rcParams.update({'font.size': fontsize})
-        plt.rcParams['font.family'] = 'serif'
-        plt.rcParams['font.serif'] = ['STIXGeneral']
-        plt.rcParams['mathtext.fontset'] = 'stix'
-        plt.rcParams['font.family'] = 'STIXGeneral'
-        plt.rcParams['mathtext.default'] = 'regular'
+        import matplotlib as mpl
+        fontsize = kwargs.get('font_size', kwargs.get('label_fontsize', DEFAULT_FONT_SIZE))
+        mpl.rcParams.update({
+            'font.size': fontsize,
+            'axes.labelsize': kwargs.get('label_fontsize', fontsize),
+            'xtick.labelsize': kwargs.get('ticklabel_fontsize', fontsize),
+            'ytick.labelsize': kwargs.get('ticklabel_fontsize', fontsize),
+            'legend.fontsize': kwargs.get('legend_fontsize', fontsize),
+        })
 
+    @styled_plot
     def show_pw_bands(self):
         """Show the qe bands."""
         self._set_plot_defaults()
@@ -322,6 +326,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
         bands = a2f_workchain.outputs.band_structure
         bands.show_mpl()
 
+    @styled_plot
     def show_eldos(
         self,
         axis = None,
@@ -337,6 +342,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             axis = axis,
             **kwargs,
         )
+    @styled_plot
     def show_phdos(
         self,
         axis = None,
@@ -352,6 +358,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             **kwargs,
         )
 
+    @styled_plot
     def show_a2f(self, axis=None, **kwargs):
         self._set_plot_defaults(**kwargs)
         a2f_workchain = self._latest_a2f_workchain()
@@ -364,6 +371,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             **kwargs,
         )
 
+    @styled_plot
     def show_all_a2f(self, axis=None, **kwargs):
         self._set_plot_defaults(**kwargs)
         if self.conv == {}:
@@ -392,6 +400,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
                 **kwargs,
             )
 
+    @styled_plot
     def show_iso_gap_function(self, axis=None, **kwargs):
         self._set_plot_defaults(**kwargs)
         if self.iso:
@@ -403,6 +412,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             axis = axis,
             **kwargs,
         )
+    @styled_plot
     def show_aniso_gap_function(self, axis=None, **kwargs):
         self._set_plot_defaults(**kwargs)
         if self.aniso:
@@ -414,6 +424,7 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
             axis = axis,
             **kwargs,
         )
+    @styled_plot
     def show_all_plots(
         self,
         ax_table,
@@ -424,9 +435,9 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
         ax_aniso_gap_function,
         ):
         kwargs = {
-            'label_fontsize': 18,
-            'ticklabel_fontsize': 18,
-            'legend_fontsize': 12,
+            'label_fontsize': DEFAULT_FONT_SIZE,
+            'ticklabel_fontsize': DEFAULT_FONT_SIZE,
+            'legend_fontsize': DEFAULT_FONT_SIZE,
         }
         self._set_plot_defaults(**kwargs)
 
@@ -870,25 +881,19 @@ class SuperConGroup(DegaussKQGroup):
         if xlim is None and sweep == 'kpoints':
             xlim = (0.55, 0.04)
         if figsize is None:
-            height = 2.1 if sweep == 'kpoints' else 2.4
-            figsize = (max((2.3 if sweep == 'kpoints' else 2.6) * len(selected_materials), 2.3), height)
+            figsize = figure_size(columns=len(selected_materials))
         if legend is None:
             legend = sweep == 'kpoints'
         y_limits = _axis_limits(ylim, len(selected_materials))
 
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
-        with plt.rc_context(rc_params):
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(
                 axes, len(selected_materials), plt=plt, figsize=figsize
             )
@@ -931,9 +936,7 @@ class SuperConGroup(DegaussKQGroup):
                         0.05, 0.9, material.split('-')[-1], transform=axis.transAxes,
                         bbox={'facecolor': 'white', 'edgecolor': 'none'},
                     )
-                    axis.set_xlabel(
-                        xlabel if xlabel is not None else kwargs.get('xlabel', r'$\Delta_{\mathbf{k}}$ [$\AA^{-1}$]')
-                    )
+                    kpoint_xlabel = xlabel if xlabel is not None else kwargs.get('xlabel')
                 else:
                     points = []
                     qpoint_data = material_data.get(degauss, {}).get(kpoints_distance, {})
@@ -954,16 +957,22 @@ class SuperConGroup(DegaussKQGroup):
                     )
 
                 axis.grid(True, linestyle='--', alpha=0.6)
-                if cubic_scale:
-                    axis.set_xscale('function', functions=(np.cbrt, lambda value: value**3))
-                if xlim is not None:
-                    axis.set_xlim(xlim)
-                elif sweep == 'qpoints':
-                    axis.invert_xaxis()
-                if xticks is not None:
-                    axis.set_xticks(xticks)
-                    axis.xaxis.set_major_locator(FixedLocator(xticks))
-                    axis.set_xticklabels([str(tick) for tick in xticks])
+                if sweep == 'kpoints':
+                    configure_kpoint_distance_axis(
+                        axis, xlim=xlim, xticks=xticks, xlabel=kpoint_xlabel,
+                        cubic_scale=cubic_scale,
+                    )
+                else:
+                    if cubic_scale:
+                        axis.set_xscale('function', functions=(np.cbrt, lambda value: value**3))
+                    if xlim is not None:
+                        axis.set_xlim(xlim)
+                    else:
+                        axis.invert_xaxis()
+                    if xticks is not None:
+                        axis.set_xticks(xticks)
+                        axis.xaxis.set_major_locator(FixedLocator(xticks))
+                        axis.set_xticklabels([str(tick) for tick in xticks])
                 if y_limits[material_index] is not None:
                     axis.set_ylim(y_limits[material_index])
 
@@ -1069,22 +1078,17 @@ class SuperConGroup(DegaussKQGroup):
         excluded_degauss = as_list(exclude_degauss)
         material_xlims = material_xlims or {}
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
 
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
-        with plt.rc_context(rc_params):
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(
                 axes, len(selected_materials), plt=plt, figsize=figsize
             )
@@ -1288,22 +1292,17 @@ class SuperConGroup(DegaussKQGroup):
         excluded_kpoints = as_list(exclude_kpoints)
         material_xlims = material_xlims or {}
         if figsize is None:
-            figsize = (max(2.5 * len(selected_materials), 2.5), 2.1)
+            figsize = figure_size(columns=len(selected_materials))
         y_limits = _axis_limits(ylim, len(selected_materials))
 
-        font_size = kwargs.get('font_size', 9)
-        rc_params = {
-            'font.size': font_size,
-            'axes.titlesize': kwargs.get('title_fontsize', font_size),
-            'axes.labelsize': kwargs.get('label_fontsize', font_size),
-            'xtick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'ytick.labelsize': kwargs.get('tick_fontsize', font_size),
-            'legend.fontsize': kwargs.get('legend_fontsize', font_size),
-            'font.family': 'serif',
-            'font.serif': ['STIXGeneral'],
-        }
-
-        with plt.rc_context(rc_params):
+        font_size = kwargs.get('font_size', DEFAULT_FONT_SIZE)
+        with plot_style(
+            font_size=font_size,
+            title_fontsize=kwargs.get('title_fontsize'),
+            label_fontsize=kwargs.get('label_fontsize'),
+            tick_fontsize=kwargs.get('tick_fontsize'),
+            legend_fontsize=kwargs.get('legend_fontsize'),
+        ):
             fig, axes = _plot_axes(
                 axes, len(selected_materials), plt=plt, figsize=figsize
             )
@@ -1432,6 +1431,7 @@ class SuperConGroup(DegaussKQGroup):
 
         return default_to_regular(nodes)
 
+    @styled_plot
     def plot_a2f(
         self,
         axis = None,
@@ -1461,7 +1461,7 @@ class SuperConGroup(DegaussKQGroup):
 
         fig, axs = plt.subplots(
             num_k_dens, num_materials, 
-            figsize=(5*num_materials, 4*num_k_dens),
+            figsize=figure_size(columns=num_materials, rows=num_k_dens),
             squeeze=False 
         )
 

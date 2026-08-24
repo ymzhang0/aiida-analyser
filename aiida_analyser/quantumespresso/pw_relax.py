@@ -1,6 +1,8 @@
 from ..core.base import BaseWorkChainAnalyser
 from .pw_base import PwBaseAnalyser
 from ..core.groupdata import DegaussKGroup
+from ..visualization.convergence import configure_kpoint_distance_axis
+from ..visualization.style import figure_size, styled_plot
 from loguru import logger
 
 class PwRelaxAnalyser(BaseWorkChainAnalyser):
@@ -52,9 +54,11 @@ class PwRelaxGroup(DegaussKGroup):
     process_label = 'PwRelaxWorkChain'
     keep_duplicate_nodes = True
 
+    @styled_plot
     def plot_structure_convergence(self, quantity='celldm1', formula=None, ax=None,
                                    degauss_values=None, kpoints_distances=None,
-                                   marker='o', legend=True, **plot_kwargs):
+                                   marker='o', legend=True, xlim=None, xticks=None,
+                                   xlabel=None, cubic_scale=True, **plot_kwargs):
         """Plot a relaxed cell parameter against k-point distance and degauss.
 
         Each curve represents one degauss. ``quantity`` accepts celldm1--6
@@ -114,15 +118,17 @@ class PwRelaxGroup(DegaussKGroup):
                 except (AttributeError, IndexError, TypeError, ValueError) as exception:
                     logger.warning(f'Could not read {quantity_key} from node<{node.pk}>: {exception}')
             if points:
-                values[degauss] = dict(sorted(points.items()))
+                values[degauss] = dict(sorted(points.items(), reverse=True))
 
         if ax is None:
-            _, ax = plt.subplots(figsize=(8, 6))
+            _, ax = plt.subplots(figsize=figure_size())
         for degauss in sorted(values, key=lambda value: str(value)):
             points = values[degauss]
             ax.plot(list(points), list(points.values()), marker=marker,
                     label=rf'$\sigma$ = {degauss} Ry', **plot_kwargs)
-        ax.set_xlabel(r'k-points distance ($\AA^{-1}$)')
+        configure_kpoint_distance_axis(
+            ax, xlim=xlim, xticks=xticks, xlabel=xlabel, cubic_scale=cubic_scale,
+        )
         ax.set_ylabel(ylabel)
         ax.set_title(f'{formula}: {quantity_key} convergence')
         ax.grid(True, alpha=0.3)

@@ -3,6 +3,7 @@
 from aiida import orm
 from typing import Tuple
 from matplotlib import pyplot as plt
+from .style import DEFAULT_FONT_SIZE, figure_size, styled_plot
 import numpy
 from io import StringIO
 from scipy.optimize import curve_fit
@@ -11,6 +12,7 @@ import re
 import os
 import pandas as pd
 
+@styled_plot
 def plot_eldos(
     dos_xydata,
     fermi_energy_coarse=0.0,
@@ -21,8 +23,8 @@ def plot_eldos(
     linestyle = kwargs.pop('linestyle', '-')
     label = kwargs.pop('label', r"phdos")
 
-    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
-    label_fontsize = kwargs.pop('label_fontsize', 16)
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', DEFAULT_FONT_SIZE)
+    label_fontsize = kwargs.pop('label_fontsize', DEFAULT_FONT_SIZE)
 
     E        = dos_xydata.get_array('Energy') - fermi_energy_coarse
     dos = dos_xydata.get_array('EDOS')
@@ -55,6 +57,7 @@ def plot_eldos(
     if axis is None:
         return plt
 
+@styled_plot
 def plot_phdos(
     phdos_xydata,
     axis = None,
@@ -64,8 +67,8 @@ def plot_phdos(
     linestyle = kwargs.pop('linestyle', '-')
     label = kwargs.pop('label', r"phdos")
 
-    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
-    label_fontsize = kwargs.pop('label_fontsize', 16)
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', DEFAULT_FONT_SIZE)
+    label_fontsize = kwargs.pop('label_fontsize', DEFAULT_FONT_SIZE)
 
     w        = phdos_xydata.get_array('Frequency')
     dos = phdos_xydata.get_array('PHDOS')
@@ -111,6 +114,7 @@ def plot_phdos(
     if axis is None:
         return plt
 
+@styled_plot
 def plot_a2f(
     a2f_arraydata,
     output_parameters,
@@ -130,7 +134,7 @@ def plot_a2f(
 
     if axis is None:
         from matplotlib import pyplot as plt
-        fig, ax = plt.subplots(1, 1, figsize=kwargs.get('figsize', (4, 5)))
+        fig, ax = plt.subplots(1, 1, figsize=kwargs.get('figsize', figure_size()))
     else:
         ax = axis
 
@@ -153,12 +157,12 @@ def plot_a2f(
     # ax.set_xticks(
     #     [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
     #     [0, round(numpy.max(spectral[:, [9, 19]]) * 1.05, 1)],
-    #     fontsize=kwargs.get('ticklabel_fontsize', 16),
+    #     fontsize=kwargs.get('ticklabel_fontsize', DEFAULT_FONT_SIZE),
     #     )
     # ax.set_yticks(
     #     [0, round(numpy.max(w) * 1.05, 1)],
     #     [0, round(numpy.max(w) * 1.05, 1)],
-    #     fontsize=kwargs.get('ticklabel_fontsize', 16),
+    #     fontsize=kwargs.get('ticklabel_fontsize', DEFAULT_FONT_SIZE),
     #     )
     max_curve = numpy.max(a2f_curve)
     if integrated_curve is not None:
@@ -166,8 +170,8 @@ def plot_a2f(
     ax.set_xlim(0, round(max_curve * 1.05, 1))
     ax.set_ylim(0, round(numpy.max(w) * 1.0, 1))
     # ax.set_ylabel(r"$\alpha^2F$")
-    ax.set_ylabel(r"$\omega$ [meV]", fontsize=kwargs.get('label_fontsize', 16))
-    # ax.legend(fontsize=kwargs.get('legend_fontsize', 16))
+    ax.set_ylabel(r"$\omega$ [meV]", fontsize=kwargs.get('label_fontsize', DEFAULT_FONT_SIZE))
+    # ax.legend(fontsize=kwargs.get('legend_fontsize', DEFAULT_FONT_SIZE))
 
     if show_data and output_parameters:
         lambda_ = output_parameters.get('lambda')
@@ -179,7 +183,7 @@ def plot_a2f(
         # ax.legend(
         #     title,
         #     loc='upper right',
-        #     fontsize=kwargs.get('legend_fontsize', 10),
+        #     fontsize=kwargs.get('legend_fontsize', DEFAULT_FONT_SIZE),
         #     framealpha=0.5,
         # )
 
@@ -187,13 +191,14 @@ def plot_a2f(
         ax.text(
             0.05, 0.95, title,
             transform=ax.transAxes,
-            fontsize=kwargs.get('legend_fontsize', 10),
+            fontsize=kwargs.get('legend_fontsize', DEFAULT_FONT_SIZE),
             verticalalignment='top',
             bbox=props)
 
     if axis is None:
         return plt
 
+@styled_plot
 def plot_aniso(epw_calc, axis=None, ignore_temps=0, add_fit=False):
 
     temps = []
@@ -202,7 +207,7 @@ def plot_aniso(epw_calc, axis=None, ignore_temps=0, add_fit=False):
 
     if axis is None:
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True)
+        fig, ax = plt.subplots(1, 1, figsize=figure_size(), sharex=True)
         fig.patch.set_facecolor('white')
     else:
         ax = axis
@@ -266,6 +271,7 @@ def plot_aniso(epw_calc, axis=None, ignore_temps=0, add_fit=False):
 
     return plt
 
+@styled_plot
 def plot_bands(
     bands: orm.BandsData,
     axis=None,
@@ -277,13 +283,13 @@ def plot_bands(
     """Plot a band structure from a ``BandsData`` node."""
 
     color = kwargs.pop('color', 'black')
-    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', 16)
-    label_fontsize = kwargs.pop('label_fontsize', 16)
+    ticklabel_fontsize = kwargs.pop('ticklabel_fontsize', DEFAULT_FONT_SIZE)
+    label_fontsize = kwargs.pop('label_fontsize', DEFAULT_FONT_SIZE)
     ylim = kwargs.pop('ylim', [-2, 2])
 
     if axis is None:
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True)
+        fig, ax = plt.subplots(1, 1, figsize=figure_size(), sharex=True)
         fig.patch.set_facecolor('white')
     else:
         ax = axis
@@ -386,13 +392,14 @@ def create_xticks_bands(bands: orm.BandsData) -> Tuple[list, list]:
     return xticks, xtick_labels
 
 
+@styled_plot
 def plot_bands_comparison(bands_qe, bands_w90, fermi_qe, fermi_w90, axis=None):
 
     xticks, xtick_labels = create_xticks_bands(bands_w90)
 
     if axis is None:
         import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6), sharex=True)
+        fig, ax = plt.subplots(1, 1, figsize=figure_size(), sharex=True)
         fig.patch.set_facecolor('white')
     else:
         ax = axis
@@ -477,6 +484,7 @@ def create_xticklabels(plain_path):
 
     return xticklabels
 
+@styled_plot
 def plot_epw_interpolated_bands(
     epw_workchain,
     axes=None,
@@ -488,7 +496,7 @@ def plot_epw_interpolated_bands(
 
     if axes is None:
         import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+        fig, axes = plt.subplots(2, 1, figsize=figure_size(rows=2), sharex=True)
     elif axes.shape != (2,):
         raise ValueError("axes must be a 2D array")
 
@@ -529,14 +537,17 @@ def plot_epw_interpolated_bands(
 
     axes[0].set_ylim([-2, 2])
     axes[0].set_yticks([-2, 0, 2])
-    axes[0].set_yticklabels([-2, '$E_F$', 2], fontsize=kwargs.get('ticklabel_fontsize', 16))
-    axes[0].set_ylabel(elabel, fontsize=kwargs.get('label_fontsize', 16))
+    axes[0].set_yticklabels([-2, '$E_F$', 2], fontsize=kwargs.get('ticklabel_fontsize', DEFAULT_FONT_SIZE))
+    axes[0].set_ylabel(elabel, fontsize=kwargs.get('label_fontsize', DEFAULT_FONT_SIZE))
     axes[0].set_xlim([explicit_kpoints_linearcoord[0], explicit_kpoints_linearcoord[-1]])
 
     axes[1].set_ylim([min_freq, max_freq*1.05])
     axes[1].set_yticks([numpy.floor(min_freq), numpy.ceil(max_freq*1.05)])
-    axes[1].set_yticklabels([numpy.floor(min_freq), numpy.ceil(max_freq*1.05)], fontsize=kwargs.get('ticklabel_fontsize', 16))
-    axes[1].set_ylabel(plabel, fontsize=kwargs.get('label_fontsize', 16))
+    axes[1].set_yticklabels(
+        [numpy.floor(min_freq), numpy.ceil(max_freq*1.05)],
+        fontsize=kwargs.get('ticklabel_fontsize', DEFAULT_FONT_SIZE),
+    )
+    axes[1].set_ylabel(plabel, fontsize=kwargs.get('label_fontsize', DEFAULT_FONT_SIZE))
     axes[1].set_xlim([explicit_kpoints_linearcoord[0], explicit_kpoints_linearcoord[-1]])
 
     for tick in xticks:
@@ -550,7 +561,7 @@ def plot_epw_interpolated_bands(
     axes[0].set_xticklabels([])
 
     axes[1].set_xticks(xticks)
-    axes[1].set_xticklabels(xticklabels, fontsize=kwargs.get('ticklabel_fontsize', 16))
+    axes[1].set_xticklabels(xticklabels, fontsize=kwargs.get('ticklabel_fontsize', DEFAULT_FONT_SIZE))
 
     axes[0].plot([], [], color=kwargs.get('color_el', 'r'), label = kwargs.get('label', ''))
     axes[1].plot([], [], color=kwargs.get('color_ph', 'b'), label = kwargs.get('label', ''))
@@ -650,6 +661,7 @@ def _iter_iso_gap_data(gap_functions):
     for array_name, array in gap_functions.get_iterarrays():
         yield float(array_name.replace('_', '.')), array
 
+@styled_plot
 def plot_iso_gap_function(
     iso_gap_function,
     axis=None,
@@ -684,10 +696,10 @@ def plot_iso_gap_function(
         return axis
 
     tempmax = kwargs.get('tempmax', numpy.max(imag_temp))
-    font = kwargs.get('font', kwargs.get('label_fontsize', 12))
+    font = kwargs.get('font', kwargs.get('label_fontsize', DEFAULT_FONT_SIZE))
 
     if axis is None:
-        fig = plt.figure(figsize=kwargs.get('figsize', (4.5, 3.5)))
+        fig = plt.figure(figsize=kwargs.get('figsize', figure_size()))
         ax1 = fig.add_subplot(1, 1, 1)
     else:
         ax1 = axis
@@ -735,6 +747,7 @@ def plot_iso_gap_function(
     return ax1
 
 
+@styled_plot
 def plot_aniso_gap_function(
     aniso_gap_functions_arraydata,
     axis=None,

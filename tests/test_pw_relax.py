@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import pytest
 
 from aiida_analyser.quantumespresso.pw_bands import PwBandsGroup
 from aiida_analyser.quantumespresso.pw_relax import PwRelaxGroup
+from aiida_analyser.visualization.convergence import KPOINT_DISTANCE_LABEL
 
 
 def make_node(pk, **extras):
@@ -134,3 +136,35 @@ def test_pw_bands_group_dump_uses_the_base_progress_implementation(tmp_path):
         'nodes': [node],
         'progress': False,
     }
+
+
+def test_plot_structure_convergence_uses_descending_cubic_kpoint_axis():
+    def relaxed_node(pk, distance, cell_length):
+        node = make_node(pk, formula='Si', degauss=0.01, kpoints_distance=distance)
+        node.outputs = SimpleNamespace(
+            output_structure=SimpleNamespace(
+                cell_lengths=(cell_length, 5.5, 5.5),
+                cell_angles=(90.0, 90.0, 90.0),
+            ),
+        )
+        return node
+
+    coarse = relaxed_node(1, 0.3, 5.6)
+    medium = relaxed_node(2, 0.2, 5.55)
+    dense = relaxed_node(3, 0.1, 5.5)
+    group = PwRelaxGroup.__new__(PwRelaxGroup)
+    group._nested_data = {
+        'Si': {
+            0.01: {
+                0.3: [coarse],
+                0.2: [medium],
+                0.1: [dense],
+            },
+        },
+    }
+
+    axis, values = group.plot_structure_convergence()
+
+    assert axis.get_xscale() == 'function'
+    assert axis.get_xlim()[0] > axis.get_xlim()[1]
+    assert axis.get_xlabel() == KPOINT_DISTANCE_LABEL
