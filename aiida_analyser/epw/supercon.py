@@ -21,6 +21,7 @@ from ..visualization._axes import axis_limits as _axis_limits
 from ..visualization._axes import plot_axes as _plot_axes
 from ..visualization.convergence import configure_kpoint_distance_axis
 from ..visualization.style import DEFAULT_FONT_SIZE, figure_size, plot_style, styled_plot
+from ..visualization.units import format_degauss
 
 
 def _iter_calcjob_trees(process_tree):
@@ -759,6 +760,7 @@ class SuperConGroup(DegaussKQGroup):
         legend=True,
         xlabel=None,
         ylabel=None,
+        unit_degauss='Ry',
         **kwargs,
     ):
         """Compatibility wrapper for k-point Allen-Dynes Tc convergence plots."""
@@ -780,6 +782,7 @@ class SuperConGroup(DegaussKQGroup):
             legend=legend,
             xlabel=xlabel,
             ylabel=ylabel,
+            unit_degauss=unit_degauss,
             **kwargs,
         )
 
@@ -805,6 +808,7 @@ class SuperConGroup(DegaussKQGroup):
         legend=None,
         xlabel=None,
         ylabel=None,
+        unit_degauss='Ry',
         **kwargs,
     ):
         """Plot Allen-Dynes Tc convergence by k-point or q-point distance.
@@ -826,6 +830,8 @@ class SuperConGroup(DegaussKQGroup):
         import matplotlib.pyplot as plt
         import numpy as np
         from matplotlib.ticker import FixedLocator
+
+        format_degauss(0, unit_degauss)
 
         sweep = str(sweep).lower()
         if sweep not in {'kpoints', 'qpoints'}:
@@ -923,12 +929,9 @@ class SuperConGroup(DegaussKQGroup):
                         points.sort(key=lambda point: sort_key(point[0]), reverse=True)
                         x_values, y_values = zip(*points)
                         color = palette[degauss_index % len(palette)]
-                        try:
-                            sigma = f'{float(degauss_value) * 1000:g}'
-                        except (TypeError, ValueError):
-                            sigma = str(degauss_value)
+                        sigma, sigma_unit = format_degauss(degauss_value, unit_degauss)
                         axis.scatter(x_values, y_values, marker='o', s=20, c=color)
-                        axis.plot(x_values, y_values, label=rf'$\sigma$={sigma} mRy', c=color)
+                        axis.plot(x_values, y_values, label=rf'$\sigma$={sigma} {sigma_unit}', c=color)
                         for kpoint_value, tc_value in points:
                             if (degauss_value, kpoint_value) in highlight_points:
                                 axis.scatter(kpoint_value, tc_value, marker='*', s=60, c='black', zorder=20)
@@ -1011,6 +1014,7 @@ class SuperConGroup(DegaussKQGroup):
         legend=True,
         xlabel=None,
         ylabel=None,
+        unit_degauss='Ry',
         **kwargs,
     ):
         """Plot α²F spectra at fixed k-, q-, and fine-q-point distances.
@@ -1043,6 +1047,8 @@ class SuperConGroup(DegaussKQGroup):
         """
         import matplotlib.pyplot as plt
         import numpy as np
+
+        format_degauss(0, unit_degauss)
 
         all_nodes = self.get_a2f_nodes()
         if materials is None:
@@ -1148,11 +1154,8 @@ class SuperConGroup(DegaussKQGroup):
                         label2=None,
                         color=color,
                     )
-                    try:
-                        sigma = f'{float(degauss) * 1000:g}'
-                    except (TypeError, ValueError):
-                        sigma = str(degauss)
-                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=color)
+                    sigma, sigma_unit = format_degauss(degauss, unit_degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} {sigma_unit}', color=color)
 
                 axis.text(
                     0.07,

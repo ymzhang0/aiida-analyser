@@ -26,12 +26,14 @@ def test_plot_phonon_bands_uses_child_output_and_matches_numeric_extras(monkeypa
 
     monkeypatch.setattr(convergence, 'plot_bands', fake_plot_bands)
 
-    fig, _ = group.plot_phonon_bands_vs_degauss(
+    fig, axes = group.plot_phonon_bands_vs_degauss(
         kpoints_distance=0.3,
         qpoints_distance=0.5,
+        unit_degauss='meV',
     )
 
     assert plotted == [bands]
+    assert axes[0].get_legend_handles_labels()[1] == [r'$\sigma$=272.114 meV']
     plt.close(fig)
 
 

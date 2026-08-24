@@ -10,6 +10,7 @@ from aiida_analyser.visualization._axes import axis_limits as _axis_limits
 from aiida_analyser.visualization._axes import plot_axes as _plot_axes
 from aiida_analyser.visualization.plots import plot_bands
 from aiida_analyser.visualization.style import DEFAULT_FONT_SIZE, figure_size, plot_style
+from aiida_analyser.visualization.units import format_degauss
 
 
 logger = logging.getLogger(__name__)
@@ -191,10 +192,16 @@ class EpwDegaussKQGroup(DegaussKQGroup):
     def plot_phonon_bands_vs_degauss(
         self, kpoints_distance=0.15, qpoints_distance=0.5, *, materials=None,
         degauss_values=None, exclude_degauss=None, cmap='OrRd', figsize=None,
-        axes=None, ylim=(-2, 24), yticks=(-2, 24), legend=True, **kwargs,
+        axes=None, ylim=(-2, 24), yticks=(-2, 24), legend=True,
+        unit_degauss='Ry', **kwargs,
     ):
-        """Plot EPW phonon bands against degauss for each material."""
+        """Plot EPW phonon bands against degauss for each material.
+
+        unit_degauss may be Ry, mRy, eV, or meV.
+        """
         import matplotlib.pyplot as plt
+
+        format_degauss(0, unit_degauss)
 
         all_nodes = self.get_epw_bands_nodes()
         if materials is None:
@@ -267,11 +274,8 @@ class EpwDegaussKQGroup(DegaussKQGroup):
                         ticklabel_fontsize=kwargs.get('tick_fontsize', font_size),
                         label_fontsize=kwargs.get('label_fontsize', font_size),
                     )
-                    try:
-                        sigma = f'{float(degauss) * 1000:g}'
-                    except (TypeError, ValueError):
-                        sigma = str(degauss)
-                    axis.plot([], [], label=rf'$\sigma$={sigma} mRy', color=colour)
+                    sigma, sigma_unit = format_degauss(degauss, unit_degauss)
+                    axis.plot([], [], label=rf'$\sigma$={sigma} {sigma_unit}', color=colour)
                     plotted += 1
                 axis.text(0.05, 0.9, material.split('-')[-1], transform=axis.transAxes,
                           bbox={'facecolor': 'white', 'edgecolor': 'none'})
