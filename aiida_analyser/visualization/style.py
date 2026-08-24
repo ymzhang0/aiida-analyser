@@ -8,6 +8,17 @@ from contextlib import contextmanager
 from functools import wraps
 from importlib.resources import as_file, files
 
+__all__ = [
+    'DEFAULT_FIGURE_HEIGHT',
+    'DEFAULT_FIGURE_WIDTH',
+    'DEFAULT_FONT_SIZE',
+    'DEFAULT_PANEL_WIDTH',
+    'STYLE_RESOURCE',
+    'figure_size',
+    'plot_style',
+    'styled_plot',
+]
+
 
 DEFAULT_FONT_SIZE = 10
 DEFAULT_FIGURE_WIDTH = 4.8
