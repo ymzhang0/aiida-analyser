@@ -17,20 +17,6 @@ class Wannier90BaseAnalyser(BaseRestartWorkChainAnalyser):
         else:
             raise ValueError('Source is not set')
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        # Start with the base implementation
-        try:
-            path, exit_status, message = self._get_state_from_tree()
-        except (AttributeError, ValueError) as e:
-            print(f'Wannier90BaseWorkChain<{self.node.pk}> has unknown exit status: {e}')
-            return 'ROOT', -1, 'Unknown status'
-
-        # Handle specific error codes for Wannier90 calculations if needed
-        # For now, just return the base state
-        # In the future, we can add specific error handling for Wannier90 calculation errors
-
-        return path, exit_status, message
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""

@@ -19,8 +19,6 @@ class EpwBaseAnalyser(BaseRestartWorkChainAnalyser):
             )
         raise ValueError('Source is not set')
 
-    def get_state(self):
-        return self._get_state_from_tree()
 
     def clean_workchain(self, dry_run=True):
         return super().clean_workchain(dry_run=dry_run)

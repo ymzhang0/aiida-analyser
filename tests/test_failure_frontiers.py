@@ -62,8 +62,10 @@ def _analyser_for_failed_stage(stage):
 def test_epwprep_resolves_leaf_failures_through_all_supported_stages():
     for stage in ('w90_bands', 'ph_base', 'epw_base'):
         analyser, expected_path = _analyser_for_failed_stage(stage)
-        parent_path, leaf_label = expected_path.rsplit('/', 1)
-        assert analyser.get_state() == (f'{parent_path}/ROOT/{leaf_label}', 'finished', 311)
+        report = analyser.get_report()
+        assert report.state == 'finished'
+        assert report.exit_code == 311
+        assert report.path == f'ROOT/{expected_path}'
         assert [(path, tree.name) for path, tree in analyser.get_failure_frontiers()] == [
             (f'ROOT/{expected_path}', 'iteration_01')
         ]
@@ -74,8 +76,10 @@ def test_epwprep_reports_its_own_failed_validation_when_children_succeed():
     root = _node('EpwPrepWorkChain', 'ROOT', failed=True, called=[successful_child], exit_code=405)
 
     analyser = EpwPrepAnalyser(root)
-
-    assert analyser.get_state() == ('ROOT', 'finished', 405)
+    report = analyser.get_report()
+    assert report.state == 'finished'
+    assert report.exit_code == 405
+    assert report.path == 'ROOT'
 
 
 def test_epwprep_propagates_calculation_specific_incomplete_stdout_state():
@@ -97,14 +101,12 @@ def test_epwprep_propagates_calculation_specific_incomplete_stdout_state():
     epwprep = _node('EpwPrepWorkChain', 'ROOT', failed=True, called=[wannier])
 
     analyser = EpwPrepAnalyser(epwprep)
+    report = analyser.get_report()
+    assert report.path == 'ROOT/w90_bands/wannier90/iteration_01'
+    assert report.state == 'W90_DISENTANGLEMENT_NOT_CONVERGED'
+    assert report.exit_code == 404
 
-    assert analyser.get_state() == (
-        'w90_bands/wannier90/ROOT/iteration_01',
-        'W90_DISENTANGLEMENT_NOT_CONVERGED',
-        404,
-    )
-
-    report = analyser.get_failure_report(include_outputs=True)
+    report = analyser.get_report(include_outputs=True)
     assert [node.path for node in report.primary_chain] == [
         'ROOT',
         'ROOT/w90_bands',
@@ -303,10 +305,10 @@ def test_ph_base_analyser_direct_multi_iteration():
     )
 
     analyser = PhBaseAnalyser(ph_base)
-    path, state, exit_code = analyser.get_state()
-    assert path == 'ROOT/iteration_02'
-    assert state == 'MPICH_ERROR'
-    assert exit_code == 312
+    report = analyser.get_report()
+    assert report.path == 'ROOT/iteration_02'
+    assert report.state == 'MPICH_ERROR'
+    assert report.exit_code == 312
 
 
 def test_unregistered_node_raises_error():
@@ -335,4 +337,60 @@ def test_workchain_with_unregistered_failed_child_raises_error():
     analyser = EpwPrepAnalyser(wc)
     with pytest.raises(UnregisteredProcessError, match='CustomUnknownCalc'):
         analyser.get_failure_frontiers()
+
+
+def test_process_report_lazy_properties_and_node_access():
+    """Verify that ProcessReport and ProcessReportNode provide direct access to stderr, stdout, output, and node."""
+    leaf = _node('PhCalculation', 'iteration_01', failed=True, exit_code=312)
+    leaf.outputs = SimpleNamespace(
+        retrieved=SimpleNamespace(get_object_content=lambda _name: 'JOB LOG CONTENT')
+    )
+    leaf.get_scheduler_stdout = lambda: 'SCHEDULER STDOUT LOG'
+    leaf.get_scheduler_stderr = lambda: 'SCHEDULER STDERR LOG'
+
+    ph_base = _node('PhBaseWorkChain', 'ph_base', failed=True, called=[leaf])
+    epwprep = _node('EpwPrepWorkChain', 'ROOT', failed=True, called=[ph_base])
+
+    analyser = EpwPrepAnalyser(epwprep)
+    report = analyser.get_report()
+
+    assert report.primary is not None
+    assert report.primary.node is leaf
+    assert report.primary.stderr == 'SCHEDULER STDERR LOG'
+    assert report.primary.stdout == 'SCHEDULER STDOUT LOG'
+    assert report.primary.output == 'JOB LOG CONTENT'
+
+    # Direct top-level accessors
+    assert report.stderr == 'SCHEDULER STDERR LOG'
+    assert report.stdout == 'SCHEDULER STDOUT LOG'
+    assert report.output == 'JOB LOG CONTENT'
+
+
+def test_killed_workchain_sets_active_path_without_leaf_diagnosis():
+    """Verify that a killed workchain points to the active interrupted step without diagnosing leaf calculations."""
+    leaf_done = _node('PhCalculation', 'iteration_01', failed=True, exit_code=400)
+    leaf_running = _node('PhCalculation', 'iteration_02', failed=False)
+    leaf_running.is_finished_ok = False
+    leaf_running.process_state = SimpleNamespace(value='running')
+
+    ph_base = _node(
+        'PhBaseWorkChain', 'ph_base', failed=False,
+        called=[leaf_done, leaf_running],
+    )
+    ph_base.is_finished_ok = False
+    ph_base.process_state = SimpleNamespace(value='running')
+
+    epwprep = _node('EpwPrepWorkChain', 'ROOT', failed=False, called=[ph_base])
+    epwprep.is_finished_ok = False
+    epwprep.process_state = SimpleNamespace(value='killed')
+
+    analyser = EpwPrepAnalyser(epwprep)
+    report = analyser.get_report()
+
+    assert report.state == 'killed'
+    assert report.path == 'ROOT/ph_base/iteration_02'
+    assert report.primary is not None
+    # No calculation-level diagnosis attached since workchain was killed
+    assert report.primary.analysis_exit_code is None
+
 

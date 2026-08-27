@@ -27,23 +27,6 @@ class PdosAnalyser(BaseWorkChainAnalyser):
                 return None
         return source
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = []
-
-        if 'scf' in self.process_tree:
-            subprocesses.append(('scf', PwBaseAnalyser))
-
-        subprocesses.extend([
-            ('nscf', PwBaseAnalyser),
-            ('dos', DosAnalyser),
-            ('projwfc', ProjwfcAnalyser),
-        ])
-
-        return self._get_state_from_subprocesses(
-            subprocesses,
-            required_subprocesses=('nscf', 'dos', 'projwfc'),
-        )
 
     def plot_pdos(self,
         axis = None,

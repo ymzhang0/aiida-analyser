@@ -22,31 +22,6 @@ class PwRelaxAnalyser(BaseWorkChainAnalyser):
                 return None
         return source
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = []
-
-        for label in ('init_relax', 'base_init_relax'):
-            if label in self.process_tree:
-                subprocesses.append((label, PwBaseAnalyser))
-
-        iteration_labels = sorted(
-            (
-                child_name for child_name, child_tree in self.process_tree.children.items()
-                if child_tree.node.process_label == 'PwBaseWorkChain' and child_name.startswith('iteration_')
-            ),
-            key=lambda label: int(label.split('_')[1]),
-        )
-        subprocesses.extend((label, PwBaseAnalyser) for label in iteration_labels)
-
-        trailing_pw_bases = [
-            child_name for child_name, child_tree in self.process_tree.children.items()
-            if child_tree.node.process_label == 'PwBaseWorkChain'
-            and child_name not in {name for name, _ in subprocesses}
-        ]
-        subprocesses.extend((label, PwBaseAnalyser) for label in trailing_pw_bases)
-
-        return self._get_state_from_subprocesses(subprocesses)
 
 class PwRelaxGroup(DegaussKGroup):
 

@@ -66,30 +66,83 @@ _COPY_TREE_INFO_LOGGING_ENABLED: ContextVar[bool] = ContextVar(
 
 
 @dataclass
-class FailureReportNode:
-    """One failed process in an analyser-side failure tree."""
+class ProcessReportNode:
+    """One process in an analyser-side process report tree."""
 
     path: str
     process_label: str
     pk: int | None
     process_state: str
-    raw_exit_status: int | None
-    raw_exit_message: str | None
+    raw_exit_status: int | None = None
+    raw_exit_message: str | None = None
     analysis_exit_code: AnalysisExitCode | None = None
     outputs: dict[str, str] | None = None
-    children: list['FailureReportNode'] = field(default_factory=list)
-    handled_children: list['FailureReportNode'] = field(default_factory=list)
-    parent: 'FailureReportNode | None' = field(default=None, repr=False)
+    children: list['ProcessReportNode'] = field(default_factory=list)
+    handled_children: list['ProcessReportNode'] = field(default_factory=list)
+    parent: 'ProcessReportNode | None' = field(default=None, repr=False)
+    node: Any = field(default=None, repr=False)
 
     @property
-    def chain(self) -> list['FailureReportNode']:
-        """Return this failure branch from the analysed root to this node."""
+    def is_finished_ok(self) -> bool:
+        if self.node is not None and getattr(self.node, 'is_finished_ok', False):
+            return True
+        return self.process_state == 'finished_ok' or (
+            self.process_state == 'finished' and self.raw_exit_status == 0
+        )
+
+    @property
+    def is_failed(self) -> bool:
+        if self.is_finished_ok:
+            return False
+        return self.process_state in ('finished', 'excepted', 'killed')
+
+    @property
+    def chain(self) -> list['ProcessReportNode']:
+        """Return this branch from the analysed root to this node."""
         branch = []
         current = self
         while current is not None:
             branch.append(current)
             current = current.parent
         return list(reversed(branch))
+
+    @property
+    def stderr(self) -> str | None:
+        """Return the scheduler stderr for this node if available."""
+        if self.outputs and 'scheduler_stderr' in self.outputs:
+            return self.outputs['scheduler_stderr']
+        if self.node is not None and hasattr(self.node, 'get_scheduler_stderr'):
+            try:
+                return self.node.get_scheduler_stderr() or ''
+            except Exception:
+                pass
+        return None
+
+    @property
+    def stdout(self) -> str | None:
+        """Return the scheduler stdout for this node if available."""
+        if self.outputs and 'scheduler_stdout' in self.outputs:
+            return self.outputs['scheduler_stdout']
+        if self.node is not None and hasattr(self.node, 'get_scheduler_stdout'):
+            try:
+                return self.node.get_scheduler_stdout() or ''
+            except Exception:
+                pass
+        return None
+
+    @property
+    def output(self) -> str | None:
+        """Return the calculation output (aiida.out / aiida.wout) for this node if available."""
+        if self.outputs and 'calculation_output' in self.outputs:
+            return self.outputs['calculation_output']
+        if self.node is not None and hasattr(self.node, 'outputs') and hasattr(self.node.outputs, 'retrieved'):
+            try:
+                retrieved = self.node.outputs.retrieved
+                output_filename = getattr(getattr(self.node, 'process_class', None), '_DEFAULT_OUTPUT_FILE', None) or 'aiida.out'
+                return retrieved.get_object_content(output_filename)
+            except Exception:
+                pass
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a serialisable representation of this report node."""
@@ -115,36 +168,104 @@ class FailureReportNode:
         }
 
 
-@dataclass
-class FailureReport:
-    """Complete failure tree without mutating the persisted AiiDA processes."""
+FailureReportNode = ProcessReportNode
 
-    root: FailureReportNode
-    frontiers: list[FailureReportNode]
+
+@dataclass
+class ProcessReport:
+    """Complete process execution and diagnosis report."""
+
+    root: ProcessReportNode
+    frontiers: list[ProcessReportNode] = field(default_factory=list)
+    active_path: str | None = None
 
     @property
-    def primary(self) -> FailureReportNode | None:
+    def primary(self) -> ProcessReportNode | None:
         """Return the first terminal failed branch in call order."""
         return self.frontiers[0] if self.frontiers else None
 
     @property
-    def primary_chain(self) -> list[FailureReportNode]:
+    def primary_chain(self) -> list[ProcessReportNode]:
         """Return the root-to-leaf chain of the primary failure."""
         return self.primary.chain if self.primary is not None else []
 
+    @property
+    def is_finished_ok(self) -> bool:
+        return self.root.is_finished_ok
+
+    @property
+    def state(self) -> str:
+        """Return a high-level descriptive state of the process."""
+        if self.is_finished_ok:
+            return 'finished_ok'
+        if self.root.process_state in ('waiting', 'running', 'killed', 'excepted'):
+            return self.root.process_state
+        if self.primary is not None and self.primary.analysis_exit_code is not None:
+            return self.primary.analysis_exit_code.label
+        return self.root.process_state
+
+    @property
+    def path(self) -> str:
+        """Return the active breakpoint path or primary failure path."""
+        if self.active_path:
+            return self.active_path
+        if self.primary:
+            return self.primary.path
+        return self.root.path
+
+    @property
+    def exit_status(self) -> int | None:
+        """Return exit status of the primary failure/breakpoint, or root if no primary."""
+        if self.primary and self.primary.raw_exit_status is not None:
+            return self.primary.raw_exit_status
+        return self.root.raw_exit_status
+
+    @property
+    def exit_code(self) -> int | None:
+        return self.exit_status
+
+    @property
+    def stderr(self) -> str | None:
+        """Return the scheduler stderr of the primary failure or root node."""
+        if self.primary:
+            err = self.primary.stderr
+            if err is not None:
+                return err
+        return self.root.stderr
+
+    @property
+    def stdout(self) -> str | None:
+        """Return the scheduler stdout of the primary failure or root node."""
+        if self.primary:
+            out = self.primary.stdout
+            if out is not None:
+                return out
+        return self.root.stdout
+
+    @property
+    def output(self) -> str | None:
+        """Return calculation output (aiida.out / aiida.wout) of the primary failure or root node."""
+        if self.primary:
+            out = self.primary.output
+            if out is not None:
+                return out
+        return self.root.output
+
     def to_dict(self) -> dict[str, Any]:
-        """Return a serialisable failure tree and its terminal branches."""
+        """Return a serialisable report tree and its terminal branches."""
         return {
             'tree': self.root.to_dict(),
             'frontiers': [frontier.path for frontier in self.frontiers],
             'primary_path': self.primary.path if self.primary is not None else None,
+            'active_path': self.active_path,
+            'state': self.state,
         }
 
     def format(self) -> str:
-        """Render the complete failure tree as compact plain text."""
+        """Render the process report tree as compact plain text."""
         lines = []
 
-        def render(node: FailureReportNode, prefix: str = '') -> None:
+        def render(node: ProcessReportNode, prefix: str = '') -> None:
             details = [f'state={node.process_state}']
             if node.raw_exit_status is not None:
                 details.append(f'aiida_exit={node.raw_exit_status}')
@@ -168,11 +289,16 @@ class FailureReport:
                 render(child, prefix + '  ')
 
         render(self.root)
+        if self.active_path:
+            lines.append(f'Active/Interrupted at: {self.active_path}')
         return '\n'.join(lines)
 
     def print(self) -> None:
-        """Print the complete analyser-side failure tree."""
+        """Print the complete analyser-side process report."""
         console.print(self.format())
+
+
+FailureReport = ProcessReport
 
 
 def _format_node_ref(node: orm.Node) -> str:
@@ -681,22 +807,35 @@ class BaseCalculationAnalyser:
         return self.parse_incomplete_stdout(self.get_failure_outputs())
 
 
-    def get_state(self):
-        """Return the state of the calculation node."""
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
+    def get_report(self, include_outputs: bool = False) -> ProcessReport:
+        """Return the process execution and diagnosis report for this calculation."""
+        exit_code = getattr(self.node, 'exit_code', None)
+        raw_exit_status = getattr(exit_code, 'status', exit_code)
+        if not isinstance(raw_exit_status, int):
+            raw_exit_status = None
+        raw_exit_message = getattr(exit_code, 'message', None) or getattr(self.node, 'exit_message', None)
+        process_state = getattr(getattr(self.node, 'process_state', None), 'value', 'unknown_status')
 
-        exit_code = self.node.exit_code if self.node.is_finished else None
-        process_state = self.node.process_state.value
-        analysis_exit_code = self.get_analysis_exit_code()
-        if analysis_exit_code is not None:
-            return 'ROOT', analysis_exit_code.label, exit_code
-
-        return (
-            'ROOT',
-            process_state,
-            exit_code,
+        root = ProcessReportNode(
+            path='ROOT',
+            process_label=getattr(self.node, 'process_label', self.node.__class__.__name__),
+            pk=getattr(self.node, 'pk', None),
+            process_state=str(process_state),
+            raw_exit_status=raw_exit_status,
+            raw_exit_message=raw_exit_message,
+            node=self.node,
         )
+
+        if not ProcessTree._is_failed(self.node):
+            return ProcessReport(root=root, frontiers=[])
+
+        root.analysis_exit_code = self.get_analysis_exit_code()
+        if include_outputs:
+            root.outputs = self.get_failure_outputs()
+
+        return ProcessReport(root=root, frontiers=[root])
+
+    get_failure_report = get_report
 
     def copy_tree(self, destpath: Path) -> Path:
         """Copy the input repository and retrieved outputs of a calculation."""
@@ -875,39 +1014,6 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         """Get the ProcessTree of the workchain."""
         return ProcessTree(self.node)
 
-    def _get_state_from_subprocesses(self, subprocesses, required_subprocesses=()):
-        """
-        Resolve the first unfinished subprocess in execution order.
-
-        :param subprocesses: Iterable of ``(link_label, analyser_class)`` pairs.
-        :param required_subprocesses: Namespaces that must exist in the process tree.
-        """
-        process_tree = self.process_tree
-        required = set(required_subprocesses)
-
-        for subprocess_name, subprocess_analyser in subprocesses:
-            if subprocess_name not in process_tree:
-                if subprocess_name in required:
-                    return self._get_state_from_tree()
-                continue
-
-            subprocess_node = process_tree[subprocess_name].node
-            if subprocess_node.is_finished_ok:
-                continue
-
-            analyser = subprocess_analyser(subprocess_node)
-            path, process_state, exit_code = analyser.get_state()
-            return (
-                subprocess_name if path == 'ROOT' else f'{subprocess_name}/{path}',
-                process_state,
-                exit_code,
-            )
-
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-
-        return self._get_state_from_tree()
-
     def print_process_tree(self):
         """Print the process tree."""
         self.process_tree.print_tree()
@@ -1010,38 +1116,32 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
 
         return flat_paths
     
-    def _get_state_from_tree(self):
-        """
-        Helper method to get state by traversing the process tree.
-        This is a utility method for subclasses to use in their get_state() implementation.
-        
-        Returns:
-            tuple: (path, exit_status, message) or None if no error found
-        """
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
+    @staticmethod
+    def _make_report_node(
+        process_tree: ProcessTree,
+        path: str,
+        parent: ProcessReportNode | None = None,
+    ) -> ProcessReportNode:
+        """Build one report node while retaining the persisted AiiDA exit data."""
+        node = process_tree.node
+        exit_code = getattr(node, 'exit_code', None)
+        raw_exit_status = getattr(exit_code, 'status', exit_code)
+        if not isinstance(raw_exit_status, int):
+            raw_exit_status = None
+        raw_exit_message = getattr(exit_code, 'message', None) or getattr(node, 'exit_message', None)
+        process_state = getattr(getattr(node, 'process_state', None), 'value', 'unknown_status')
+        return ProcessReportNode(
+            path=path,
+            process_label=getattr(node, 'process_label', node.__class__.__name__),
+            pk=getattr(node, 'pk', None),
+            process_state=str(process_state),
+            raw_exit_status=raw_exit_status,
+            raw_exit_message=raw_exit_message,
+            parent=parent,
+            node=node,
+        )
 
-        frontiers = self.get_failure_frontiers()
-        if frontiers:
-            path, failure_tree = frontiers[0]
-            failure_node = failure_tree.node
-            analyser_class = resolve_analyser(failure_node)
-            if analyser_class is not None and issubclass(analyser_class, BaseCalculationAnalyser):
-                _, process_state, parsed_exit_code = analyser_class(failure_node).get_state()
-                return (
-                    path,
-                    process_state,
-                    parsed_exit_code,
-                )
-
-            return (
-                path,
-                getattr(getattr(failure_node, 'process_state', None), 'value', 'unknown_status'),
-                failure_node.exit_code if getattr(failure_node, 'is_finished', False) else None,
-            )
-
-        node_state = getattr(getattr(self.node, 'process_state', None), 'value', 'unknown_status')
-        return 'ROOT', node_state, None
+    _make_failure_report_node = _make_report_node
 
     def get_failure_frontiers(self) -> list[tuple[str, ProcessTree]]:
         """Return every terminal failed branch below this analyser's root.
@@ -1077,32 +1177,8 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         return frontiers
 
     @staticmethod
-    def _make_failure_report_node(
-        process_tree: ProcessTree,
-        path: str,
-        parent: FailureReportNode | None = None,
-    ) -> FailureReportNode:
-        """Build one report node while retaining the persisted AiiDA exit data."""
-        node = process_tree.node
-        exit_code = getattr(node, 'exit_code', None)
-        raw_exit_status = getattr(exit_code, 'status', exit_code)
-        if not isinstance(raw_exit_status, int):
-            raw_exit_status = None
-        raw_exit_message = getattr(exit_code, 'message', None) or getattr(node, 'exit_message', None)
-        process_state = getattr(getattr(node, 'process_state', None), 'value', 'unknown_status')
-        return FailureReportNode(
-            path=path,
-            process_label=getattr(node, 'process_label', node.__class__.__name__),
-            pk=getattr(node, 'pk', None),
-            process_state=str(process_state),
-            raw_exit_status=raw_exit_status,
-            raw_exit_message=raw_exit_message,
-            parent=parent,
-        )
-
-    @staticmethod
     def _diagnose_failure_leaf(
-        report_node: FailureReportNode,
+        report_node: ProcessReportNode,
         process_tree: ProcessTree,
         include_outputs: bool,
     ) -> None:
@@ -1128,15 +1204,41 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                 return None
         return current
 
-    def get_failure_report(self, include_outputs: bool = False) -> FailureReport:
-        """Return all failed branches as a nested, analyser-side exception tree.
-
-        The report keeps the original AiiDA exit-code values in
-        raw_exit_status and raw_exit_message. Any analysis_exit_code is
-        diagnostic metadata generated locally by this package only.
-        """
+    def get_report(self, include_outputs: bool = False) -> ProcessReport:
+        """Return all execution/diagnostic branches as an analyser-side ProcessReport tree."""
         root_tree = self.process_tree
-        root = self._make_failure_report_node(root_tree, 'ROOT')
+        root = self._make_report_node(root_tree, 'ROOT')
+
+        if self.node.is_finished_ok:
+            return ProcessReport(root=root, frontiers=[])
+
+        process_state = getattr(getattr(self.node, 'process_state', None), 'value', None)
+        if process_state in ('waiting', 'running', 'killed', 'excepted'):
+            active_path = 'ROOT'
+            target_report = root
+            for child_name, child_tree in self.process_tree.children.items():
+                if not getattr(child_tree.node, 'is_finished_ok', False):
+                    child_cls = resolve_analyser(child_tree.node)
+                    child_report = self._make_report_node(child_tree, f'ROOT/{child_name}', parent=root)
+                    root.children.append(child_report)
+                    target_report = child_report
+                    if issubclass(child_cls, BaseWorkChainAnalyser):
+                        sub_report = child_cls(child_tree.node).get_report(include_outputs)
+                        sub_active = sub_report.active_path or sub_report.path
+                        if sub_active and sub_active != 'ROOT':
+                            active_path = f'ROOT/{child_name}/{sub_active.removeprefix("ROOT/").removeprefix("ROOT")}'
+                        else:
+                            active_path = f'ROOT/{child_name}'
+                        if sub_report.primary and sub_report.primary is not sub_report.root:
+                            sub_prim_tree = self._resolve_tree_by_path(self.process_tree, active_path)
+                            if sub_prim_tree:
+                                target_report = self._make_report_node(sub_prim_tree, active_path, parent=child_report)
+                                child_report.children.append(target_report)
+                    else:
+                        active_path = f'ROOT/{child_name}'
+                    break
+            return ProcessReport(root=root, frontiers=[target_report], active_path=active_path)
+
         report_nodes = {'ROOT': root}
         frontiers = []
 
@@ -1151,7 +1253,7 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                 current_path = f'{current_path}/{label}'
                 child_report = report_nodes.get(current_path)
                 if child_report is None:
-                    child_report = self._make_failure_report_node(
+                    child_report = self._make_report_node(
                         current_tree,
                         current_path,
                         parent=current_report,
@@ -1164,7 +1266,7 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                         child_analyser = child_analyser_cls(current_tree.node)
                         for handled_tree in child_analyser._get_handled_subprocesses():
                             h_path = f'{current_path}/{handled_tree.name}'
-                            h_node = self._make_failure_report_node(handled_tree, h_path, parent=child_report)
+                            h_node = self._make_report_node(handled_tree, h_path, parent=child_report)
                             self._diagnose_failure_leaf(h_node, handled_tree, include_outputs)
                             child_report.handled_children.append(h_node)
 
@@ -1177,65 +1279,22 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
             self._diagnose_failure_leaf(root, root_tree, include_outputs)
             frontiers.append(root)
 
-        return FailureReport(root=root, frontiers=frontiers)
+        return ProcessReport(root=root, frontiers=frontiers)
 
-    def get_state_tree(self, include_outputs: bool = False) -> FailureReport:
-        """Alias for :meth:`get_failure_report` for state-inspection callers."""
-        return self.get_failure_report(include_outputs=include_outputs)
+    get_failure_report = get_report
+    get_state_tree = get_report
 
     def print_state(self, print_output=False, print_stdout=False, print_stderr=False):
-        """
-        Print the state of the workchain.
-        This method requires get_state() to be implemented in subclasses.
-        """
-        try:
-            path, process_state, exit_code = self.get_state()
-        except AttributeError:
-            logger.warning(f'{self.node_ref} get_state() is not implemented.')
-            return -1
-
-        normalized_exit_code = getattr(exit_code, 'status', exit_code)
-
-        self._log_state_summary(path, process_state, normalized_exit_code)
-
-        # If exit_code is an integer and non-zero, try to get detailed output
-        if isinstance(normalized_exit_code, int) and normalized_exit_code != 0:
-            result = self.get_failure_frontiers()
-            if result:
-                path, node = result[0]
-                if print_output:
-                    try:
-                        if 'aiida.out' in node.node.get_retrieve_list():
-                            self._print_text_block(
-                                'Standard Output',
-                                node.node.get_retrieved_node().get_object_content('aiida.out'),
-                            )
-                    except (AttributeError, KeyError):
-                        logger.warning(f'{self.node_ref} aiida.out not found in retrieved.')
-                if print_stdout:
-                    try:
-                        if '_scheduler-stdout.txt' in node.node.get_retrieve_list():
-                            self._print_text_block(
-                                'Scheduler Stdout',
-                                node.node.get_scheduler_stdout(),
-                            )
-                    except (AttributeError, KeyError):
-                        logger.warning(f'{self.node_ref} scheduler stdout not found in retrieved.')
-                if print_stderr:
-                    try:
-                        if '_scheduler-stderr.txt' in node.node.get_retrieve_list():
-                            self._print_text_block(
-                                'Scheduler Stderr',
-                                node.node.get_scheduler_stderr(),
-                            )
-                    except (AttributeError, KeyError):
-                        logger.warning(f'{self.node_ref} scheduler stderr not found in retrieved.')
-                return normalized_exit_code
-
-        if process_state == 'finished_ok':
-            return 0
-
-        return normalized_exit_code if isinstance(normalized_exit_code, int) else -1
+        """Print the state and diagnosis of the workchain."""
+        report = self.get_report(include_outputs=print_output or print_stdout or print_stderr)
+        self._log_state_summary(report.path, report.state, report.exit_code)
+        if print_output and report.output:
+            self._print_text_block('Standard Output', report.output)
+        if print_stdout and report.stdout:
+            self._print_text_block('Scheduler Stdout', report.stdout)
+        if print_stderr and report.stderr:
+            self._print_text_block('Scheduler Stderr', report.stderr)
+        return report.exit_code if isinstance(report.exit_code, int) else (0 if report.is_finished_ok else -1)
     
     def get_source(self):
         """Get the source of the workchain."""
@@ -1341,55 +1400,40 @@ class BaseRestartWorkChainAnalyser(BaseWorkChainAnalyser):
         # Last calculation succeeded, but workchain failed (e.g. exit code 401: max iterations exceeded)
         return [('ROOT', self.process_tree)]
 
-    def _get_state_from_tree(self):
-        """Resolve state from the terminal subprocess."""
+    def get_report(self, include_outputs: bool = False) -> ProcessReport:
+        """Return process report highlighting terminal execution and tracking handled attempts."""
+        root = self._make_report_node(self.process_tree, 'ROOT')
         if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-
-        last_subprocess = self._get_terminal_subprocess()
-        if last_subprocess is not None and ProcessTree._is_failed(last_subprocess.node):
-            analyser_class = resolve_analyser(last_subprocess.node)
-            if analyser_class is not None and issubclass(analyser_class, BaseCalculationAnalyser):
-                _, process_state, parsed_exit_code = analyser_class(last_subprocess.node).get_state()
-                return f'ROOT/{last_subprocess.name}', process_state, parsed_exit_code
-
-            node = last_subprocess.node
-            return (
-                f'ROOT/{last_subprocess.name}',
-                getattr(getattr(node, 'process_state', None), 'value', 'unknown_status'),
-                node.exit_code if getattr(node, 'is_finished', False) else None,
-            )
-
-        node_state = getattr(getattr(self.node, 'process_state', None), 'value', 'unknown_status')
-        exit_code = self.node.exit_code if getattr(self.node, 'is_finished', False) else None
-        return 'ROOT', node_state, exit_code
-
-    def get_state(self):
-        """Get the state of the restart workchain."""
-        return self._get_state_from_tree()
-
-    def get_failure_report(self, include_outputs: bool = False) -> FailureReport:
-        """Return failure report highlighting the terminal failure and tracking handled attempts."""
-        root = self._make_failure_report_node(self.process_tree, 'ROOT')
-        if not ProcessTree._is_failed(self.node):
-            return FailureReport(root=root, frontiers=[])
+            return ProcessReport(root=root, frontiers=[])
 
         for handled_tree in self._get_handled_subprocesses():
             handled_path = f'ROOT/{handled_tree.name}'
-            handled_node = self._make_failure_report_node(handled_tree, handled_path, parent=root)
+            handled_node = self._make_report_node(handled_tree, handled_path, parent=root)
             self._diagnose_failure_leaf(handled_node, handled_tree, include_outputs)
             root.handled_children.append(handled_node)
+
+        process_state = getattr(getattr(self.node, 'process_state', None), 'value', None)
+        if process_state in ('waiting', 'running', 'killed', 'excepted'):
+            last_subprocess = self._get_terminal_subprocess()
+            active_path = f'ROOT/{last_subprocess.name}' if last_subprocess else 'ROOT'
+            target_report = root
+            if last_subprocess:
+                target_report = self._make_report_node(last_subprocess, active_path, parent=root)
+                root.children.append(target_report)
+            return ProcessReport(root=root, frontiers=[target_report], active_path=active_path)
 
         last_subprocess = self._get_terminal_subprocess()
         if last_subprocess is not None and ProcessTree._is_failed(last_subprocess.node):
             terminal_path = f'ROOT/{last_subprocess.name}'
-            terminal_report = self._make_failure_report_node(last_subprocess, terminal_path, parent=root)
+            terminal_report = self._make_report_node(last_subprocess, terminal_path, parent=root)
             self._diagnose_failure_leaf(terminal_report, last_subprocess, include_outputs)
             root.children.append(terminal_report)
-            return FailureReport(root=root, frontiers=[terminal_report])
+            return ProcessReport(root=root, frontiers=[terminal_report])
 
         self._diagnose_failure_leaf(root, self.process_tree, include_outputs)
-        return FailureReport(root=root, frontiers=[root])
+        return ProcessReport(root=root, frontiers=[root])
+
+    get_failure_report = get_report
 
 
 BaseRestartAnalyser = BaseRestartWorkChainAnalyser

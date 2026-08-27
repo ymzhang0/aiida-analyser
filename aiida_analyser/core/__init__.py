@@ -6,6 +6,10 @@ from .base import (
     BaseRestartAnalyser,
     BaseRestartWorkChainAnalyser,
     BaseWorkChainAnalyser,
+    FailureReport,
+    FailureReportNode,
+    ProcessReport,
+    ProcessReportNode,
     ProcessTree,
 )
 from .analyser_registry import UnregisteredProcessError, register_analyser, resolve_analyser
@@ -33,6 +37,10 @@ __all__ = [
     'NestedDict',
     'NodeDiff',
     'NodeReference',
+    'ProcessReport',
+    'ProcessReportNode',
+    'FailureReport',
+    'FailureReportNode',
     'ProcessTree',
     'Printer',
     'print_tree',

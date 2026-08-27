@@ -41,13 +41,6 @@ class EpwAnalyser(BaseWorkChainAnalyser):
         """The direct ``EpwCalculation`` child."""
         return self._get_node_from_tree('epw')
 
-    def get_state(self):
-        """Return the first failed workflow branch using legacy semantics."""
-        return self._get_state_from_subprocesses([
-            ('w90_bands', Wannier90Analyser),
-            ('ph_base', PhBaseAnalyser),
-            ('epw', EpwCalculationAnalyser),
-        ])
 
 
 class _FailureAnalysisGroupMixin:

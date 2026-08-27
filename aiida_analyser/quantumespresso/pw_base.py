@@ -15,11 +15,6 @@ class PwBaseAnalyser(BaseRestartWorkChainAnalyser):
         else:
             raise ValueError('Source is not set')
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        # Start with the base implementation
-
-        return self._get_state_from_tree()
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""

@@ -15,10 +15,6 @@ class HPBaseAnalyser(BaseRestartWorkChainAnalyser):
         else:
             raise ValueError('Source is not set')
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        return self._get_state_from_tree()
-
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""
 

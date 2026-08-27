@@ -99,47 +99,6 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
         else:
             raise ValueError('Source is not set')
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = []
-        required_subprocesses = []
-
-        for label in self._get_child_labels(labels=('scf',)):
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or PwBaseAnalyser
-            subprocesses.append((label, analyser_cls))
-            required_subprocesses.append(label)
-
-        for label in self._get_child_labels(labels=('nscf',)):
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or PwBaseAnalyser
-            subprocesses.append((label, analyser_cls))
-            required_subprocesses.append(label)
-
-        for label in self._get_child_labels(labels=('projwfc',)):
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or ProjwfcBaseAnalyser
-            subprocesses.append((label, analyser_cls))
-
-        wannier90_pp_labels = self._get_wannier90_pp_labels()
-        for label in wannier90_pp_labels:
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or Wannier90BaseAnalyser
-            subprocesses.append((label, analyser_cls))
-            required_subprocesses.append(label)
-
-        pw2wannier90_labels = self._get_pw2wannier90_labels()
-        for label in pw2wannier90_labels:
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or Pw2Wannier90BaseAnalyser
-            subprocesses.append((label, analyser_cls))
-            required_subprocesses.append(label)
-
-        wannier90_labels = self._get_wannier90_run_labels()
-        for label in wannier90_labels:
-            analyser_cls = resolve_analyser(self.process_tree[label].node) or Wannier90BaseAnalyser
-            subprocesses.append((label, analyser_cls))
-            required_subprocesses.append(label)
-
-        return self._get_state_from_subprocesses(
-            subprocesses,
-            required_subprocesses=tuple(required_subprocesses),
-        )
 
     def plot_bands(
         self,
@@ -164,12 +123,8 @@ class Wannier90Analyser(BaseWorkChainAnalyser):
 
     def print_state(self):
         """Print the state of the workchain."""
-        result = self.get_state()
-        if not result:
-            print(f"Can't check the state of Wannier90WorkChain<{self.node.pk}>.")
-            return
-        path, process_state, exit_code = result
-        print(f"Wannier90WorkChain<{self.node.pk}> is {process_state} at {path} with exit code {exit_code}.")
+        report = self.get_report()
+        print(f"Wannier90WorkChain<{self.node.pk}> is {report.state} at {report.path} with exit code {report.exit_code}.")
     
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""

@@ -20,21 +20,12 @@ class Thermo_pwBaseAnalyser(BaseRestartWorkChainAnalyser):
                 return None
         return source
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        return self._get_state_from_tree()
-
     def print_state(self):
         """Print the state of the workchain."""
-        result = self.get_state()
-        if not result:
-            print(f"Can't check the state of Thermo_pwBaseWorkChain<{self.node.pk}>.")
-            return
-        path, process_state, exit_code = result
-        normalized_exit_code = getattr(exit_code, 'status', exit_code)
+        report = self.get_report()
         print(
-            f"Thermo_pwBaseWorkChain<{self.node.pk}> is {process_state} at {path} "
-            f"(exit code: {normalized_exit_code})."
+            f"Thermo_pwBaseWorkChain<{self.node.pk}> is {report.state} at {report.path} "
+            f"(exit code: {report.exit_code})."
         )
     
     def get_moduli(self, modulus_type: str):

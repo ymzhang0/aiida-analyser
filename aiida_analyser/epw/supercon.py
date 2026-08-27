@@ -155,14 +155,6 @@ class SuperConAnalyser(BaseWorkChainAnalyser):
         return source
 
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = [
-            *( (name, EpwBaseAnalyser) for name, _ in sorted(self.conv.items()) ),
-            ('epw_final_iso', EpwBaseAnalyser),
-            ('epw_final_aniso', EpwBaseAnalyser),
-        ]
-        return self._get_state_from_subprocesses(subprocesses)
 
     @property
     def a2f_results(self):

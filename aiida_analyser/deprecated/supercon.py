@@ -92,32 +92,6 @@ class EpwSuperConAnalyser(BaseWorkChainAnalyser):
                 return None
         return source
 
-    def get_state(self):
-        """Get the state of the workchain."""
-
-        # Check subprocesses in order
-        for subprocess_name, subprocess_analyser in [
-            ('pw_relax', PwRelaxAnalyser),
-            ('pw_bands', PwBandsAnalyser),
-            ('b2w', EpwPrepAnalyser),
-            ('bands', EpwBaseAnalyser),
-            ('a2f', EpwBaseAnalyser),
-            ('a2f_conv', EpwBaseAnalyser),
-            ('iso', EpwBaseAnalyser),
-            ('aniso', EpwBaseAnalyser),
-            ]:
-            if subprocess_name in self.process_tree:
-                if not self.process_tree[subprocess_name].node.is_finished_ok:
-                    analyser = subprocess_analyser(self.process_tree[subprocess_name].node)
-                    path, process_state, exit_code = analyser.get_state()
-                    return f'{subprocess_name}/{path}' if path != 'ROOT' else subprocess_name, process_state, exit_code
-
-        if self.node.is_finished_ok:
-            return 'ROOT', 'finished_ok', 0
-        
-        # If all subprocesses are finished but main node is not, use tree traversal
-        # to find the actual error in the process tree
-        return self._get_state_from_tree()
 
     @property
     def a2f_results(self):

@@ -6,16 +6,6 @@ class LayerRelaxAnalyser(BaseWorkChainAnalyser):
     Analyser for the LayerRelaxWorkChain.
     """
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = [
-            (label, PwRelaxAnalyser)
-            for label in self._get_child_labels(
-                prefixes=('relax_',),
-                process_label='PwRelaxWorkChain',
-            )
-        ]
-        return self._get_state_from_subprocesses(subprocesses)
 
     def get_energies(self):
         """Get the energies of the workchain."""

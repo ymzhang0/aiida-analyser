@@ -20,11 +20,4 @@ class USFEAnalyser(SFEBaseAnalyser):
         """Get calcjob remote paths using the layered SFEBase child delegation."""
         return super().get_calcjob_paths()
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        return self._get_state_from_subprocesses([
-            ('relax', PwRelaxAnalyser),
-            ('scf', PwBaseAnalyser),
-            ('layer_relax', LayerRelaxAnalyser),
-            ('surface_energy', PwBaseAnalyser),
-        ])
+

@@ -353,15 +353,6 @@ class EpwTransportAnalyser(BaseWorkChainAnalyser):
             outputs_parameters['Allen_Dynes_Tc'] = a2f_output_parameters.get('Allen_Dynes_Tc')
         return outputs_parameters
 
-    def get_state(self):
-        pk = self.node.pk
-        formula = self.node.inputs.structure.get_formula()
-        source_db, source_id = self.node.inputs.structure.base.extras.get_many(('source_db', 'source_id'))
-        state, message = self.check_process_state()
-        material_info = f'{source_db}-{source_id}<{formula}>'
-        message = f'[{pk}]: {material_info:30s} {message}'
-
-        return state, message
 
     def get_source(self):
         """Get the source of the workchain."""

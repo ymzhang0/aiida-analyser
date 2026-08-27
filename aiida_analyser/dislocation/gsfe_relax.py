@@ -134,23 +134,6 @@ class GSFERelaxAnalyser(BaseWorkChainAnalyser):
         """Return the gliding system object."""
         return fit_function_map[self.strukturbericht]['gliding_system'](self.strukturbericht).get_plane(self.gliding_plane)
 
-    def get_state(self) -> tuple[str, str, int]:
-        """Get the state of the workchain."""
-        subprocesses = []
-
-        for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
-            subprocesses.append((label, PwRelaxAnalyser))
-
-        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseAnalyser))
-
-        for label in self._get_child_labels(
-            prefixes=('structure_', 'sfe_'),
-            process_label='PwBaseWorkChain',
-        ):
-            subprocesses.append((label, PwBaseAnalyser))
-
-        return self._get_state_from_subprocesses(subprocesses)
 
     def get_results(self) -> dict[str, dict[str, dict[str, ty.Any]]]:
         """Return the nested GSFE result payload keyed by direction and step."""

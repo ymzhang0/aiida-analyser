@@ -135,9 +135,9 @@ class SFEBaseAnalyser(BaseWorkChainAnalyser):
     def clean_workchain(self, exempted_states=None, dry_run=True):
         """Clean the workchain."""
         exempted_states = [] if exempted_states is None else exempted_states
-        path, process_state, exit_code = self.get_state()
-        message = f'Process<{self.node.pk}> is now {process_state} at {path} with exit code {exit_code}. Please check if you really want to clean this workchain.\n'
-        if process_state in exempted_states:
+        report = self.get_report()
+        message = f'Process<{self.node.pk}> is now {report.state} at {report.path} with exit code {report.exit_code}. Please check if you really want to clean this workchain.\n'
+        if report.state in exempted_states:
             print(message)
             return message, False
 

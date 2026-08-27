@@ -23,10 +23,6 @@ class PwBandsAnalyser(BaseWorkChainAnalyser):
                 return None
         return source
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        return self._get_state_from_tree()
-
     def plot_bands(
         self,
         axis=None,

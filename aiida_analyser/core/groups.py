@@ -177,7 +177,10 @@ def get_group_status(group_label, analyser_class, profile = None):
         source = analyser.get_source()
         if not source:
             continue
-        path, status, message = analyser.get_state()
+        report = analyser.get_report()
+        path = report.path or 'ROOT'
+        status = report.state
+        message = report.root.raw_exit_message
         results = recursive_merge(results, {
             path: {
                 status: {

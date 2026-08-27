@@ -231,4 +231,7 @@ def test_wannier90_analyser_get_state():
     )
     analyser = Wannier90Analyser(root_node)
 
-    assert analyser.get_state() == ('ROOT', 'finished_ok', 0)
+    report = analyser.get_report()
+    assert report.is_finished_ok
+    assert report.state == 'finished_ok'
+    assert report.path == 'ROOT'

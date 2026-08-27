@@ -3,7 +3,7 @@ import logging
 from loguru import logger
 from ..core.groupdata import DegaussKGroup
 
-from ..core.base import BaseRestartWorkChainAnalyser
+from ..core.base import AnalysisExitCode, BaseRestartWorkChainAnalyser, ProcessReport
 
 class PhBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
@@ -116,61 +116,19 @@ class PhBaseAnalyser(BaseRestartWorkChainAnalyser):
         else:
             raise ValueError('Source is not set')
 
-    def get_state(self):
-        """Get the state of the workchain."""
-        path, process_state, exit_code = self._get_state_from_tree()
-
-        if self.node.is_finished_ok:
+    def get_report(self, include_outputs: bool = False) -> ProcessReport:
+        """Return process report, checking stability if finished ok."""
+        report = super().get_report(include_outputs=include_outputs)
+        if report.is_finished_ok:
             try:
                 is_stable, _, _ = self.is_stable(mute_print=True)
+                if not is_stable:
+                    report.root.analysis_exit_code = AnalysisExitCode(
+                        3500, 'UNSTABLE', 'Phonon calculation is dynamically unstable'
+                    )
             except Exception:
-                return path, process_state, exit_code
-
-            if not is_stable:
-                return path, 'UNSTABLE', exit_code
-
-        if process_state == 'finished' and getattr(exit_code, 'status', exit_code) == 312:
-            frontiers = self.get_failure_frontiers()
-            if not frontiers:
-                return path, process_state, exit_code
-
-            _, failure_tree = frontiers[0]
-            failure_node = failure_tree.node
-            if failure_node.process_label != 'PhCalculation':
-                return path, process_state, exit_code
-
-            try:
-                aiida_out = failure_node.outputs.retrieved.get_object_content('aiida.out')
-            except (AttributeError, KeyError):
-                aiida_out = ''
-
-            try:
-                stderr = failure_node.get_scheduler_stderr() or ''
-            except (AttributeError, KeyError):
-                stderr = ''
-
-            for error_flag, error_message in [
-                ('ERROR_FIND_MODE_SYM', 'Error in routine find_mode_sym (1)'),
-                ('ERROR_SET_IRR_SYM_NEW', 'Error in routine set_irr_sym_new (922)'),
-                ('ERROR_WRONG_REPRESENTATION', 'Error in routine set_irr_sym_new (822)'),
-                ('ERROR_CDIAGHG', 'Error in routine cdiaghg (4)'),
-                ('ERROR_S_MATRIX_NOT_POSITIVE_DEFINITE', 'Error in routine cdiaghg (126)'),
-                ('ERROR_PHQ_SETUP', 'Error in routine phq_setup (1)'),
-                ('ERROR_Q_POINTS', 'Error in routine q_points (1)'),
-                ('ERROR_DAVCIO', 'Error in routine davcio (99)'),
-                ('ERROR_CHECK_ALL_CONVT', 'Error in routine check_all_convt (1)'),
-                ('ERROR_READ_WFC', 'Error in routine read_wfc (29)'),
-            ]:
-                if error_message in aiida_out:
-                    return path, error_flag, exit_code
-
-            if 'TIME LIMIT' in stderr:
-                return path, 'SCHEDULER_TIME_LIMIT', exit_code
-
-            if 'process killed' in stderr.lower():
-                return path, 'KILLED_BY_SCHEDULER', exit_code
-
-        return path, process_state, exit_code
+                pass
+        return report
 
     def clean_workchain(self, dry_run=True):
         """Clean the workchain."""

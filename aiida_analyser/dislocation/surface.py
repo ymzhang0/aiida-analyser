@@ -119,23 +119,6 @@ class SurfaceEnergyAnalyser(BaseWorkChainAnalyser):
                 return self.node.outputs[label]
         raise AttributeError('surface results output is not found')
     
-    def get_state(self):
-        """Get the state of the workchain."""
-        subprocesses = []
-
-        for label in self._get_child_labels(labels=('relax',), process_label='PwRelaxWorkChain'):
-            subprocesses.append((label, PwRelaxAnalyser))
-
-        for label in self._get_child_labels(labels=('scf',), process_label='PwBaseWorkChain'):
-            subprocesses.append((label, PwBaseAnalyser))
-
-        for label in self._get_child_labels(
-            prefixes=('slab_', 'spacing_'),
-            process_label='PwBaseWorkChain',
-        ):
-            subprocesses.append((label, PwBaseAnalyser))
-
-        return self._get_state_from_subprocesses(subprocesses)
 
     @property
     def scf_energy(self):
