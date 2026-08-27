@@ -23,6 +23,10 @@ class AnalyserSpec:
         return getattr(import_module(module_name), class_name)
 
 
+class UnregisteredProcessError(KeyError):
+    """Raised when an AiiDA process node has no registered analyser in AnalyserRegistry."""
+
+
 class AnalyserRegistry:
     """Map persisted process metadata to analyser classes.
 
@@ -41,17 +45,25 @@ class AnalyserRegistry:
             self._by_process_label[process_label] = spec
 
     def resolve(self, node):
-        """Return the registered analyser class for *node*, or ``None``.
+        """Return the registered analyser class for *node*.
 
-        Unregistered nodes deliberately return ``None``.  Callers must skip
-        them rather than recursively extracting an unknown workflow tree.
+        Raises:
+            UnregisteredProcessError: If no analyser is explicitly registered for *node*.
         """
         process_type = getattr(node, 'process_type', None)
         process_label = getattr(node, 'process_label', None)
         spec = self._by_process_type.get(process_type)
         if spec is None:
             spec = self._by_process_label.get(process_label)
-        return None if spec is None else spec.load()
+        if spec is not None:
+            return spec.load()
+
+        pk = getattr(node, 'pk', None)
+        raise UnregisteredProcessError(
+            f"No analyser registered for process node (pk={pk}, "
+            f"process_label={process_label!r}, process_type={process_type!r}). "
+            f"Please explicitly register an analyser class in AnalyserRegistry."
+        )
 
 
 registry = AnalyserRegistry()

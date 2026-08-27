@@ -4,7 +4,13 @@ from types import ModuleType
 
 import pytest
 
-from aiida_analyser.core.printer import Printer
+from aiida_analyser.core.printer import (
+    Printer,
+    display_tree,
+    in_notebook,
+    print_tree,
+    render_collapsible_tree,
+)
 
 
 class Dict:
@@ -160,3 +166,72 @@ def test_empty_html_representation_preserves_container_type():
 def test_rejects_scalar_input():
     with pytest.raises(TypeError, match='Input data must be a map or iterable'):
         Printer('not a collection')
+
+
+def test_in_notebook_detection(monkeypatch):
+    monkeypatch.setitem(sys.modules, 'IPython', None)
+    assert in_notebook() is False
+
+    mock_shell = ModuleType('MockShell')
+    mock_shell.kernel = object()
+    mock_ipython = ModuleType('IPython')
+    mock_ipython.get_ipython = lambda: mock_shell
+    monkeypatch.setitem(sys.modules, 'IPython', mock_ipython)
+    assert in_notebook() is True
+
+
+def test_render_collapsible_tree_wraps_content_and_style():
+    html = render_collapsible_tree('<li>item</li>', root_class='my-tree', key_class='my-key')
+    assert '<div class="my-tree">' in html
+    assert '.my-tree ul {' in html
+    assert '<ul><li>item</li></ul>' in html
+
+
+def test_print_tree_function_with_dict(monkeypatch):
+    output = []
+    monkeypatch.setattr(Printer, '_in_notebook', staticmethod(lambda: False))
+    monkeypatch.setattr(Printer, '_print', staticmethod(output.append))
+
+    print_tree({'a': {'b': 1}})
+
+    assert output == [
+        '└── a',
+        '    └── b',
+        '        └── 1',
+    ]
+
+
+def test_print_tree_function_in_notebook(monkeypatch):
+    displayed = []
+    display_module = ModuleType('IPython.display')
+    display_module.display = displayed.append
+    ipython_module = ModuleType('IPython')
+    ipython_module.__path__ = []
+    ipython_module.display = display_module
+    monkeypatch.setitem(sys.modules, 'IPython', ipython_module)
+    monkeypatch.setitem(sys.modules, 'IPython.display', display_module)
+    monkeypatch.setattr(Printer, '_in_notebook', staticmethod(lambda: True))
+
+    print_tree({'key': 'val'})
+
+    assert len(displayed) == 1
+    assert isinstance(displayed[0], Printer)
+    assert displayed[0].data == {'key': 'val'}
+
+
+def test_print_tree_delegates_to_object_with_print_tree():
+    calls = []
+
+    class MockTree:
+        def print_tree(self, **kwargs):
+            calls.append(kwargs)
+
+    tree = MockTree()
+    print_tree(tree, prefix='  ', is_last=False)
+
+    assert calls == [{'prefix': '  ', 'is_last': False}]
+
+
+def test_display_tree_alias():
+    assert display_tree is print_tree
+

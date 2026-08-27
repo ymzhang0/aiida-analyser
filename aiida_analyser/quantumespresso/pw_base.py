@@ -1,7 +1,7 @@
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
 
-class PwBaseAnalyser(BaseWorkChainAnalyser):
+class PwBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the PwBaseWorkChain.
     """

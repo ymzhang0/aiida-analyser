@@ -1,7 +1,7 @@
 from aiida import orm
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class Wannier90BaseAnalyser(BaseWorkChainAnalyser):
+class Wannier90BaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the Wannier90BaseWorkChain.
     This analyser handles a single Wannier90 base workchain,

@@ -3,6 +3,7 @@ from html import unescape
 from types import ModuleType, SimpleNamespace
 
 from aiida_analyser.core.base import ProcessTree
+from aiida_analyser.core.printer import print_tree
 
 
 def _tree(name='ROOT', process_label='PhBaseWorkChain', pk=1, state='finished', children=None):
@@ -50,3 +51,47 @@ def test_process_tree_uses_html_display_in_notebook(monkeypatch):
     root.print_tree()
 
     assert displayed == [root]
+
+
+def test_process_tree_to_dict():
+    child = _tree('iteration_01', 'PhCalculation', 2, 'finished_ok')
+    root = _tree(children={'iteration_01': child})
+
+    data = root.to_dict()
+
+    assert data == {
+        'name': 'ROOT',
+        'pk': 1,
+        'process_label': 'PhBaseWorkChain',
+        'state': 'finished',
+        'exit_status': None,
+        'children': {
+            'iteration_01': {
+                'name': 'iteration_01',
+                'pk': 2,
+                'process_label': 'PhCalculation',
+                'state': 'finished_ok',
+                'exit_status': 0,
+                'children': {},
+            }
+        },
+    }
+
+
+def test_print_tree_function_with_process_tree(monkeypatch):
+    displayed = []
+    display_module = ModuleType('IPython.display')
+    display_module.display = displayed.append
+    ipython_module = ModuleType('IPython')
+    ipython_module.__path__ = []
+    ipython_module.display = display_module
+    monkeypatch.setitem(sys.modules, 'IPython', ipython_module)
+    monkeypatch.setitem(sys.modules, 'IPython.display', display_module)
+
+    root = _tree()
+    monkeypatch.setattr(root, '_in_notebook', lambda: True)
+
+    print_tree(root)
+
+    assert displayed == [root]
+

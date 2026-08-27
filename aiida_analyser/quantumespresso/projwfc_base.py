@@ -1,8 +1,8 @@
 import logging
 
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class ProjwfcBaseAnalyser(BaseWorkChainAnalyser):
+class ProjwfcBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the ProjwfcBaseWorkChain.
     This analyser handles a single Projwfc base workchain.

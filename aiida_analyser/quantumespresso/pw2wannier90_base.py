@@ -1,8 +1,8 @@
 import logging
 
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class Pw2Wannier90BaseAnalyser(BaseWorkChainAnalyser):
+class Pw2Wannier90BaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the Pw2Wannier90BaseWorkChain.
     This analyser handles a single Pw2Wannier90 base workchain.

@@ -1,10 +1,10 @@
 from aiida import orm
 import numpy
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 from ..core.groupdata import BaseGroupData, render_process_node_details
 from pathlib import Path
 
-class Thermo_pwBaseAnalyser(BaseWorkChainAnalyser):
+class Thermo_pwBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the Thermo_pwBaseWorkChain.
     """

@@ -15,7 +15,8 @@ from collections import deque
 import itertools
 
 from .logging import get_console, get_logger
-from .analyser_registry import resolve_analyser
+from .analyser_registry import UnregisteredProcessError, resolve_analyser
+from .printer import in_notebook, render_collapsible_tree
 
 
 logger = get_logger(__name__)
@@ -77,6 +78,7 @@ class FailureReportNode:
     analysis_exit_code: AnalysisExitCode | None = None
     outputs: dict[str, str] | None = None
     children: list['FailureReportNode'] = field(default_factory=list)
+    handled_children: list['FailureReportNode'] = field(default_factory=list)
     parent: 'FailureReportNode | None' = field(default=None, repr=False)
 
     @property
@@ -109,6 +111,7 @@ class FailureReportNode:
             'analysis_exit_code': diagnostic,
             'outputs': self.outputs,
             'children': [child.to_dict() for child in self.children],
+            'handled_children': [child.to_dict() for child in self.handled_children],
         }
 
 
@@ -151,6 +154,16 @@ class FailureReport:
                     f'{node.analysis_exit_code.label}'
                 )
             lines.append(f'{prefix}{node.path} ({node.process_label}) ' + ' | '.join(details))
+            for handled in node.handled_children:
+                handled_details = [f'state={handled.process_state}']
+                if handled.raw_exit_status is not None:
+                    handled_details.append(f'aiida_exit={handled.raw_exit_status}')
+                if handled.analysis_exit_code is not None:
+                    handled_details.append(
+                        f'analysis={handled.analysis_exit_code.status}:'
+                        f'{handled.analysis_exit_code.label}'
+                    )
+                lines.append(f'{prefix}  [handled] {handled.path} ({handled.process_label}) ' + ' | '.join(handled_details))
             for child in node.children:
                 render(child, prefix + '  ')
 
@@ -347,33 +360,6 @@ class ProcessTree:
 
         return bool(getattr(node, 'is_finished', False))
 
-    def find_failure_frontiers(self, current_path: str = '') -> list[tuple[str, 'ProcessTree']]:
-        """Return the terminal failed nodes below this process-tree node.
-
-        A failed workchain can wrap one or more failed children. Its actual
-        failure origin is therefore the deepest failed node in each failed
-        branch. A workchain with no failed child is itself a frontier: this
-        covers workflow-level validation and control-flow failures.
-
-        Paths are relative to the analyser root; ``ROOT`` is used only when
-        the analysed workchain itself is the failure frontier.
-        """
-        path = f'{current_path}/{self.name}' if current_path else self.name
-        failed_children = [
-            child for child in self.children.values() if self._is_failed(child.node)
-        ]
-
-        if failed_children:
-            frontiers = []
-            for child in failed_children:
-                frontiers.extend(child.find_failure_frontiers(path))
-            return frontiers
-
-        if self._is_failed(self.node):
-            return [(path, self)]
-
-        return []
-
     def print(self):
         """
         Print the process tree.
@@ -385,13 +371,7 @@ class ProcessTree:
     @staticmethod
     def _in_notebook() -> bool:
         """Return whether the current frontend supports rich HTML display."""
-        try:
-            from IPython import get_ipython
-        except ImportError:
-            return False
-
-        shell = get_ipython()
-        return shell is not None and getattr(shell, 'kernel', None) is not None
+        return in_notebook()
 
     @staticmethod
     def _node_state(node: orm.Node) -> tuple[str, str]:
@@ -404,6 +384,20 @@ class ProcessTree:
         process_state = getattr(node, 'process_state', None)
         state = getattr(process_state, 'value', process_state) or 'created'
         return str(state), '…'
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a serialisable representation of this process tree node."""
+        node_id = getattr(self.node, 'pk', None)
+        process_label = getattr(self.node, 'process_label', self.node.__class__.__name__)
+        state, _ = self._node_state(self.node)
+        return {
+            'name': self.name,
+            'pk': node_id,
+            'process_label': process_label,
+            'state': state,
+            'exit_status': getattr(self.node, 'exit_status', None),
+            'children': {key: child.to_dict() for key, child in self.children.items()},
+        }
 
     def _html_tree(self, depth: int = 0) -> str:
         """Render this subtree as nested ``details`` elements."""
@@ -434,34 +428,11 @@ class ProcessTree:
 
     def _repr_html_(self) -> str:
         """Return a collapsible process tree for Jupyter frontends."""
-        return f'''<div class="aiida-analyser-process-tree">
-<style>
-.aiida-analyser-process-tree {{
-  font-family: var(--jp-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: var(--jp-code-font-size, 13px);
-  line-height: 1.55;
-}}
-.aiida-analyser-process-tree ul {{
-  border-left: 1px solid #9aa0a655;
-  list-style: none;
-  margin: .15em 0 .15em .55em;
-  padding-left: 1.25em;
-}}
-.aiida-analyser-process-tree > ul {{ border-left: 0; margin-left: 0; padding-left: 0; }}
-.aiida-analyser-process-tree li {{ margin: .12em 0; }}
-.aiida-analyser-process-tree summary {{ cursor: pointer; width: fit-content; }}
-.aiida-analyser-process-tree summary:hover .aa-process-name {{ text-decoration: underline; }}
-.aiida-analyser-process-tree .aa-process-icon {{ display: inline-block; margin-right: .45em; }}
-.aiida-analyser-process-tree .aa-process-name {{ color: var(--jp-mirror-editor-variable-color, #795e26); }}
-.aiida-analyser-process-tree .aa-process-meta {{
-  color: var(--jp-ui-font-color2, #666);
-  font-family: var(--jp-ui-font-family, sans-serif);
-  font-size: .9em;
-  margin-left: .65em;
-}}
-</style>
-<ul>{self._html_tree()}</ul>
-</div>'''
+        return render_collapsible_tree(
+            self._html_tree(),
+            root_class='aiida-analyser-process-tree',
+            key_class='aa-process-name',
+        )
 
     def print_tree(self, prefix: str = "", is_last: bool = True):
         """Display a collapsible notebook tree or print the terminal tree."""
@@ -974,7 +945,10 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         Subclasses may override this for the rare cases where a call-link label
         has domain meaning.  An unregistered child is intentionally skipped.
         """
-        return resolve_analyser(child.node)
+        try:
+            return resolve_analyser(child.node)
+        except UnregisteredProcessError:
+            return None
 
     def _copy_tree_for_direct_children(
         self,
@@ -1047,7 +1021,7 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         if self.node.is_finished_ok:
             return 'ROOT', 'finished_ok', 0
 
-        frontiers = self.process_tree.find_failure_frontiers()
+        frontiers = self.get_failure_frontiers()
         if frontiers:
             path, failure_tree = frontiers[0]
             failure_node = failure_tree.node
@@ -1072,11 +1046,35 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
     def get_failure_frontiers(self) -> list[tuple[str, ProcessTree]]:
         """Return every terminal failed branch below this analyser's root.
 
-        ``get_state`` preserves its legacy single-result API and selects the
-        first frontier in call order. Consumers handling parallel branches
-        should use this method instead of assuming a unique root cause.
+        First checks whether the workchain itself has reached a non-success terminal state.
+        If failed, iterates through its next-level subprocesses in chronological execution
+        order, delegating failure resolution down the analyser hierarchy.
+
+        If the workchain is failed but none of its subprocesses failed, the workchain
+        itself is returned as the failure frontier.
         """
-        return self.process_tree.find_failure_frontiers()
+        if not ProcessTree._is_failed(self.node):
+            return []
+
+        frontiers = []
+        for child_name, child_tree in self.process_tree.children.items():
+            if not ProcessTree._is_failed(child_tree.node):
+                continue
+
+            child_analyser_cls = resolve_analyser(child_tree.node)
+            if issubclass(child_analyser_cls, BaseWorkChainAnalyser):
+                child_analyser = child_analyser_cls(child_tree.node)
+                for sub_path, sub_tree in child_analyser.get_failure_frontiers():
+                    sub_label = sub_path.removeprefix('ROOT/').removeprefix('ROOT')
+                    full_path = f'ROOT/{child_name}/{sub_label}' if sub_label else f'ROOT/{child_name}'
+                    frontiers.append((full_path, sub_tree))
+            else:
+                frontiers.append((f'ROOT/{child_name}', child_tree))
+
+        if not frontiers and ProcessTree._is_failed(self.node):
+            return [('ROOT', self.process_tree)]
+
+        return frontiers
 
     @staticmethod
     def _make_failure_report_node(
@@ -1118,6 +1116,18 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         if include_outputs:
             report_node.outputs = analyser.get_failure_outputs()
 
+    @staticmethod
+    def _resolve_tree_by_path(root_tree: ProcessTree, path: str) -> ProcessTree | None:
+        """Resolve a child ProcessTree node using its slash-delimited path."""
+        parts = path.split('/')
+        current = root_tree
+        for part in parts[1:]:
+            if part in current.children:
+                current = current.children[part]
+            else:
+                return None
+        return current
+
     def get_failure_report(self, include_outputs: bool = False) -> FailureReport:
         """Return all failed branches as a nested, analyser-side exception tree.
 
@@ -1131,12 +1141,12 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         frontiers = []
 
         for frontier_path, _frontier_tree in self.get_failure_frontiers():
-            labels = frontier_path.split('/')
+            labels = [p for p in frontier_path.split('/') if p and p != 'ROOT']
             current_tree = root_tree
             current_report = root
             current_path = 'ROOT'
 
-            for label in labels[1:]:
+            for label in labels:
                 current_tree = current_tree.children[label]
                 current_path = f'{current_path}/{label}'
                 child_report = report_nodes.get(current_path)
@@ -1148,11 +1158,20 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
                     )
                     current_report.children.append(child_report)
                     report_nodes[current_path] = child_report
+
+                    child_analyser_cls = resolve_analyser(current_tree.node)
+                    if child_analyser_cls is not None and issubclass(child_analyser_cls, BaseRestartWorkChainAnalyser):
+                        child_analyser = child_analyser_cls(current_tree.node)
+                        for handled_tree in child_analyser._get_handled_subprocesses():
+                            h_path = f'{current_path}/{handled_tree.name}'
+                            h_node = self._make_failure_report_node(handled_tree, h_path, parent=child_report)
+                            self._diagnose_failure_leaf(h_node, handled_tree, include_outputs)
+                            child_report.handled_children.append(h_node)
+
                 current_report = child_report
 
             self._diagnose_failure_leaf(current_report, current_tree, include_outputs)
             frontiers.append(current_report)
-
 
         if not frontiers and ProcessTree._is_failed(root_tree.node):
             self._diagnose_failure_leaf(root, root_tree, include_outputs)
@@ -1263,3 +1282,114 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         Print the retrieved of the all CalcJobNodes in the process tree.
         """
         self.process_tree.print_nodes_info(target_node_type='process.calculation.calcjob.CalcJobNode.', extractor=self.extract_retrieved)
+
+
+class BaseRestartWorkChainAnalyser(BaseWorkChainAnalyser):
+    """Analyser for BaseRestartWorkChain implementations.
+
+    In AiiDA, a BaseRestartWorkChain sequentially runs iterations of a calculation,
+    handling intermediate errors internally. When the workchain fails, only the terminal
+    subprocess (or the workchain itself if the terminal calculation succeeded) represents
+    the unhandled failure frontier. Intermediate failed attempts are captured as
+    ``handled_children``.
+    """
+
+    def _get_restart_subprocesses(self) -> list[ProcessTree]:
+        """Return candidate calculation subprocesses in chronological order."""
+        return [
+            child for child in self.process_tree.children.values()
+            if not (child.name == 'cleanup' and not ProcessTree._is_failed(child.node))
+        ]
+
+    def _get_terminal_subprocess(self) -> ProcessTree | None:
+        """Return the final attempted calculation subprocess, if any."""
+        subprocesses = self._get_restart_subprocesses()
+        return subprocesses[-1] if subprocesses else None
+
+    def _get_handled_subprocesses(self) -> list[ProcessTree]:
+        """Return earlier subprocesses that failed but were handled by this workchain."""
+        subprocesses = self._get_restart_subprocesses()
+        if len(subprocesses) <= 1:
+            return []
+        return [child for child in subprocesses[:-1] if ProcessTree._is_failed(child.node)]
+
+    def get_failure_frontiers(self) -> list[tuple[str, ProcessTree]]:
+        """Return the failure frontier for this restart workchain."""
+        if not ProcessTree._is_failed(self.node):
+            return []
+
+        last_subprocess = self._get_terminal_subprocess()
+        if last_subprocess is None:
+            return [('ROOT', self.process_tree)]
+
+        if ProcessTree._is_failed(last_subprocess.node):
+            analyser_class = resolve_analyser(last_subprocess.node)
+            if analyser_class is not None and issubclass(analyser_class, BaseWorkChainAnalyser):
+                child_analyser = analyser_class(last_subprocess.node)
+                child_frontiers = child_analyser.get_failure_frontiers()
+                return [
+                    (
+                        f'ROOT/{last_subprocess.name}/{p.removeprefix("ROOT/").removeprefix("ROOT")}'
+                        if p.removeprefix("ROOT/").removeprefix("ROOT")
+                        else f'ROOT/{last_subprocess.name}',
+                        tree,
+                    )
+                    for p, tree in child_frontiers
+                ]
+            return [(f'ROOT/{last_subprocess.name}', last_subprocess)]
+
+        # Last calculation succeeded, but workchain failed (e.g. exit code 401: max iterations exceeded)
+        return [('ROOT', self.process_tree)]
+
+    def _get_state_from_tree(self):
+        """Resolve state from the terminal subprocess."""
+        if self.node.is_finished_ok:
+            return 'ROOT', 'finished_ok', 0
+
+        last_subprocess = self._get_terminal_subprocess()
+        if last_subprocess is not None and ProcessTree._is_failed(last_subprocess.node):
+            analyser_class = resolve_analyser(last_subprocess.node)
+            if analyser_class is not None and issubclass(analyser_class, BaseCalculationAnalyser):
+                _, process_state, parsed_exit_code = analyser_class(last_subprocess.node).get_state()
+                return f'ROOT/{last_subprocess.name}', process_state, parsed_exit_code
+
+            node = last_subprocess.node
+            return (
+                f'ROOT/{last_subprocess.name}',
+                getattr(getattr(node, 'process_state', None), 'value', 'unknown_status'),
+                node.exit_code if getattr(node, 'is_finished', False) else None,
+            )
+
+        node_state = getattr(getattr(self.node, 'process_state', None), 'value', 'unknown_status')
+        exit_code = self.node.exit_code if getattr(self.node, 'is_finished', False) else None
+        return 'ROOT', node_state, exit_code
+
+    def get_state(self):
+        """Get the state of the restart workchain."""
+        return self._get_state_from_tree()
+
+    def get_failure_report(self, include_outputs: bool = False) -> FailureReport:
+        """Return failure report highlighting the terminal failure and tracking handled attempts."""
+        root = self._make_failure_report_node(self.process_tree, 'ROOT')
+        if not ProcessTree._is_failed(self.node):
+            return FailureReport(root=root, frontiers=[])
+
+        for handled_tree in self._get_handled_subprocesses():
+            handled_path = f'ROOT/{handled_tree.name}'
+            handled_node = self._make_failure_report_node(handled_tree, handled_path, parent=root)
+            self._diagnose_failure_leaf(handled_node, handled_tree, include_outputs)
+            root.handled_children.append(handled_node)
+
+        last_subprocess = self._get_terminal_subprocess()
+        if last_subprocess is not None and ProcessTree._is_failed(last_subprocess.node):
+            terminal_path = f'ROOT/{last_subprocess.name}'
+            terminal_report = self._make_failure_report_node(last_subprocess, terminal_path, parent=root)
+            self._diagnose_failure_leaf(terminal_report, last_subprocess, include_outputs)
+            root.children.append(terminal_report)
+            return FailureReport(root=root, frontiers=[terminal_report])
+
+        self._diagnose_failure_leaf(root, self.process_tree, include_outputs)
+        return FailureReport(root=root, frontiers=[root])
+
+
+BaseRestartAnalyser = BaseRestartWorkChainAnalyser

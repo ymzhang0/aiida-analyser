@@ -2,6 +2,61 @@
 
 from collections.abc import Iterable, Mapping
 from html import escape
+from typing import Any
+
+
+def in_notebook() -> bool:
+    """Return whether the current frontend supports rich HTML display."""
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return False
+
+    shell = get_ipython()
+    return shell is not None and getattr(shell, 'kernel', None) is not None
+
+
+def render_collapsible_tree(
+    content: str,
+    root_class: str = 'aiida-analyser-tree',
+    key_class: str = 'aa-tree-key',
+    extra_styles: str = '',
+) -> str:
+    """Render a collapsible tree wrapped in HTML and CSS for Jupyter frontends."""
+    return f'''<div class="{root_class}">
+<style>
+.{root_class} {{
+  font-family: var(--jp-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--jp-code-font-size, 13px);
+  line-height: 1.55;
+}}
+.{root_class} ul {{
+  border-left: 1px solid #9aa0a655;
+  list-style: none;
+  margin: .15em 0 .15em .55em;
+  padding-left: 1.25em;
+}}
+.{root_class} > ul {{ border-left: 0; margin-left: 0; padding-left: 0; }}
+.{root_class} li {{ margin: .12em 0; }}
+.{root_class} summary {{ cursor: pointer; width: fit-content; }}
+.{root_class} summary:hover .{key_class} {{ text-decoration: underline; }}
+.{root_class} .{key_class} {{ color: var(--jp-mirror-editor-variable-color, #795e26); }}
+.{root_class} .aa-tree-value, .{root_class} .aa-printer-value {{
+  color: var(--jp-mirror-editor-string-color, inherit);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}}
+.{root_class} .aa-tree-meta, .{root_class} .aa-printer-meta, .{root_class} .aa-process-meta {{
+  color: var(--jp-ui-font-color2, #666);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: .9em;
+  margin-left: .65em;
+}}
+.{root_class} .aa-process-icon {{ display: inline-block; margin-right: .45em; }}
+{extra_styles}
+</style>
+<ul>{content}</ul>
+</div>'''
 
 
 class Printer:
@@ -46,38 +101,11 @@ class Printer:
             return f'<pre class="aiida-analyser-printer-empty">{escape(repr(self.data))}</pre>'
 
         content = self._html_items(self.data)
-        return f'''<div class="aiida-analyser-printer">
-<style>
-.aiida-analyser-printer {{
-  font-family: var(--jp-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: var(--jp-code-font-size, 13px);
-  line-height: 1.55;
-}}
-.aiida-analyser-printer ul {{
-  border-left: 1px solid #9aa0a655;
-  list-style: none;
-  margin: 0 0 0 .55em;
-  padding-left: 1.25em;
-}}
-.aiida-analyser-printer > ul {{ border-left: 0; margin-left: 0; padding-left: 0; }}
-.aiida-analyser-printer li {{ margin: .12em 0; }}
-.aiida-analyser-printer summary {{ cursor: pointer; width: fit-content; }}
-.aiida-analyser-printer summary:hover .aa-printer-key {{ text-decoration: underline; }}
-.aiida-analyser-printer .aa-printer-key {{ color: var(--jp-mirror-editor-variable-color, #795e26); }}
-.aiida-analyser-printer .aa-printer-value {{
-  color: var(--jp-mirror-editor-string-color, inherit);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}}
-.aiida-analyser-printer .aa-printer-meta {{
-  color: var(--jp-ui-font-color2, #666);
-  font-family: var(--jp-ui-font-family, sans-serif);
-  font-size: .9em;
-  margin-left: .65em;
-}}
-</style>
-<ul>{content}</ul>
-</div>'''
+        return render_collapsible_tree(
+            content,
+            root_class='aiida-analyser-printer',
+            key_class='aa-printer-key',
+        )
 
     def _print_recursive(self, data, prefix: str = ''):
         items = self._items(data)
@@ -181,10 +209,23 @@ class Printer:
 
     @staticmethod
     def _in_notebook():
-        try:
-            from IPython import get_ipython
-        except ImportError:
-            return False
+        return in_notebook()
 
-        shell = get_ipython()
-        return shell is not None and getattr(shell, 'kernel', None) is not None
+
+def print_tree(data: Any = None, **kwargs) -> None:
+    """Display a collapsible tree in notebooks or print a text tree elsewhere.
+
+    Supports:
+    - Mappings and iterables (nested dicts, lists, AiiDA Orm Dict, NestedDict, etc.)
+    - Tree objects implementing ``print_tree`` (such as ``ProcessTree``)
+    """
+    if data is not None and hasattr(data, 'print_tree') and callable(data.print_tree):
+        data.print_tree(**kwargs)
+        return
+
+    printer = Printer(data)
+    printer.print()
+
+
+display_tree = print_tree
+

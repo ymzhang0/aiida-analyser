@@ -1,6 +1,7 @@
 from types import SimpleNamespace
+import pytest
 
-from aiida_analyser.core.analyser_registry import AnalyserRegistry, AnalyserSpec
+from aiida_analyser.core.analyser_registry import AnalyserRegistry, AnalyserSpec, UnregisteredProcessError
 
 
 def test_registry_prefers_process_type_over_process_label():
@@ -15,7 +16,8 @@ def test_registry_prefers_process_type_over_process_label():
     assert registry.resolve(node).__name__ == 'Counter'
 
 
-def test_registry_does_not_resolve_an_unregistered_node():
+def test_registry_raises_for_unregistered_node():
     registry = AnalyserRegistry()
 
-    assert registry.resolve(SimpleNamespace(process_type='unknown', process_label='Unknown')) is None
+    with pytest.raises(UnregisteredProcessError, match='No analyser registered'):
+        registry.resolve(SimpleNamespace(process_type='unknown', process_label='Unknown'))

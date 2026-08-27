@@ -1,7 +1,7 @@
 from aiida import orm
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class MatdynBaseAnalyser(BaseWorkChainAnalyser):
+class MatdynBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the MatdynBaseWorkChain.
     """

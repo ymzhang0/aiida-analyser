@@ -1,9 +1,9 @@
-from aiida_analyser.core.base import BaseWorkChainAnalyser
+from aiida_analyser.core.base import BaseRestartWorkChainAnalyser
 
 from .convergence import EpwDegaussKQGroup
 
 
-class EpwBaseAnalyser(BaseWorkChainAnalyser):
+class EpwBaseAnalyser(BaseRestartWorkChainAnalyser):
     """Analyser for the EpwBaseWorkChain."""
 
     def get_source(self):

@@ -1,7 +1,7 @@
 from aiida import orm
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class Q2rBaseAnalyser(BaseWorkChainAnalyser):
+class Q2rBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the Q2rBaseWorkChain.
     """

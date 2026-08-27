@@ -3,9 +3,9 @@ import logging
 from loguru import logger
 from ..core.groupdata import DegaussKGroup
 
-from ..core.base import BaseWorkChainAnalyser
+from ..core.base import BaseRestartWorkChainAnalyser
 
-class PhBaseAnalyser(BaseWorkChainAnalyser):
+class PhBaseAnalyser(BaseRestartWorkChainAnalyser):
     """
     Analyser for the PhBaseWorkChain.
     """
