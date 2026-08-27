@@ -9,11 +9,14 @@ from functools import wraps
 from importlib.resources import as_file, files
 
 __all__ = [
+    'DEFAULT_DOS_FIGURE_HEIGHT',
+    'DEFAULT_DOS_PANEL_WIDTH',
     'DEFAULT_FIGURE_HEIGHT',
     'DEFAULT_FIGURE_WIDTH',
     'DEFAULT_FONT_SIZE',
     'DEFAULT_PANEL_WIDTH',
     'STYLE_RESOURCE',
+    'dos_figure_size',
     'figure_size',
     'plot_style',
     'styled_plot',
@@ -24,6 +27,8 @@ DEFAULT_FONT_SIZE = 10
 DEFAULT_FIGURE_WIDTH = 4.8
 DEFAULT_FIGURE_HEIGHT = 3.2
 DEFAULT_PANEL_WIDTH = 3.2
+DEFAULT_DOS_PANEL_WIDTH = 3.2
+DEFAULT_DOS_FIGURE_HEIGHT = 4.8
 STYLE_RESOURCE = files('aiida_analyser.visualization').joinpath('aiida_analyser.mplstyle')
 
 
@@ -33,6 +38,13 @@ def figure_size(columns=1, rows=1):
         raise ValueError('columns and rows must both be positive integers.')
     width = DEFAULT_FIGURE_WIDTH if columns == 1 else DEFAULT_PANEL_WIDTH * columns
     return (width, DEFAULT_FIGURE_HEIGHT * rows)
+
+
+def dos_figure_size(columns=1, rows=1):
+    """Return a portrait-oriented figure size for DOS subplot grids."""
+    if columns < 1 or rows < 1:
+        raise ValueError('columns and rows must both be positive integers.')
+    return (DEFAULT_DOS_PANEL_WIDTH * columns, DEFAULT_DOS_FIGURE_HEIGHT * rows)
 
 
 @contextmanager

@@ -1,7 +1,5 @@
 """Shared helpers for inspecting and cleaning AiiDA work chains."""
 
-from collections import deque
-from io import StringIO
 import re
 import warnings
 
@@ -30,98 +28,6 @@ def parse_scon_raw_out(
             return (999, 'Excepted')
 
 
-
-def parse_raw_out(
-    wc: orm.WorkChainNode
-    ):
-    __ERRORS = [
-        (1   , 'KILLED',                               'Job is killed'),
-        (2   , 'EXCEPTED',                             'Job is excepted'),
-        (3   , 'MPICH_ERROR',                          'MPICH error'),
-        (404 , 'FAILURE_IN_WANNIER90WORKCHAIN',        'Wannier90WorkChain failed'),
-        (405 , 'FAILURE_IN_EPWWORKCHAIN',              'EpwWorkChain failed'),
-        (3000, 'ERROR_CONVERGENCE_NOT_REACHED',        'No convergence has been achieved'),
-        (3001, 'ERROR_DAVCIO',                         'Error in routine davcio'),
-        (3002, 'ERROR_WRONG_REPRESENTATION',           'wrong representation'),
-        (3003, 'ERROR_QMESH_BREAKS_SYMMETRY',          'q-mesh breaks symmetry'),
-        (3004, 'ERROR_FFT_GRID_INCOMPATIBLE',          'FFT grid incompatible with symmetry'),
-        (3005, 'ERROR_PARTIAL_PROCESSORS_CONVERGED',   'Only some processors converged'),
-        (3006, 'ERROR_PROBLEMS_COMPUTING_CHOLESKY',    'problems computing cholesky'),
-        (3007, 'ERROR_UNKNOWN_MODE_SYMMETRY',          'unknown mode symmetry'),
-        (3008, 'ERROR_MAXIMUM_CPU_TIME_EXCEEDED',      'Maximum CPU time exceeded'),
-        (3009, 'ERROR_S_MATRIX_NOT_POSITIVE_DEFINITE', 'S matrix not positive definite'),
-        (3010, 'ERROR_EIGENVECTORS_NOT_CONVERGE',      'eigenvectors failed to converge'),
-        (3011, 'ERROR_DIOPN',                          'Error in routine dirop'),
-        (3012, 'ERROR_STDOUT_NOT_FOUND',               'Can\'t find standard output'),
-        (3012, 'ERROR_READ_WFC',                       'Error in routine read_wfc'),
-    ]
-
-    if wc.is_killed:
-        return (1, 'KILLED')
-
-    if wc.is_excepted:
-        return (2, 'EXCEPTED')
-
-    if wc.process_label == 'PwBandsWorkChain':
-        return (wc.exit_status, wc.exit_message)
-    if wc.process_label == 'Wannier90OptimizeWorkChain':
-        return (wc.exit_status, wc.exit_message)
-    if wc.process_label == 'EpwWorkChain':
-        if  wc.exit_status == 404:
-            # print(404, wc.pk)
-            return (404, 'FAILURE_IN_WANNIER90WORKCHAIN')
-        if wc.exit_status == 405:
-            # print(405, wc.pk)
-            return (405, 'FAILURE_IN_EPWWORKCHAIN')
-        if wc.exit_status == 0:
-            return (0, 'SUCCESS')
-        wc_ph = wc.base.links.get_outgoing(link_label_filter='ph_base').first().node
-
-    elif wc.process_label == 'PhBaseWorkChain':
-        wc_ph = wc
-    else:
-        raise ValueError('Only EpwWorkChain amd PhBaseWorkChain are accepted.')
-
-    iterations = find_iterations(wc_ph)
-    if not iterations:
-        return (999, 'NO_ITERATIONS_FOUND')
-
-    max_iteration = max(iterations, key=lambda x: int(x.split('_')[1]))
-
-    final_calcjob = wc_ph.base.links.get_outgoing(link_label_filter=max_iteration).first().node
-
-    if final_calcjob.is_killed:
-        return (1, 'KILLED')
-
-    if final_calcjob.is_excepted:
-        return (2, 'EXCEPTED')
-
-    if 'aiida.out' not in final_calcjob.outputs.retrieved.list_object_names():
-
-        return (3012, 'ERROR_STDOUT_NOT_FOUND')
-
-
-    aiida_out = final_calcjob.outputs.retrieved.get_object_content('aiida.out')
-    # stderr = final_calcjob.outputs.retrieved.get_object_content('_scheduler-stderr.txt')
-
-    stderr = final_calcjob.get_scheduler_stderr()
-    tails = ''.join(deque(StringIO(aiida_out), maxlen=200))
-
-    short_tails = ''.join(deque(StringIO(aiida_out), maxlen=20))
-
-
-    for error_code, error_flag, error_message in __ERRORS:
-        if error_message in tails:
-            return (error_code, error_flag)
-
-    if 'JOB DONE' in tails:
-        return (0, 'Either job finished successfully or insufficient buffer of aiida.out used')
-    else:
-        if 'error' in stderr:
-            # print(3, wc.pk)
-            return (3, 'MPICH_ERROR')
-        else:
-            return(999, f'{wc.pk} has no JOB DONE in aiida.out')
 
 def get_qpoints_and_frequencies(
     wc: orm.WorkChainNode

@@ -63,8 +63,11 @@ def set_description_for_group(group, description, overwrite=False):
         group.description += description
     print("new description: ", group.description)
 
-def count_groups(profile, log=print):
-    load_profile(profile, allow_switch=True)
+def count_groups(profile=None, log=print):
+    """Log groups in the active profile or archive."""
+    if profile:
+        load_profile(profile, allow_switch=True)
+
     qb = QueryBuilder().append(
         Group,
         project=["*"]
@@ -82,8 +85,11 @@ def count_nodes(node_type, process_type, profile=None):
     })
     return qb.count()
 
-def get_and_count_types(profile, log=print):
-    load_profile(profile, allow_switch=True)
+def get_and_count_types(profile=None, log=print):
+    """Log node-type counts in the active profile or archive."""
+    if profile:
+        load_profile(profile, allow_switch=True)
+
     qb = QueryBuilder().append(Node, project=['node_type', 'process_type']).distinct()
     log(f"{'count':<10} {'node_type':<50} {'process_type':<10}")
     for [node_type, process_type] in qb.all():

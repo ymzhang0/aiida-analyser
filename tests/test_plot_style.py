@@ -12,12 +12,17 @@ sys.modules.setdefault('aiida_epw.tools', ModuleType('aiida_epw.tools'))
 sys.modules.setdefault('aiida_epw.tools.plot', aiida_epw_plot)
 
 from aiida_analyser.visualization import (
+    DEFAULT_DOS_FIGURE_HEIGHT,
+    DEFAULT_DOS_PANEL_WIDTH,
     DEFAULT_FIGURE_HEIGHT,
     DEFAULT_FIGURE_WIDTH,
     DEFAULT_FONT_SIZE,
     DEFAULT_PANEL_WIDTH,
     STYLE_RESOURCE,
+    dos_figure_size,
     figure_size,
+    plot_eldos,
+    plot_phdos,
     plot_style,
     styled_plot,
 )
@@ -27,6 +32,7 @@ def test_style_public_api_exports_all_defaults():
     assert figure_size() == (DEFAULT_FIGURE_WIDTH, DEFAULT_FIGURE_HEIGHT)
     assert figure_size(columns=2) == (2 * DEFAULT_PANEL_WIDTH, DEFAULT_FIGURE_HEIGHT)
     assert DEFAULT_FONT_SIZE > 0
+    assert dos_figure_size() == (DEFAULT_DOS_PANEL_WIDTH, DEFAULT_DOS_FIGURE_HEIGHT)
     assert STYLE_RESOURCE.name == 'aiida_analyser.mplstyle'
 
 
@@ -52,6 +58,7 @@ def test_plot_style_allows_local_font_overrides():
 def test_figure_size_scales_multi_panel_figures():
     assert figure_size() == (4.8, 3.2)
     assert figure_size(columns=3, rows=2) == pytest.approx((9.6, 6.4))
+    assert dos_figure_size(columns=3, rows=2) == pytest.approx((9.6, 9.6))
 
 
 def test_styled_plot_applies_style_without_leaking_it():
@@ -68,3 +75,23 @@ def test_styled_plot_applies_style_without_leaking_it():
     assert tuple(fig.get_size_inches()) == pytest.approx((4.8, 3.2))
     assert mpl.rcParams['font.size'] == original_font_size
     plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    ('plotter', 'arrays'),
+    [
+        (plot_eldos, {'Energy': [0.0, 1.0], 'EDOS': [0.0, 2.0]}),
+        (plot_phdos, {'Frequency': [0.0, 1.0], 'PHDOS': [0.0, 2.0]}),
+    ],
+)
+def test_dos_plotters_use_portrait_default(plotter, arrays):
+    class ArrayData:
+        def get_array(self, name):
+            import numpy as np
+            return np.asarray(arrays[name])
+
+    plt.close('all')
+    plotter(ArrayData())
+
+    assert tuple(plt.gcf().get_size_inches()) == pytest.approx(dos_figure_size())
+    plt.close(plt.gcf())

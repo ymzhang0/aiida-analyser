@@ -30,3 +30,25 @@ Install everything with:
 ```bash
 pip install -e .[all]
 ```
+
+## Reading an archive
+
+Use `archive_context` to query an `.aiida` archive with AiiDA's read-only
+SQLite backend. The context restores the profile that was active before the
+archive was opened.
+
+```python
+from aiida import orm
+from aiida_analyser import archive_context
+
+with archive_context('/path/to/calculation.aiida'):
+    groups = orm.QueryBuilder().append(orm.Group).all(flat=True)
+```
+
+Inside the context, inspect archive contents with:
+
+```python
+from aiida_analyser import count_groups, get_and_count_types
+
+count_groups()
+get_and_count_types()

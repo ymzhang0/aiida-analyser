@@ -3,7 +3,7 @@
 from aiida import orm
 from typing import Tuple
 from matplotlib import pyplot as plt
-from .style import DEFAULT_FONT_SIZE, figure_size, styled_plot
+from .style import DEFAULT_FONT_SIZE, dos_figure_size, figure_size, styled_plot
 import numpy
 from io import StringIO
 from scipy.optimize import curve_fit
@@ -31,7 +31,7 @@ def plot_eldos(
 
     if axis is None:
         from matplotlib import pyplot as plt
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=kwargs.pop('figsize', dos_figure_size()))
     else:
         ax = axis
 
@@ -78,7 +78,7 @@ def plot_phdos(
 
     if axis is None:
         from matplotlib import pyplot as plt
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=kwargs.pop('figsize', dos_figure_size()))
     else:
         ax = axis
 
@@ -390,6 +390,132 @@ def create_xticks_bands(bands: orm.BandsData) -> Tuple[list, list]:
             xticks.append(label_number)
 
     return xticks, xtick_labels
+
+
+def _band_path_groups(bands):
+    """Return display labels and raw indices for each band-path boundary."""
+    labels = bands.base.attributes.get('labels')
+    label_numbers = bands.base.attributes.get('label_numbers')
+    if not labels or not label_numbers or len(labels) != len(label_numbers):
+        raise ValueError('Band structures must define matching labels and label_numbers attributes.')
+
+    def transform_gamma(label):
+        return r'$\Gamma$' if label == 'GAMMA' else label
+
+    groups = []
+    for label, index in zip(labels, label_numbers):
+        display_label = transform_gamma(label)
+        if groups and index - groups[-1]['indices'][0] == 1:
+            groups[-1]['label'] = f"{groups[-1]['label']}|{display_label}"
+            groups[-1]['indices'].append(index)
+        else:
+            groups.append({'label': display_label, 'indices': [index]})
+    return groups
+
+
+def _aligned_band_coordinates(bands, reference_groups, reference_positions):
+    """Map a band structure's path boundaries onto reference positions."""
+    groups = _band_path_groups(bands)
+    labels = [group['label'] for group in groups]
+    reference_labels = [group['label'] for group in reference_groups]
+    if labels != reference_labels:
+        raise ValueError(
+            'PW and W90 band paths do not match: '
+            f'PW/W90 labels are {labels!r} and {reference_labels!r}.'
+        )
+    bands_array = bands.get_bands()
+    raw_anchors = []
+    aligned_anchors = []
+    for group, position in zip(groups, reference_positions):
+        raw_anchors.extend(group['indices'])
+        aligned_anchors.extend([position] * len(group['indices']))
+    if raw_anchors[0] != 0 or raw_anchors[-1] != len(bands_array) - 1:
+        raise ValueError('Band-path labels must include the first and last k-points.')
+    return numpy.interp(numpy.arange(len(bands_array)), raw_anchors, aligned_anchors)
+
+
+@styled_plot
+def plot_pw_w90_comparison(
+    pw_analyser,
+    w90_analyser,
+    axis=None,
+    *,
+    xlim=(0, 1),
+    ylim=(-0.8, 0.8),
+    pw_style=None,
+    w90_style=None,
+    annotation=None,
+    ylabel='Energy (eV)',
+    legend=True,
+    ticklabel_fontsize=DEFAULT_FONT_SIZE,
+    label_fontsize=DEFAULT_FONT_SIZE,
+):
+    """Compare PW and Wannier90 bands on one aligned high-symmetry path.
+
+    The two analysers may use different numbers of k-points. Their path
+    segments are mapped onto the W90 high-symmetry boundaries before plotting.
+    A mismatching sequence of path labels is rejected instead of silently
+    producing a misleading overlay.
+    """
+    if axis is None:
+        _, ax = plt.subplots(1, 1, figsize=figure_size())
+    else:
+        ax = axis
+
+    pw_node = pw_analyser.node
+    w90_node = w90_analyser.node
+    pw_bands = pw_node.outputs.band_structure
+    w90_bands = w90_node.outputs.band_structure
+    pw_fermi = pw_node.outputs.scf_parameters.get('fermi_energy')
+    w90_fermi = w90_node.outputs.scf.output_parameters.get('fermi_energy')
+
+    w90_groups = _band_path_groups(w90_bands)
+    segment_lengths = [
+        next_group['indices'][0] - group['indices'][-1]
+        for group, next_group in zip(w90_groups, w90_groups[1:])
+    ]
+    if not segment_lengths or any(length <= 0 for length in segment_lengths):
+        raise ValueError('W90 band path must contain increasing high-symmetry boundaries.')
+
+    x_start, x_end = xlim
+    cumulative = numpy.concatenate(([0], numpy.cumsum(segment_lengths)))
+    reference_positions = x_start + cumulative / cumulative[-1] * (x_end - x_start)
+    pw_x = _aligned_band_coordinates(pw_bands, w90_groups, reference_positions)
+    w90_x = _aligned_band_coordinates(w90_bands, w90_groups, reference_positions)
+
+    pw_options = {'color': 'black', 'linestyle': '-', 'linewidth': 1.2}
+    pw_options.update(pw_style or {})
+    w90_options = {'color': 'red', 'linestyle': '--', 'linewidth': 1.2}
+    w90_options.update(w90_style or {})
+    for band in pw_bands.get_bands().T:
+        ax.plot(pw_x, band - pw_fermi, **pw_options)
+    for band in w90_bands.get_bands().T:
+        ax.plot(w90_x, band - w90_fermi, **w90_options)
+
+    for position in reference_positions:
+        ax.axvline(position, color='black', linewidth=0.8)
+    ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_xticks(
+        reference_positions,
+        [group['label'] for group in w90_groups],
+        fontsize=ticklabel_fontsize,
+    )
+    ax.set_ylabel(ylabel, fontsize=label_fontsize)
+    if legend:
+        ax.plot([], [], label='PW', **pw_options)
+        ax.plot([], [], label='W90', **w90_options)
+        ax.legend()
+    if annotation:
+        ax.text(
+            0.03, 0.96, annotation,
+            transform=ax.transAxes,
+            ha='left',
+            va='top',
+            fontsize=ticklabel_fontsize,
+        )
+    return ax
 
 
 @styled_plot

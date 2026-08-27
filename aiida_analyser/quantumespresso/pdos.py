@@ -2,6 +2,7 @@ import logging
 
 from ..core.base import BaseWorkChainAnalyser
 from ..core.groupdata import DegaussKGroup
+from ..visualization.style import dos_figure_size
 from .dos_calculation import DosAnalyser
 from .projwfc_calculation import ProjwfcAnalyser
 from .pw_base import PwBaseAnalyser
@@ -46,9 +47,10 @@ class PdosAnalyser(BaseWorkChainAnalyser):
 
     def plot_pdos(self,
         axis = None,
+        figsize = None,
         **kwargs,
     ):
-        """Plot the pdos."""
+        """Plot the PDOS, using a portrait figure unless ``figsize`` is given."""
         import numpy
         color = kwargs.pop('color', 'r')
         linestyle = kwargs.pop('linestyle', '-')
@@ -64,7 +66,8 @@ class PdosAnalyser(BaseWorkChainAnalyser):
 
         if axis is None:
             from matplotlib import pyplot as plt
-            fig, ax = plt.subplots()
+            figsize = dos_figure_size() if figsize is None else figsize
+            fig, ax = plt.subplots(figsize=figsize)
         else:
             ax = axis
 
@@ -201,7 +204,8 @@ class PdosGroup(DegaussKGroup):
                         yield material, degauss, kpoints_distance, soc_setting, hubbard_u_setting, node
 
     def plot_pdos(self, axs=None, formula=None, kpoints_distances=None,
-                  degausses=None, with_soc=None, with_hubbard_u=None, destpath=None, **kwargs):
+                  degausses=None, with_soc=None, with_hubbard_u=None, destpath=None,
+                  figsize=None, **kwargs):
         """Compare finished PDOS results for the selected convergence settings."""
         import matplotlib.pyplot as plt
         import numpy as np
@@ -229,7 +233,8 @@ class PdosGroup(DegaussKGroup):
 
         created_axes = axs is None
         if axs is None:
-            _, axs = plt.subplots(1, len(structures), figsize=(6 * len(structures), 5), squeeze=False)
+            figsize = dos_figure_size(columns=len(structures)) if figsize is None else figsize
+            _, axs = plt.subplots(1, len(structures), figsize=figsize, squeeze=False)
         flat_axes = list(np.asarray(axs, dtype=object).flat)
         if len(flat_axes) < len(structures):
             raise ValueError(f'Expected at least {len(structures)} axes, received {len(flat_axes)}.')

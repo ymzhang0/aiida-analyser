@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
-from aiida_analyser.quantumespresso.pdos import PdosGroup
+import matplotlib.pyplot as plt
+import numpy as np
+import pytest
+
+from aiida_analyser.quantumespresso.pdos import PdosAnalyser, PdosGroup
 
 
 def make_node(pk, **extras):
@@ -110,3 +114,40 @@ def test_pdos_group_dump_uses_the_base_progress_implementation(tmp_path):
         'nodes': [node],
         'progress': False,
     }
+
+
+@pytest.mark.parametrize('figsize', [None, (5.5, 2.5)])
+def test_pdos_analyser_uses_dos_default_and_accepts_custom_figsize(figsize):
+    output_dos = SimpleNamespace(
+        get_array=lambda name: {
+            'x_array': np.array([0.0, 1.0]),
+            'y_array_1': np.array([0.0, 2.0]),
+        }[name],
+    )
+    scf = SimpleNamespace(outputs=SimpleNamespace(output_parameters={'fermi_energy': 0.0}))
+    outgoing = SimpleNamespace(first=lambda: SimpleNamespace(node=scf))
+    node = SimpleNamespace(
+        base=SimpleNamespace(links=SimpleNamespace(get_outgoing=lambda **kwargs: outgoing)),
+        outputs=SimpleNamespace(dos=SimpleNamespace(output_dos=output_dos)),
+    )
+
+    plt.close('all')
+    PdosAnalyser(node).plot_pdos(figsize=figsize)
+
+    expected = (3.2, 4.8) if figsize is None else figsize
+    assert tuple(plt.gcf().get_size_inches()) == pytest.approx(expected)
+    plt.close(plt.gcf())
+
+
+@pytest.mark.parametrize('figsize', [None, (5.5, 2.5)])
+def test_pdos_group_uses_dos_default_and_accepts_custom_figsize(monkeypatch, figsize):
+    node = make_node(11)
+    group = PdosGroup.__new__(PdosGroup)
+    group._nested_data = {'Si': {0.01: {0.15: [node]}}}
+    monkeypatch.setattr(PdosAnalyser, 'plot_pdos', lambda self, axis=None, **kwargs: None)
+
+    axs = group.plot_pdos(figsize=figsize, legend=False)
+
+    expected = (3.2, 4.8) if figsize is None else figsize
+    assert tuple(axs.flat[0].figure.get_size_inches()) == pytest.approx(expected)
+    plt.close(axs.flat[0].figure)

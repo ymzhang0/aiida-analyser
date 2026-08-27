@@ -130,17 +130,22 @@ class PhBaseAnalyser(BaseWorkChainAnalyser):
                 return path, 'UNSTABLE', exit_code
 
         if process_state == 'finished' and getattr(exit_code, 'status', exit_code) == 312:
-            last_node = self.process_tree.find_last_node().node
-            if last_node.process_label != 'PhCalculation':
-                return path, process_state, self.node.exit_message
+            frontiers = self.get_failure_frontiers()
+            if not frontiers:
+                return path, process_state, exit_code
+
+            _, failure_tree = frontiers[0]
+            failure_node = failure_tree.node
+            if failure_node.process_label != 'PhCalculation':
+                return path, process_state, exit_code
 
             try:
-                aiida_out = last_node.outputs.retrieved.get_object_content('aiida.out')
+                aiida_out = failure_node.outputs.retrieved.get_object_content('aiida.out')
             except (AttributeError, KeyError):
                 aiida_out = ''
 
             try:
-                stderr = last_node.get_scheduler_stderr() or ''
+                stderr = failure_node.get_scheduler_stderr() or ''
             except (AttributeError, KeyError):
                 stderr = ''
 
@@ -157,13 +162,13 @@ class PhBaseAnalyser(BaseWorkChainAnalyser):
                 ('ERROR_READ_WFC', 'Error in routine read_wfc (29)'),
             ]:
                 if error_message in aiida_out:
-                    return path, error_flag, self.node.exit_message
+                    return path, error_flag, exit_code
 
             if 'TIME LIMIT' in stderr:
-                return path, 'SCHEDULER_TIME_LIMIT', self.node.exit_message
+                return path, 'SCHEDULER_TIME_LIMIT', exit_code
 
             if 'process killed' in stderr.lower():
-                return path, 'KILLED_BY_SCHEDULER', self.node.exit_message
+                return path, 'KILLED_BY_SCHEDULER', exit_code
 
         return path, process_state, exit_code
 

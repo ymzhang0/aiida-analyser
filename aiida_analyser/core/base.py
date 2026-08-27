@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import cached_property
+from html import escape
 from pathlib import Path
 from .workchains import clean_workdir
 from aiida.tools import delete_nodes
@@ -19,10 +20,146 @@ from .analyser_registry import resolve_analyser
 
 logger = get_logger(__name__)
 console = get_console()
+
+@dataclass(frozen=True)
+class AnalysisExitCode:
+    """An analyser-only diagnostic code; it never changes an AiiDA node."""
+
+    status: int
+    label: str
+    message: str
+    evidence: tuple[str, ...] = ()
+
+
+class CalculationFailureParser(ABC):
+    """Classify a failed calculation from its retrieved and scheduler output."""
+
+    @abstractmethod
+    def parse(self, outputs: dict[str, str]) -> AnalysisExitCode | None:
+        """Return an analyser-only code, or ``None`` when no rule matches."""
+        raise NotImplementedError
+
+@dataclass(frozen=True)
+class BaseParser(CalculationFailureParser):
+    """Classify output markers across calculation and scheduler output."""
+
+    rules: tuple[tuple[tuple[str, ...], AnalysisExitCode], ...]
+
+    def parse(self, outputs: dict[str, str]) -> AnalysisExitCode | None:
+        output = '\n'.join(outputs.values()).lower()
+        for markers, analysis_exit_code in self.rules:
+            if all(marker in output for marker in markers):
+                return AnalysisExitCode(
+                    analysis_exit_code.status,
+                    analysis_exit_code.label,
+                    analysis_exit_code.message,
+                    evidence=markers,
+                )
+        return None
+
 _COPY_TREE_DEPTH: ContextVar[int] = ContextVar('aiida_analyser_copy_tree_depth', default=0)
 _COPY_TREE_INFO_LOGGING_ENABLED: ContextVar[bool] = ContextVar(
     'aiida_analyser_copy_tree_info_logging_enabled', default=True
 )
+
+
+
+@dataclass
+class FailureReportNode:
+    """One failed process in an analyser-side failure tree."""
+
+    path: str
+    process_label: str
+    pk: int | None
+    process_state: str
+    raw_exit_status: int | None
+    raw_exit_message: str | None
+    analysis_exit_code: AnalysisExitCode | None = None
+    outputs: dict[str, str] | None = None
+    children: list['FailureReportNode'] = field(default_factory=list)
+    parent: 'FailureReportNode | None' = field(default=None, repr=False)
+
+    @property
+    def chain(self) -> list['FailureReportNode']:
+        """Return this failure branch from the analysed root to this node."""
+        branch = []
+        current = self
+        while current is not None:
+            branch.append(current)
+            current = current.parent
+        return list(reversed(branch))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a serialisable representation of this report node."""
+        diagnostic = None
+        if self.analysis_exit_code is not None:
+            diagnostic = {
+                'status': self.analysis_exit_code.status,
+                'label': self.analysis_exit_code.label,
+                'message': self.analysis_exit_code.message,
+                'evidence': list(self.analysis_exit_code.evidence),
+            }
+        return {
+            'path': self.path,
+            'process_label': self.process_label,
+            'pk': self.pk,
+            'process_state': self.process_state,
+            'raw_exit_status': self.raw_exit_status,
+            'raw_exit_message': self.raw_exit_message,
+            'analysis_exit_code': diagnostic,
+            'outputs': self.outputs,
+            'children': [child.to_dict() for child in self.children],
+        }
+
+
+@dataclass
+class FailureReport:
+    """Complete failure tree without mutating the persisted AiiDA processes."""
+
+    root: FailureReportNode
+    frontiers: list[FailureReportNode]
+
+    @property
+    def primary(self) -> FailureReportNode | None:
+        """Return the first terminal failed branch in call order."""
+        return self.frontiers[0] if self.frontiers else None
+
+    @property
+    def primary_chain(self) -> list[FailureReportNode]:
+        """Return the root-to-leaf chain of the primary failure."""
+        return self.primary.chain if self.primary is not None else []
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a serialisable failure tree and its terminal branches."""
+        return {
+            'tree': self.root.to_dict(),
+            'frontiers': [frontier.path for frontier in self.frontiers],
+            'primary_path': self.primary.path if self.primary is not None else None,
+        }
+
+    def format(self) -> str:
+        """Render the complete failure tree as compact plain text."""
+        lines = []
+
+        def render(node: FailureReportNode, prefix: str = '') -> None:
+            details = [f'state={node.process_state}']
+            if node.raw_exit_status is not None:
+                details.append(f'aiida_exit={node.raw_exit_status}')
+            if node.analysis_exit_code is not None:
+                details.append(
+                    f'analysis={node.analysis_exit_code.status}:'
+                    f'{node.analysis_exit_code.label}'
+                )
+            lines.append(f'{prefix}{node.path} ({node.process_label}) ' + ' | '.join(details))
+            for child in node.children:
+                render(child, prefix + '  ')
+
+        render(self.root)
+        return '\n'.join(lines)
+
+    def print(self) -> None:
+        """Print the complete analyser-side failure tree."""
+        console.print(self.format())
 
 
 def _format_node_ref(node: orm.Node) -> str:
@@ -194,6 +331,49 @@ class ProcessTree:
                     queue.append(child_node)
         return last_node
 
+    @staticmethod
+    def _is_failed(node: orm.Node) -> bool:
+        """Return whether *node* has reached a non-success terminal state.
+
+        ``not is_finished_ok`` is deliberately insufficient here: a submitted
+        or running process is not a failure. The fallbacks keep this helper
+        usable with the lightweight node doubles used by the test suite.
+        """
+        if getattr(node, 'is_finished_ok', False):
+            return False
+
+        if any(getattr(node, attribute, False) for attribute in ('is_failed', 'is_excepted', 'is_killed')):
+            return True
+
+        return bool(getattr(node, 'is_finished', False))
+
+    def find_failure_frontiers(self, current_path: str = '') -> list[tuple[str, 'ProcessTree']]:
+        """Return the terminal failed nodes below this process-tree node.
+
+        A failed workchain can wrap one or more failed children. Its actual
+        failure origin is therefore the deepest failed node in each failed
+        branch. A workchain with no failed child is itself a frontier: this
+        covers workflow-level validation and control-flow failures.
+
+        Paths are relative to the analyser root; ``ROOT`` is used only when
+        the analysed workchain itself is the failure frontier.
+        """
+        path = f'{current_path}/{self.name}' if current_path else self.name
+        failed_children = [
+            child for child in self.children.values() if self._is_failed(child.node)
+        ]
+
+        if failed_children:
+            frontiers = []
+            for child in failed_children:
+                frontiers.extend(child.find_failure_frontiers(path))
+            return frontiers
+
+        if self._is_failed(self.node):
+            return [(path, self)]
+
+        return []
+
     def print(self):
         """
         Print the process tree.
@@ -202,10 +382,94 @@ class ProcessTree:
         for child in self.children.values():
             child.print()
 
+    @staticmethod
+    def _in_notebook() -> bool:
+        """Return whether the current frontend supports rich HTML display."""
+        try:
+            from IPython import get_ipython
+        except ImportError:
+            return False
+
+        shell = get_ipython()
+        return shell is not None and getattr(shell, 'kernel', None) is not None
+
+    @staticmethod
+    def _node_state(node: orm.Node) -> tuple[str, str]:
+        """Return a compact state label and visual marker for a process node."""
+        if getattr(node, 'is_finished_ok', False):
+            return 'finished_ok', '✓'
+        if getattr(node, 'is_terminated', False):
+            return 'failed', '✗'
+
+        process_state = getattr(node, 'process_state', None)
+        state = getattr(process_state, 'value', process_state) or 'created'
+        return str(state), '…'
+
+    def _html_tree(self, depth: int = 0) -> str:
+        """Render this subtree as nested ``details`` elements."""
+        node = self.node
+        process_label = getattr(node, 'process_label', node.__class__.__name__)
+        node_pk = getattr(node, 'pk', 'N/A')
+        state, icon = self._node_state(node)
+        exit_status = getattr(node, 'exit_status', None)
+        exit_label = '' if exit_status in (None, 0) else f' · exit {exit_status}'
+        metadata = f'{process_label} · PK {node_pk} · {state}{exit_label}'
+        summary = (
+            f'<summary><span class="aa-process-icon">{escape(icon)}</span>'
+            f'<span class="aa-process-name">{escape(str(self.name))}</span>'
+            f'<span class="aa-process-meta">{escape(str(metadata))}</span></summary>'
+        )
+
+        if not self.children:
+            leaf = (
+                f'<span class="aa-process-icon">{escape(icon)}</span>'
+                f'<span class="aa-process-name">{escape(str(self.name))}</span>'
+                f'<span class="aa-process-meta">{escape(str(metadata))}</span>'
+            )
+            return f'<li class="aa-process-leaf">{leaf}</li>'
+
+        children = ''.join(child._html_tree(depth + 1) for child in self.children.values())
+        opened = ' open' if depth == 0 else ''
+        return f'<li><details{opened}>{summary}<ul>{children}</ul></details></li>'
+
+    def _repr_html_(self) -> str:
+        """Return a collapsible process tree for Jupyter frontends."""
+        return f'''<div class="aiida-analyser-process-tree">
+<style>
+.aiida-analyser-process-tree {{
+  font-family: var(--jp-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--jp-code-font-size, 13px);
+  line-height: 1.55;
+}}
+.aiida-analyser-process-tree ul {{
+  border-left: 1px solid #9aa0a655;
+  list-style: none;
+  margin: .15em 0 .15em .55em;
+  padding-left: 1.25em;
+}}
+.aiida-analyser-process-tree > ul {{ border-left: 0; margin-left: 0; padding-left: 0; }}
+.aiida-analyser-process-tree li {{ margin: .12em 0; }}
+.aiida-analyser-process-tree summary {{ cursor: pointer; width: fit-content; }}
+.aiida-analyser-process-tree summary:hover .aa-process-name {{ text-decoration: underline; }}
+.aiida-analyser-process-tree .aa-process-icon {{ display: inline-block; margin-right: .45em; }}
+.aiida-analyser-process-tree .aa-process-name {{ color: var(--jp-mirror-editor-variable-color, #795e26); }}
+.aiida-analyser-process-tree .aa-process-meta {{
+  color: var(--jp-ui-font-color2, #666);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  font-size: .9em;
+  margin-left: .65em;
+}}
+</style>
+<ul>{self._html_tree()}</ul>
+</div>'''
+
     def print_tree(self, prefix: str = "", is_last: bool = True):
-        """
-        Manually print the tree structure to the console.
-        """
+        """Display a collapsible notebook tree or print the terminal tree."""
+        if not prefix and is_last and self._in_notebook():
+            from IPython.display import display
+
+            display(self)
+            return
         
         # Determine the prefix and connector line of the current node
         connector = "└── " if is_last else "├── "
@@ -362,6 +626,8 @@ class WorkChainAnalyser(ABC):
 class BaseCalculationAnalyser:
     """Base analyser for a CalcJob node."""
 
+    failure_parsers: tuple[CalculationFailureParser, ...] = ()
+
     def __init__(self, calculation: orm.CalcJobNode):
         self.node = calculation
 
@@ -370,15 +636,95 @@ class BaseCalculationAnalyser:
         """Return a compact process reference for the current node."""
         return _format_node_ref(self.node)
 
+    def _read_retrieved_content(self, filename: str) -> str:
+        """Return a retrieved text file, or an empty string when unavailable."""
+        try:
+            retrieved = self.node.outputs.retrieved
+            return retrieved.get_object_content(filename)
+        except (AttributeError, KeyError, OSError):
+            return ''
+
+    def _read_scheduler_output(self, method_name: str) -> str:
+        """Return scheduler output through an AiiDA CalcJob helper."""
+        try:
+            return getattr(self.node, method_name)() or ''
+        except (AttributeError, KeyError, OSError):
+            return ''
+
+    def get_calculation_output_filename(self) -> str:
+        """Return the output filename declared by the calculation process class."""
+        try:
+            process_class = self.node.process_class
+        except (AttributeError, ValueError):
+            # Imported archives can retain a CalcJob node after the plugin that
+            # defined its entry point is no longer installed locally.
+            process_class = None
+        return getattr(process_class, '_DEFAULT_OUTPUT_FILE', None) or 'aiida.out'
+
+    def get_failure_outputs(self) -> dict[str, str]:
+        """Return the calculation and scheduler output used for diagnosis.
+
+        output_filename comes from the CalcJob process class and is therefore
+        aiida.wout for Wannier90, rather than a hard-coded aiida.out.
+        """
+        output_filename = self.get_calculation_output_filename()
+        return {
+            'output_filename': output_filename,
+            'calculation_output': self._read_retrieved_content(output_filename),
+            'scheduler_stdout': self._read_scheduler_output('get_scheduler_stdout'),
+            'scheduler_stderr': self._read_scheduler_output('get_scheduler_stderr'),
+        }
+
+    def _is_incomplete_stdout_error(self, exit_code) -> bool:
+        """Return whether the plugin reported its generic incomplete-output error."""
+        message = getattr(exit_code, 'message', '') or ''
+        node_message = getattr(self.node, 'exit_message', '') or ''
+        message = f'{message} {node_message}'.lower()
+        return 'stdout output file was incomplete' in message
+
+    def parse_incomplete_stdout(self, outputs: dict[str, str]) -> AnalysisExitCode | None:
+        """Optionally refine the generic incomplete-stdout failure.
+
+        Calculation-specific parsers are tried before scheduler-level fallbacks.
+        """
+        for parser in self.failure_parsers:
+            analysis_exit_code = parser.parse(outputs)
+            if analysis_exit_code is not None:
+                return analysis_exit_code
+
+        combined_output = '\n'.join(outputs.values()).lower()
+        if any(marker in combined_output for marker in ('time limit', 'walltime', 'wall time')):
+            return AnalysisExitCode(7001, 'SCHEDULER_TIME_LIMIT', 'Scheduler time limit reached')
+        if any(marker in combined_output for marker in ('out of memory', 'oom-kill', 'oom killed')):
+            return AnalysisExitCode(7002, 'SCHEDULER_OUT_OF_MEMORY', 'Scheduler terminated an out-of-memory job')
+        if 'sigterm' in combined_output or 'terminated by signal 15' in combined_output:
+            return AnalysisExitCode(7003, 'SCHEDULER_SIGTERM', 'Job received SIGTERM')
+        if 'sigkill' in combined_output or 'terminated by signal 9' in combined_output:
+            return AnalysisExitCode(7004, 'SCHEDULER_SIGKILL', 'Job received SIGKILL')
+        return None
+    def get_analysis_exit_code(self) -> AnalysisExitCode | None:
+        """Return the analyser-only diagnosis for this calculation, if any."""
+        exit_code = self.node.exit_code if self.node.is_finished else None
+        if exit_code is None or not self._is_incomplete_stdout_error(exit_code):
+            return None
+        return self.parse_incomplete_stdout(self.get_failure_outputs())
+
+
     def get_state(self):
         """Return the state of the calculation node."""
         if self.node.is_finished_ok:
             return 'ROOT', 'finished_ok', 0
 
+        exit_code = self.node.exit_code if self.node.is_finished else None
+        process_state = self.node.process_state.value
+        analysis_exit_code = self.get_analysis_exit_code()
+        if analysis_exit_code is not None:
+            return 'ROOT', analysis_exit_code.label, exit_code
+
         return (
             'ROOT',
-            self.node.process_state.value,
-            self.node.exit_code if self.node.is_finished else None,
+            process_state,
+            exit_code,
         )
 
     def copy_tree(self, destpath: Path) -> Path:
@@ -701,15 +1047,122 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
         if self.node.is_finished_ok:
             return 'ROOT', 'finished_ok', 0
 
-        last_node = self.process_tree.find_last_node()
-        if last_node is not None and not last_node.node.is_finished_ok:
+        frontiers = self.process_tree.find_failure_frontiers()
+        if frontiers:
+            path, failure_tree = frontiers[0]
+            failure_node = failure_tree.node
+            analyser_class = resolve_analyser(failure_node)
+            if analyser_class is not None and issubclass(analyser_class, BaseCalculationAnalyser):
+                _, process_state, parsed_exit_code = analyser_class(failure_node).get_state()
+                return (
+                    path,
+                    process_state,
+                    parsed_exit_code,
+                )
+
             return (
-                last_node.name,
-                last_node.node.process_state.value,
-                last_node.node.exit_code if last_node.node.is_finished else None,
+                path,
+                getattr(getattr(failure_node, 'process_state', None), 'value', 'unknown_status'),
+                failure_node.exit_code if getattr(failure_node, 'is_finished', False) else None,
             )
-            
-        return 'ROOT', 'unknown_status', None
+
+        node_state = getattr(getattr(self.node, 'process_state', None), 'value', 'unknown_status')
+        return 'ROOT', node_state, None
+
+    def get_failure_frontiers(self) -> list[tuple[str, ProcessTree]]:
+        """Return every terminal failed branch below this analyser's root.
+
+        ``get_state`` preserves its legacy single-result API and selects the
+        first frontier in call order. Consumers handling parallel branches
+        should use this method instead of assuming a unique root cause.
+        """
+        return self.process_tree.find_failure_frontiers()
+
+    @staticmethod
+    def _make_failure_report_node(
+        process_tree: ProcessTree,
+        path: str,
+        parent: FailureReportNode | None = None,
+    ) -> FailureReportNode:
+        """Build one report node while retaining the persisted AiiDA exit data."""
+        node = process_tree.node
+        exit_code = getattr(node, 'exit_code', None)
+        raw_exit_status = getattr(exit_code, 'status', exit_code)
+        if not isinstance(raw_exit_status, int):
+            raw_exit_status = None
+        raw_exit_message = getattr(exit_code, 'message', None) or getattr(node, 'exit_message', None)
+        process_state = getattr(getattr(node, 'process_state', None), 'value', 'unknown_status')
+        return FailureReportNode(
+            path=path,
+            process_label=getattr(node, 'process_label', node.__class__.__name__),
+            pk=getattr(node, 'pk', None),
+            process_state=str(process_state),
+            raw_exit_status=raw_exit_status,
+            raw_exit_message=raw_exit_message,
+            parent=parent,
+        )
+
+    @staticmethod
+    def _diagnose_failure_leaf(
+        report_node: FailureReportNode,
+        process_tree: ProcessTree,
+        include_outputs: bool,
+    ) -> None:
+        """Attach a calculation-only diagnosis without changing the AiiDA node."""
+        analyser_class = resolve_analyser(process_tree.node)
+        if not isinstance(analyser_class, type) or not issubclass(analyser_class, BaseCalculationAnalyser):
+            return
+
+        analyser = analyser_class(process_tree.node)
+        report_node.analysis_exit_code = analyser.get_analysis_exit_code()
+        if include_outputs:
+            report_node.outputs = analyser.get_failure_outputs()
+
+    def get_failure_report(self, include_outputs: bool = False) -> FailureReport:
+        """Return all failed branches as a nested, analyser-side exception tree.
+
+        The report keeps the original AiiDA exit-code values in
+        raw_exit_status and raw_exit_message. Any analysis_exit_code is
+        diagnostic metadata generated locally by this package only.
+        """
+        root_tree = self.process_tree
+        root = self._make_failure_report_node(root_tree, 'ROOT')
+        report_nodes = {'ROOT': root}
+        frontiers = []
+
+        for frontier_path, _frontier_tree in self.get_failure_frontiers():
+            labels = frontier_path.split('/')
+            current_tree = root_tree
+            current_report = root
+            current_path = 'ROOT'
+
+            for label in labels[1:]:
+                current_tree = current_tree.children[label]
+                current_path = f'{current_path}/{label}'
+                child_report = report_nodes.get(current_path)
+                if child_report is None:
+                    child_report = self._make_failure_report_node(
+                        current_tree,
+                        current_path,
+                        parent=current_report,
+                    )
+                    current_report.children.append(child_report)
+                    report_nodes[current_path] = child_report
+                current_report = child_report
+
+            self._diagnose_failure_leaf(current_report, current_tree, include_outputs)
+            frontiers.append(current_report)
+
+
+        if not frontiers and ProcessTree._is_failed(root_tree.node):
+            self._diagnose_failure_leaf(root, root_tree, include_outputs)
+            frontiers.append(root)
+
+        return FailureReport(root=root, frontiers=frontiers)
+
+    def get_state_tree(self, include_outputs: bool = False) -> FailureReport:
+        """Alias for :meth:`get_failure_report` for state-inspection callers."""
+        return self.get_failure_report(include_outputs=include_outputs)
 
     def print_state(self, print_output=False, print_stdout=False, print_stderr=False):
         """
@@ -728,9 +1181,9 @@ class BaseWorkChainAnalyser(WorkChainAnalyser):
 
         # If exit_code is an integer and non-zero, try to get detailed output
         if isinstance(normalized_exit_code, int) and normalized_exit_code != 0:
-            result = ProcessTree.traverse_and_check(node=self.process_tree, current_path='')
+            result = self.get_failure_frontiers()
             if result:
-                path, node = result
+                path, node = result[0]
                 if print_output:
                     try:
                         if 'aiida.out' in node.node.get_retrieve_list():

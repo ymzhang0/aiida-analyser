@@ -500,6 +500,129 @@ class EpwPrepGroup(EpwDegaussKQGroup):
         """The prep workflow stores interpolated bands in ``epw_bands``."""
         return EpwPrepAnalyser(node).epw_bands
 
+    def analyse_failures(self, include_outputs: bool = False, include_unfinished: bool = False):
+        """Return one exception-tree summary row for every failed EPW prep node.
+
+        The result is a dataframe keyed by the convergence parameters already
+        held by this group. Each row retains the full ``FailureReport`` in
+        ``failure_report``; the remaining columns are convenient fields for
+        filtering, counting, or exporting a group-wide failure summary.
+
+        Set ``include_outputs=True`` only when the leaf calculation output is
+        needed in the dataframe. Set ``include_unfinished=True`` to also list
+        running or waiting nodes, which do not yet have an exception tree.
+        """
+        import pandas as pd
+
+        columns = [
+            'PK',
+            'Material',
+            'degauss',
+            'kpoints_distance',
+            'qpoints_distance',
+            'workchain_state',
+            'workchain_exit_status',
+            'failure_path',
+            'failure_process_label',
+            'failure_pk',
+            'raw_exit_status',
+            'raw_exit_message',
+            'analysis_exit_status',
+            'analysis_exit_label',
+            'analysis_exit_message',
+            'analysis_evidence',
+            'frontier_count',
+            'outputs',
+            'failure_report',
+            'analysis_error',
+        ]
+        rows = []
+
+        for material, degauss, kpoints_distance, qpoints_distance, node in self._flat_nodes:
+            is_finished_ok = getattr(node, 'is_finished_ok', False)
+            is_terminal_failure = (
+                not is_finished_ok
+                and (
+                    getattr(node, 'is_finished', False)
+                    or getattr(node, 'is_failed', False)
+                    or getattr(node, 'is_excepted', False)
+                    or getattr(node, 'is_killed', False)
+                )
+            )
+            if not include_unfinished and not is_terminal_failure:
+                continue
+
+            exit_code = getattr(node, 'exit_code', None)
+            exit_status = getattr(exit_code, 'status', exit_code)
+            if not isinstance(exit_status, int):
+                exit_status = getattr(node, 'exit_status', None)
+            row = {
+                'PK': getattr(node, 'pk', None),
+                'Material': material,
+                'degauss': degauss,
+                'kpoints_distance': kpoints_distance,
+                'qpoints_distance': qpoints_distance,
+                'workchain_state': getattr(getattr(node, 'process_state', None), 'value', None),
+                'workchain_exit_status': exit_status,
+                'failure_path': None,
+                'failure_process_label': None,
+                'failure_pk': None,
+                'raw_exit_status': None,
+                'raw_exit_message': None,
+                'analysis_exit_status': None,
+                'analysis_exit_label': None,
+                'analysis_exit_message': None,
+                'analysis_evidence': None,
+                'frontier_count': 0,
+                'outputs': None,
+                'failure_report': None,
+                'analysis_error': None,
+            }
+
+            try:
+                report = self.analyser_class(node).get_failure_report(
+                    include_outputs=include_outputs
+                )
+                primary = report.primary
+                row['failure_report'] = report
+                row['frontier_count'] = len(report.frontiers)
+                if primary is not None:
+                    diagnostic = primary.analysis_exit_code
+                    row.update({
+                        'failure_path': primary.path,
+                        'failure_process_label': primary.process_label,
+                        'failure_pk': primary.pk,
+                        'raw_exit_status': primary.raw_exit_status,
+                        'raw_exit_message': primary.raw_exit_message,
+                        'analysis_exit_status': (
+                            diagnostic.status if diagnostic is not None else None
+                        ),
+                        'analysis_exit_label': (
+                            diagnostic.label if diagnostic is not None else None
+                        ),
+                        'analysis_exit_message': (
+                            diagnostic.message if diagnostic is not None else None
+                        ),
+                        'analysis_evidence': (
+                            diagnostic.evidence if diagnostic is not None else None
+                        ),
+                        'outputs': primary.outputs if include_outputs else None,
+                    })
+            except Exception as exception:
+                row['analysis_error'] = str(exception)
+
+            rows.append(row)
+
+        return pd.DataFrame(rows, columns=columns)
+
+    def get_failure_table(self, include_outputs: bool = False, include_unfinished: bool = False):
+        """Alias for :meth:`analyse_failures` for table-oriented workflows."""
+        return self.analyse_failures(
+            include_outputs=include_outputs,
+            include_unfinished=include_unfinished,
+        )
+
+
     @styled_plot
     def check_structure(self, mode='celldm', quantity='celldm1', formula=None,
                         ax=None, degauss_values=None, kpoints_distances=None,

@@ -4,7 +4,7 @@ import numpy
 
 
 # MathText-compatible rendering of ``$\\Delta_{\\mathbf{k}}$~\\si{\\per\\angstrom}``.
-KPOINT_DISTANCE_LABEL = r'$\Delta_{\mathbf{k}}\,\mathrm{\AA}^{-1}$'
+KPOINT_DISTANCE_LABEL = r'$\Delta_{\mathbf{k}}(\mathrm{\AA}^{-1})$'
 
 
 def configure_kpoint_distance_axis(axis, *, xlim=None, xticks=None, xlabel=None, cubic_scale=True):

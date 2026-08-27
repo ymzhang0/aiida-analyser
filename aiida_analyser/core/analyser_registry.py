@@ -156,6 +156,7 @@ _register(
 _register('aiida_analyser.epw.epw_calculation:EpwAnalyser', process_labels=('EpwCalculation',))
 _register('aiida_analyser.epw.epw_base:EpwBaseAnalyser', process_labels=('EpwBaseWorkChain',))
 _register('aiida_analyser.epw.epw_prep:EpwPrepAnalyser', process_labels=('EpwPrepWorkChain',))
+_register('aiida_analyser.deprecated.epw:EpwAnalyser', process_labels=('EpwWorkChain',))
 _register('aiida_analyser.epw.supercon:SuperConAnalyser', process_labels=('SuperConWorkChain',))
 _register(
     'aiida_analyser.wannier.wannier90_calculation:Wannier90CalculationAnalyser',

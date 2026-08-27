@@ -58,14 +58,32 @@ class PwRelaxGroup(DegaussKGroup):
     def plot_structure_convergence(self, quantity='celldm1', formula=None, ax=None,
                                    degauss_values=None, kpoints_distances=None,
                                    marker='o', legend=True, xlim=None, xticks=None,
-                                   xlabel=None, cubic_scale=True, **plot_kwargs):
+                                   xlabel=None, ylabel=None, cubic_scale=True, with_ylabel=True,
+                                   with_title=True, with_grid=True, offset=None,
+                                   relative=False, **plot_kwargs):
         """Plot a relaxed cell parameter against k-point distance and degauss.
 
         Each curve represents one degauss. ``quantity`` accepts celldm1--6
         (or a, b, c, alpha, beta, gamma), mapped to output_structure cell
         lengths and angles. Returns ``(ax, {degauss: {distance: value}})``.
+
+        ``offset`` selects a shared reference using a dictionary with
+        ``degauss`` and ``kpoints_distance`` keys. Without it, absolute values
+        are plotted. Set ``relative=True`` to show percentage relative errors
+        instead of absolute differences from that reference.
         """
         import matplotlib.pyplot as plt
+
+        if relative and offset is None:
+            raise ValueError('relative=True requires an offset reference.')
+        if offset is not None:
+            if not isinstance(offset, dict):
+                raise TypeError('offset must be a dictionary or None.')
+            missing = {'degauss', 'kpoints_distance'} - offset.keys()
+            if missing:
+                raise ValueError(
+                    f'offset is missing required keys: {sorted(missing)!r}.'
+                )
 
         quantities = {
             'celldm1': ('cell_lengths', 0, r'$a$ ($\AA$)'),
@@ -83,7 +101,7 @@ class PwRelaxGroup(DegaussKGroup):
         if quantity_key not in quantities:
             raise ValueError("quantity must be one of 'celldm1' through 'celldm6' "
                              "(or 'a', 'b', 'c', 'alpha', 'beta', 'gamma').")
-        attribute, index, ylabel = quantities[quantity_key]
+        attribute, index, _ylabel = quantities[quantity_key]
 
         formulas = list(self._nested_data)
         if formula is None:
@@ -120,18 +138,77 @@ class PwRelaxGroup(DegaussKGroup):
             if points:
                 values[degauss] = dict(sorted(points.items(), reverse=True))
 
+        reference = None
+        if offset is not None:
+            def matching_key(mapping, requested):
+                for key in mapping:
+                    if key == requested:
+                        return key
+                    try:
+                        if abs(float(key) - float(requested)) <= 1e-10:
+                            return key
+                    except (TypeError, ValueError):
+                        continue
+                return None
+
+            reference_degauss = matching_key(values, offset['degauss'])
+            if reference_degauss is None:
+                raise ValueError(
+                    f"Reference degauss={offset['degauss']!r} is unavailable; "
+                    f'available degauss values: {list(values)!r}.'
+                )
+            reference_points = values[reference_degauss]
+            reference_distance = matching_key(
+                reference_points, offset['kpoints_distance']
+            )
+            if reference_distance is None:
+                raise ValueError(
+                    f"Reference kpoints_distance={offset['kpoints_distance']!r} "
+                    f'is unavailable for degauss={reference_degauss!r}; '
+                    f'available distances: {list(reference_points)!r}.'
+                )
+            reference = reference_points[reference_distance]
+            if relative and reference == 0:
+                raise ValueError(
+                    'Cannot calculate relative error from a zero reference.'
+                )
+
         if ax is None:
             _, ax = plt.subplots(figsize=figure_size())
         for degauss in sorted(values, key=lambda value: str(value)):
             points = values[degauss]
-            ax.plot(list(points), list(points.values()), marker=marker,
+            plotted_values = list(points.values())
+            if reference is not None:
+                plotted_values = [value - reference for value in plotted_values]
+                if relative:
+                    plotted_values = [
+                        100 * value / reference for value in plotted_values
+                    ]
+            ax.plot(list(points), plotted_values, marker=marker,
                     label=rf'$\sigma$ = {degauss} Ry', **plot_kwargs)
         configure_kpoint_distance_axis(
             ax, xlim=xlim, xticks=xticks, xlabel=xlabel, cubic_scale=cubic_scale,
         )
-        ax.set_ylabel(ylabel)
-        ax.set_title(f'{formula}: {quantity_key} convergence')
-        ax.grid(True, alpha=0.3)
-        if legend and values:
-            ax.legend(title='degauss')
+
+        if with_ylabel:
+            if ylabel is None:
+                if relative:
+                    ax.set_ylabel(f'Relative error in {quantity_key} (%)')
+                elif reference is not None:
+                    ax.set_ylabel(rf'$\Delta$ {_ylabel}')
+                else:
+                    ax.set_ylabel(_ylabel)
+            else:
+                ax.set_ylabel(ylabel)
+
+        if reference is not None:
+            ax.ticklabel_format(
+                axis='y', style='sci', scilimits=(0, 0), useMathText=True,
+            )
+
+        if with_title:
+            ax.set_title(f'{formula}: {quantity_key} convergence')
+        if with_grid:
+            ax.grid(True, alpha=0.3)
+
         return ax, values

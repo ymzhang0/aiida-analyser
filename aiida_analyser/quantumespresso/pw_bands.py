@@ -75,17 +75,7 @@ class PwBandsGroup(DegaussKGroup):
     process_label = 'PwBandsWorkChain'
     keep_duplicate_nodes = True
     kpoint_extra_keys = ('kpoints_distance_scf', 'kpoints_distance')
-    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'with_soc', 'status')
-
-    @staticmethod
-    def _node_and_soc(candidate):
-        """Read SOC from a current node or the legacy ``(node, soc)`` tuple."""
-        if isinstance(candidate, tuple):
-            return candidate
-        try:
-            return candidate, candidate.base.extras.all.get('with_soc', False)
-        except (AttributeError, KeyError):
-            return candidate, False
+    dataframe_columns = ('Material', 'degauss', 'kpoints_distance', 'with_soc', 'with_hubbard_u', 'status')
 
     def _flatten_data(self):
         flattened_list = []
@@ -95,14 +85,15 @@ class PwBandsGroup(DegaussKGroup):
         for formula, degausses in self._nested_data.items():
             for degauss, k_dists in degausses.items():
                 for k_dist, nodes in k_dists.items():
-                    for candidate in nodes:
-                        node, with_soc = self._node_and_soc(candidate)
+                    for node in nodes:
+                        extras = node.base.extras.all
                         flattened_list.append({
                             'PK': node.pk,
                             'Material': formula,
                             'degauss': degauss,
                             'kpoints_distance': k_dist,
-                            'with_soc': with_soc,
+                            'with_soc': extras.get('with_soc', False),
+                            'with_hubbard_u': extras.get('with_hubbard_u', False),
                             'status': self.get_status_string(node),
                             'node': node,
                         })
@@ -118,21 +109,18 @@ class PwBandsGroup(DegaussKGroup):
         return set(values)
 
     @staticmethod
-    def _soc_label(with_soc):
-        """Return a concise display label for the SOC setting."""
-        if with_soc is True or with_soc == 'with SOC':
-            return 'with SOC'
-        if with_soc is False or with_soc == 'without SOC':
-            return 'without SOC'
-        return 'SOC unknown'
+    def _setting_label(setting, name):
+        """Return a concise display label for a boolean calculation setting."""
+        return f'with {name}' if setting else f'without {name}'
 
     def _iter_band_comparisons(self, *, formula=None, degausses=None,
-                               kpoints_distances=None, with_soc=None):
+                               kpoints_distances=None, with_soc=None, with_hubbard_u=None):
         """Yield one latest successful band node per parameter combination."""
         formulas = self._selection(formula)
         allowed_degauss = self._selection(degausses)
         allowed_kpoints = self._selection(kpoints_distances)
         allowed_soc = self._selection(with_soc)
+        allowed_hubbard_u = self._selection(with_hubbard_u)
 
         for material in sorted(self._nested_data, key=str):
             if formulas is not None and material not in formulas:
@@ -143,31 +131,33 @@ class PwBandsGroup(DegaussKGroup):
                 for kpoints_distance in sorted(self._nested_data[material][degauss], key=str):
                     if allowed_kpoints is not None and kpoints_distance not in allowed_kpoints:
                         continue
-                    nodes_by_soc = {}
-                    for candidate in self._nested_data[material][degauss][kpoints_distance]:
-                        node, soc_setting = self._node_and_soc(candidate)
+                    nodes_by_settings = {}
+                    for node in self._nested_data[material][degauss][kpoints_distance]:
                         if not getattr(node, 'is_finished_ok', False):
                             continue
-                        # Groups constructed with the previous table schema
-                        # used ``'unknown'`` for a missing SOC extra.  Keep
-                        # those in-memory objects usable as non-SOC data.
-                        if soc_setting == 'unknown':
-                            soc_setting = False
+                        extras = node.base.extras.all
+                        soc_setting = extras.get('with_soc', False)
+                        hubbard_u_setting = extras.get('with_hubbard_u', False)
                         if allowed_soc is not None and soc_setting not in allowed_soc:
                             continue
-                        previous = nodes_by_soc.get(soc_setting)
+                        if allowed_hubbard_u is not None and hubbard_u_setting not in allowed_hubbard_u:
+                            continue
+                        settings = (soc_setting, hubbard_u_setting)
+                        previous = nodes_by_settings.get(settings)
                         if previous is None or getattr(node, 'pk', -1) > getattr(previous, 'pk', -1):
-                            nodes_by_soc[soc_setting] = node
-                    for soc_setting, node in sorted(nodes_by_soc.items(), key=lambda item: str(item[0])):
-                        yield material, degauss, kpoints_distance, soc_setting, node
+                            nodes_by_settings[settings] = node
+                    for (soc_setting, hubbard_u_setting), node in sorted(
+                        nodes_by_settings.items(), key=lambda item: str(item[0])
+                    ):
+                        yield material, degauss, kpoints_distance, soc_setting, hubbard_u_setting, node
 
     def plot_bands(self, axs=None, formula=None, kpoints_distances=None,
-                   degausses=None, with_soc=None, destpath=None, **kwargs):
+                   degausses=None, with_soc=None, with_hubbard_u=None, destpath=None, **kwargs):
         """Compare finished bands for selected degauss and k-point distances.
 
         Every material is drawn on a separate axis.  Each line set corresponds
-        to one ``(degauss, kpoints_distance, with_soc)`` combination; if the
-        group contains reruns with identical settings, only the highest-PK
+        to one ``(degauss, kpoints_distance, with_soc, with_hubbard_u)``
+        combination; if the group contains reruns with identical settings, only the highest-PK
         finished node is shown.
         """
         import matplotlib.pyplot as plt
@@ -185,6 +175,7 @@ class PwBandsGroup(DegaussKGroup):
             degausses=degausses,
             kpoints_distances=kpoints_distances,
             with_soc=with_soc,
+            with_hubbard_u=with_hubbard_u,
         ))
         structures = sorted({material for material, *_ in comparisons}, key=str)
 
@@ -207,15 +198,20 @@ class PwBandsGroup(DegaussKGroup):
 
         for axis, material in zip(flat_axes, structures):
             material_comparisons = comparisons_by_material[material]
-            for colour_index, (_, degauss, kpoints_distance, soc_setting, node) in enumerate(material_comparisons):
-                soc_label = self._soc_label(soc_setting)
+            for colour_index, (_, degauss, kpoints_distance, soc_setting,
+                               hubbard_u_setting, node) in enumerate(material_comparisons):
+                soc_label = self._setting_label(soc_setting, 'SOC')
+                hubbard_u_label = self._setting_label(hubbard_u_setting, 'Hubbard U')
                 logger.info(
-                    'Plotting node<%s> for %s: degauss=%s, kpoints_distance=%s, %s',
-                    node.pk, material, degauss, kpoints_distance, soc_label,
+                    'Plotting node<%s> for %s: degauss=%s, kpoints_distance=%s, %s, %s',
+                    node.pk, material, degauss, kpoints_distance, soc_label, hubbard_u_label,
                 )
                 PwBandsAnalyser(node).plot_bands(
                     axis=axis,
-                    label=rf'$\sigma$={degauss} Ry, $|k|$={kpoints_distance} $\AA^{{-1}}$, {soc_label}',
+                    label=(
+                        rf'$\sigma$={degauss} Ry, $|k|$={kpoints_distance} '
+                        rf'$\AA^{{-1}}$, {soc_label}, {hubbard_u_label}'
+                    ),
                     color=colour_cycle[colour_index % len(colour_cycle)],
                     linestyle='-',
                     lw=linewidth,

@@ -1,11 +1,14 @@
 """Visualisation helpers for analyser results."""
 from .convergence import KPOINT_DISTANCE_LABEL, configure_kpoint_distance_axis
 from .style import (
+    DEFAULT_DOS_FIGURE_HEIGHT,
+    DEFAULT_DOS_PANEL_WIDTH,
     DEFAULT_FIGURE_HEIGHT,
     DEFAULT_FIGURE_WIDTH,
     DEFAULT_FONT_SIZE,
     DEFAULT_PANEL_WIDTH,
     STYLE_RESOURCE,
+    dos_figure_size,
     figure_size,
     plot_style,
     styled_plot,
@@ -25,9 +28,12 @@ from .plots import (
     plot_epw_interpolated_bands,
     plot_iso_gap_function,
     plot_phdos,
+    plot_pw_w90_comparison,
 )
 
 __all__ = [
+    'DEFAULT_DOS_FIGURE_HEIGHT',
+    'DEFAULT_DOS_PANEL_WIDTH',
     'KPOINT_DISTANCE_LABEL',
     'configure_kpoint_distance_axis',
     'DEFAULT_FIGURE_HEIGHT',
@@ -49,6 +55,8 @@ __all__ = [
     'plot_epw_interpolated_bands',
     'plot_iso_gap_function',
     'plot_phdos',
+    'plot_pw_w90_comparison',
+    'dos_figure_size',
     'figure_size',
     'plot_style',
     'styled_plot',

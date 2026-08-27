@@ -13,6 +13,7 @@ _EXTRA_MODULES = {
 }
 
 _EXPORTS = {
+    'archive_context': ('core.archive', 'archive_context', None),
     'NestedDict': ('core.dict', 'NestedDict', None),
     'move_stashed_folder': ('data', 'move_stashed_folder', None),
     'dislocation': ('dislocation', None, 'dislocation'),
@@ -21,7 +22,17 @@ _EXPORTS = {
     'epw': ('epw', None, 'epw'),
     'Printer': ('core.printer', 'Printer', None),
     'ProcessTree': ('core.base', 'ProcessTree', None),
+    'create_archive_profile': ('core.archive', 'create_archive_profile', None),
+    'count_groups': ('core.groups', 'count_groups', None),
+    'count_nodes': ('core.groups', 'count_nodes', None),
+    'get_and_count_types': ('core.groups', 'get_and_count_types', None),
     'BaseWorkChainAnalyser': ('core.base', 'BaseWorkChainAnalyser', None),
+    'CompareOptions': ('core.compare', 'CompareOptions', None),
+    'DiffEntry': ('core.compare', 'DiffEntry', None),
+    'NodeDiff': ('core.compare', 'NodeDiff', None),
+    'NodeReference': ('core.compare', 'NodeReference', None),
+    'compare': ('core.compare', 'compare', None),
+    'compare_nodes': ('core.compare', 'compare_nodes', None),
     'PwBaseAnalyser': ('quantumespresso.pw_base', 'PwBaseAnalyser', 'quantumespresso'),
     'PwAnalyser': ('quantumespresso.pw_calculation', 'PwAnalyser', 'quantumespresso'),
     'DosAnalyser': ('quantumespresso.dos_calculation', 'DosAnalyser', 'quantumespresso'),
